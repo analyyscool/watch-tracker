@@ -73,9 +73,9 @@
     {
       "id": "shangri-la-frontier",
       "title": "Shangri-La Frontier",
-      "currentSeason": 2,
+      "currentSeason": 1,
       "seasonEpisode": 11,
-      "currentEpisode": 36,
+      "currentEpisode": 11,
       "totalEpisodes": 50,
       "totalSeasons": 2,
       "posterUrl": ""
@@ -86,8 +86,8 @@
       "currentSeason": 1,
       "seasonEpisode": 3,
       "currentEpisode": 3,
-      "totalEpisodes": 25,
-      "totalSeasons": 1,
+      "totalEpisodes": 66,
+      "totalSeasons": 4,
       "posterUrl": ""
     },
     {
