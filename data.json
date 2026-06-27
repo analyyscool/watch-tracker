@@ -83,11 +83,11 @@
     {
       "id": "rezero",
       "title": "Re:ZERO",
-      "currentSeason": 3,
+      "currentSeason": 1,
       "seasonEpisode": 3,
-      "currentEpisode": 54,
-      "totalEpisodes": 64,
-      "totalSeasons": 3,
+      "currentEpisode": 3,
+      "totalEpisodes": 25,
+      "totalSeasons": 1,
       "posterUrl": ""
     },
     {
@@ -96,18 +96,18 @@
       "currentSeason": 2,
       "seasonEpisode": 3,
       "currentEpisode": 28,
-      "totalEpisodes": 37,
-      "totalSeasons": 2,
+      "totalEpisodes": 49,
+      "totalSeasons": 3,
       "posterUrl": ""
     },
     {
       "id": "apothecary-diaries",
       "title": "The Apothecary Diaries",
-      "currentSeason": 2,
+      "currentSeason": 1,
       "seasonEpisode": 6,
-      "currentEpisode": 30,
-      "totalEpisodes": 48,
-      "totalSeasons": 2,
+      "currentEpisode": 6,
+      "totalEpisodes": 24,
+      "totalSeasons": 1,
       "posterUrl": ""
     },
     {
