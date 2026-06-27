@@ -1,0 +1,29 @@
+[
+  {
+    "id": "attack-on-titan",
+    "title": "Attack on Titan",
+    "totalEpisodes": 87,
+    "currentEpisode": 34,
+    "currentSeason": 2,
+    "totalSeasons": 4,
+    "posterUrl": ""
+  },
+  {
+    "id": "blue-lock",
+    "title": "Blue Lock",
+    "totalEpisodes": 24,
+    "currentEpisode": 10,
+    "currentSeason": 1,
+    "totalSeasons": 1,
+    "posterUrl": ""
+  },
+  {
+    "id": "severance",
+    "title": "Severance",
+    "totalEpisodes": 19,
+    "currentEpisode": 7,
+    "currentSeason": 2,
+    "totalSeasons": 2,
+    "posterUrl": ""
+  }
+]
