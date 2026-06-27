@@ -36,7 +36,7 @@
       "currentSeason": 4,
       "seasonEpisode": 5,
       "currentEpisode": 44,
-      "totalEpisodes": 52,
+      "totalEpisodes": 55,
       "totalSeasons": 4,
       "posterUrl": ""
     },
@@ -46,8 +46,8 @@
       "currentSeason": 2,
       "seasonEpisode": 4,
       "currentEpisode": 16,
-      "totalEpisodes": 27,
-      "totalSeasons": 2,
+      "totalEpisodes": 42,
+      "totalSeasons": 3,
       "posterUrl": ""
     },
     {
@@ -56,7 +56,7 @@
       "currentSeason": 1,
       "seasonEpisode": 6,
       "currentEpisode": 6,
-      "totalEpisodes": 12,
+      "totalEpisodes": 13,
       "totalSeasons": 1,
       "posterUrl": ""
     },
@@ -66,8 +66,8 @@
       "currentSeason": 2,
       "seasonEpisode": 6,
       "currentEpisode": 30,
-      "totalEpisodes": 48,
-      "totalSeasons": 2,
+      "totalEpisodes": 72,
+      "totalSeasons": 3,
       "posterUrl": ""
     },
     {
@@ -96,7 +96,7 @@
       "currentSeason": 2,
       "seasonEpisode": 3,
       "currentEpisode": 28,
-      "totalEpisodes": 49,
+      "totalEpisodes": 50,
       "totalSeasons": 3,
       "posterUrl": ""
     },
