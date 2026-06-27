@@ -1,29 +1,154 @@
-[
-  {
-    "id": "attack-on-titan",
-    "title": "Attack on Titan",
-    "totalEpisodes": 87,
-    "currentEpisode": 34,
-    "currentSeason": 2,
-    "totalSeasons": 4,
-    "posterUrl": ""
-  },
-  {
-    "id": "blue-lock",
-    "title": "Blue Lock",
-    "totalEpisodes": 24,
-    "currentEpisode": 10,
-    "currentSeason": 1,
-    "totalSeasons": 1,
-    "posterUrl": ""
-  },
-  {
-    "id": "severance",
-    "title": "Severance",
-    "totalEpisodes": 19,
-    "currentEpisode": 7,
-    "currentSeason": 2,
-    "totalSeasons": 2,
-    "posterUrl": ""
-  }
-]
+{
+  "watching": [
+    {
+      "id": "hells-paradise",
+      "title": "Hell's Paradise",
+      "currentSeason": 2,
+      "seasonEpisode": 5,
+      "currentEpisode": 18,
+      "totalEpisodes": 26,
+      "totalSeasons": 2,
+      "posterUrl": ""
+    },
+    {
+      "id": "samurai-champloo",
+      "title": "Samurai Champloo",
+      "currentSeason": 1,
+      "seasonEpisode": 9,
+      "currentEpisode": 9,
+      "totalEpisodes": 26,
+      "totalSeasons": 1,
+      "posterUrl": ""
+    },
+    {
+      "id": "nge",
+      "title": "Neon Genesis Evangelion",
+      "currentSeason": 1,
+      "seasonEpisode": 4,
+      "currentEpisode": 4,
+      "totalEpisodes": 26,
+      "totalSeasons": 1,
+      "posterUrl": ""
+    },
+    {
+      "id": "cote",
+      "title": "Classroom of the Elite",
+      "currentSeason": 4,
+      "seasonEpisode": 5,
+      "currentEpisode": 44,
+      "totalEpisodes": 52,
+      "totalSeasons": 4,
+      "posterUrl": ""
+    },
+    {
+      "id": "record-of-ragnarok",
+      "title": "Record of Ragnarok",
+      "currentSeason": 2,
+      "seasonEpisode": 4,
+      "currentEpisode": 16,
+      "totalEpisodes": 27,
+      "totalSeasons": 2,
+      "posterUrl": ""
+    },
+    {
+      "id": "witch-hat-atelier",
+      "title": "Witch Hat Atelier",
+      "currentSeason": 1,
+      "seasonEpisode": 6,
+      "currentEpisode": 6,
+      "totalEpisodes": 12,
+      "totalSeasons": 1,
+      "posterUrl": ""
+    },
+    {
+      "id": "fire-force",
+      "title": "Fire Force",
+      "currentSeason": 2,
+      "seasonEpisode": 6,
+      "currentEpisode": 30,
+      "totalEpisodes": 48,
+      "totalSeasons": 2,
+      "posterUrl": ""
+    },
+    {
+      "id": "shangri-la-frontier",
+      "title": "Shangri-La Frontier",
+      "currentSeason": 2,
+      "seasonEpisode": 11,
+      "currentEpisode": 36,
+      "totalEpisodes": 50,
+      "totalSeasons": 2,
+      "posterUrl": ""
+    },
+    {
+      "id": "rezero",
+      "title": "Re:ZERO",
+      "currentSeason": 3,
+      "seasonEpisode": 3,
+      "currentEpisode": 54,
+      "totalEpisodes": 64,
+      "totalSeasons": 3,
+      "posterUrl": ""
+    },
+    {
+      "id": "spy-x-family",
+      "title": "SPY x FAMILY",
+      "currentSeason": 2,
+      "seasonEpisode": 3,
+      "currentEpisode": 28,
+      "totalEpisodes": 37,
+      "totalSeasons": 2,
+      "posterUrl": ""
+    },
+    {
+      "id": "apothecary-diaries",
+      "title": "The Apothecary Diaries",
+      "currentSeason": 2,
+      "seasonEpisode": 6,
+      "currentEpisode": 30,
+      "totalEpisodes": 48,
+      "totalSeasons": 2,
+      "posterUrl": ""
+    },
+    {
+      "id": "mr-robot",
+      "title": "Mr. Robot",
+      "currentSeason": 2,
+      "seasonEpisode": 3,
+      "currentEpisode": 13,
+      "totalEpisodes": 45,
+      "totalSeasons": 4,
+      "posterUrl": ""
+    },
+    {
+      "id": "kaiji",
+      "title": "Kaiji",
+      "currentSeason": 1,
+      "seasonEpisode": 10,
+      "currentEpisode": 10,
+      "totalEpisodes": 26,
+      "totalSeasons": 2,
+      "posterUrl": ""
+    }
+  ],
+  "watchlist": [
+    { "id": "fmab", "title": "Fullmetal Alchemist: Brotherhood" },
+    { "id": "link-click", "title": "Link Click" },
+    { "id": "kingdom", "title": "Kingdom" },
+    { "id": "logh", "title": "Legend of the Galactic Heroes" },
+    { "id": "monster", "title": "Monster" },
+    { "id": "golden-kamuy", "title": "Golden Kamuy" },
+    { "id": "orb", "title": "Orb: On the Movements of the Earth" },
+    { "id": "nippon-sangoku", "title": "Nippon Sangoku" },
+    { "id": "ranking-of-kings", "title": "Ranking of Kings" },
+    { "id": "gachiakuta", "title": "Gachiakuta" },
+    { "id": "dororo", "title": "Dororo" },
+    { "id": "fate-zero", "title": "Fate/Zero" },
+    { "id": "banana-fish", "title": "Banana Fish" },
+    { "id": "psycho-pass", "title": "Psycho-Pass" },
+    { "id": "rakugo", "title": "Showa Genroku Rakugo Shinju" },
+    { "id": "sentenced-hero", "title": "Sentenced to Be a Hero" },
+    { "id": "vampire-hunter-d", "title": "Vampire Hunter D" },
+    { "id": "march-lion", "title": "March Comes in Like a Lion" }
+  ]
+}

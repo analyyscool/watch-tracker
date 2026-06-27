@@ -175,6 +175,53 @@
     text-transform: uppercase;
   }
 
+  /* ── Watchlist ── */
+  .section-divider {
+    margin-top: 3.5rem;
+    margin-bottom: 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .section-divider span {
+    font-size: 0.65rem;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+
+  .section-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  #watchlist {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .watchlist-tag {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.68rem;
+    letter-spacing: 0.05em;
+    padding: 0.35rem 0.8rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--muted);
+    background: var(--surface);
+    transition: border-color 0.15s, color 0.15s;
+  }
+
+  .watchlist-tag:hover {
+    border-color: var(--border2);
+    color: var(--text);
+  }
+
   /* ── Modal ── */
   .modal-backdrop {
     display: none;
@@ -230,6 +277,9 @@
 
   <div id="grid"></div>
   <div id="empty"><p>No shows in progress — tell Claude to add one.</p></div>
+
+  <div class="section-divider"><span>watchlist</span></div>
+  <div id="watchlist"></div>
 </div>
 
 <!-- Add Show modal (informational only) -->
@@ -251,34 +301,47 @@
 <script>
   async function loadShows() {
     const res = await fetch('data.json?t=' + Date.now());
-    const shows = await res.json();
+    const data = await res.json();
+    const watching = data.watching ?? data;
+    const watchlist = data.watchlist ?? [];
+
     const grid = document.getElementById('grid');
     const empty = document.getElementById('empty');
+    const watchlistEl = document.getElementById('watchlist');
 
     grid.innerHTML = '';
+    watchlistEl.innerHTML = '';
 
-    if (shows.length === 0) {
+    if (watching.length === 0) {
       empty.style.display = 'block';
-      return;
+    } else {
+      empty.style.display = 'none';
+      watching.forEach(show => {
+        const pct = Math.round((show.currentEpisode / show.totalEpisodes) * 100);
+        const epLabel = show.totalSeasons > 1
+          ? `Season ${show.currentSeason} &middot; Episode ${show.seasonEpisode}`
+          : `Episode ${show.seasonEpisode}`;
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.innerHTML = `
+          <div class="card-title">${show.title}</div>
+          <div class="card-meta">${epLabel}</div>
+          <div class="progress-wrap">
+            <div class="progress-bar">
+              <div class="progress-fill" style="width:${pct}%"></div>
+            </div>
+            <span class="progress-label">${pct}%</span>
+          </div>
+        `;
+        grid.appendChild(card);
+      });
     }
 
-    empty.style.display = 'none';
-
-    shows.forEach(show => {
-      const pct = Math.round((show.currentEpisode / show.totalEpisodes) * 100);
-      const card = document.createElement('div');
-      card.className = 'card';
-      card.innerHTML = `
-        <div class="card-title">${show.title}</div>
-        <div class="card-meta">Season ${show.currentSeason} &middot; Episode ${show.currentEpisode}</div>
-        <div class="progress-wrap">
-          <div class="progress-bar">
-            <div class="progress-fill" style="width:${pct}%"></div>
-          </div>
-          <span class="progress-label">${pct}%</span>
-        </div>
-      `;
-      grid.appendChild(card);
+    watchlist.forEach(item => {
+      const tag = document.createElement('div');
+      tag.className = 'watchlist-tag';
+      tag.textContent = item.title;
+      watchlistEl.appendChild(tag);
     });
   }
 
