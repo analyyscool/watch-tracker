@@ -90,6 +90,19 @@
     background-clip: text;
   }
 
+  .header-count {
+    font-size: 0.62rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-top: 0.45rem;
+  }
+
+  .header-count strong {
+    color: var(--accent);
+    font-weight: 500;
+  }
+
   .header-actions {
     display: flex;
     justify-content: center;
@@ -251,6 +264,8 @@
 
   /* ── Watchlist ── */
   #watchlist { display: flex; flex-direction: column; }
+  #completed { display: flex; flex-direction: column; gap: 0.625rem; }
+  .card-pct.done { color: var(--muted); }
 
   .watchlist-item {
     display: flex;
@@ -352,6 +367,7 @@
   <header>
     <p class="header-eyebrow">in progress</p>
     <h1>Currently Watching</h1>
+    <p class="header-count" id="show-count"></p>
     <div class="header-actions">
       <button class="btn btn-primary" id="btn-add">+ Add Show</button>
       <button class="btn" id="btn-reload">↺ Reload</button>
@@ -364,6 +380,9 @@
 
   <div class="section-divider"><span>watchlist</span></div>
   <div id="watchlist"></div>
+
+  <div class="section-divider" id="completed-divider" style="display:none"><span>completed</span></div>
+  <div id="completed"></div>
 </div>
 
 <div class="modal-backdrop" id="modal">
@@ -418,6 +437,12 @@
     const grid = document.getElementById('grid');
     const empty = document.getElementById('empty');
     const watchlistEl = document.getElementById('watchlist');
+    const countEl = document.getElementById('show-count');
+
+    const n = watching.length;
+    countEl.innerHTML = n > 0
+      ? `<strong>${n}</strong> show${n === 1 ? '' : 's'} in progress`
+      : '';
 
     grid.innerHTML = '';
     watchlistEl.innerHTML = '';
