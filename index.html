@@ -432,6 +432,8 @@
     const res = await fetch('data.json?t=' + Date.now());
     const data = await res.json();
     const watching = data.watching ?? data;
+    const active = watching.filter(s => s.currentEpisode < s.totalEpisodes);
+    const completed = watching.filter(s => s.currentEpisode >= s.totalEpisodes);
     const watchlist = data.watchlist ?? [];
 
     const grid = document.getElementById('grid');
@@ -439,7 +441,7 @@
     const watchlistEl = document.getElementById('watchlist');
     const countEl = document.getElementById('show-count');
 
-    const n = watching.length;
+    const n = active.length;
     countEl.innerHTML = n > 0
       ? `<strong>${n}</strong> show${n === 1 ? '' : 's'} in progress`
       : '';
@@ -447,11 +449,11 @@
     grid.innerHTML = '';
     watchlistEl.innerHTML = '';
 
-    if (watching.length === 0) {
+    if (active.length === 0) {
       empty.style.display = 'block';
     } else {
       empty.style.display = 'none';
-      watching.forEach(show => {
+      active.forEach(show => {
         const pct = Math.round((show.currentEpisode / show.totalEpisodes) * 100);
         const remaining = show.totalEpisodes - show.currentEpisode;
         const epLabel = show.totalSeasons > 1
@@ -476,6 +478,39 @@
           </div>
         `;
         grid.appendChild(card);
+      });
+    }
+
+    const completedEl = document.getElementById('completed');
+    const completedDivider = document.getElementById('completed-divider');
+    completedEl.innerHTML = '';
+
+    if (completed.length === 0) {
+      completedDivider.style.display = 'none';
+    } else {
+      completedDivider.style.display = '';
+      completed.forEach(show => {
+        const epLabel = show.totalSeasons > 1
+          ? `S${show.currentSeason} · E${show.seasonEpisode}`
+          : `E${show.seasonEpisode}`;
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.innerHTML = `
+          <div class="card-top">
+            <div class="card-title">${show.title}</div>
+            <div class="card-right">
+              <span class="card-meta">${epLabel}</span>
+              <span class="card-pct done">done</span>
+            </div>
+          </div>
+          <div class="card-stats">
+            <span class="stat"><strong>${show.totalEpisodes}</strong> episodes</span>
+          </div>
+          <div class="progress-bar">
+            <div class="progress-fill" style="width:100%; background:var(--muted); box-shadow:none"></div>
+          </div>
+        `;
+        completedEl.appendChild(card);
       });
     }
 
