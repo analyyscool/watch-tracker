@@ -442,6 +442,7 @@
     const countEl = document.getElementById('show-count');
 
     const n = active.length;
+    countEl.style.display = n > 0 ? '' : 'none';
     countEl.innerHTML = n > 0
       ? `<strong>${n}</strong> show${n === 1 ? '' : 's'} in progress`
       : '';
