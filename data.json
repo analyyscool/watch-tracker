@@ -10,8 +10,13 @@
       "totalSeasons": 2,
       "posterUrl": "https://cdn.myanimelist.net/images/anime/1075/131925l.jpg",
       "studio": "MAPPA",
-      "genres": ["Action", "Adventure", "Supernatural"],
-      "lastUpdated": "2026-07-01"
+      "genres": [
+        "Action",
+        "Adventure",
+        "Supernatural"
+      ],
+      "lastUpdated": "2026-07-01",
+      "malScore": 8.08
     },
     {
       "id": "samurai-champloo",
@@ -23,8 +28,13 @@
       "totalSeasons": 1,
       "posterUrl": "https://cdn.myanimelist.net/images/anime/1370/135212l.jpg",
       "studio": "Manglobe",
-      "genres": ["Action", "Adventure", "Comedy"],
-      "lastUpdated": "2026-07-01"
+      "genres": [
+        "Action",
+        "Adventure",
+        "Comedy"
+      ],
+      "lastUpdated": "2026-07-01",
+      "malScore": 8.52
     },
     {
       "id": "nge",
@@ -36,7 +46,13 @@
       "totalSeasons": 1,
       "posterUrl": "https://cdn.myanimelist.net/images/anime/1314/108941l.jpg",
       "studio": "Gainax",
-      "genres": ["Avant Garde", "Award Winning", "Drama", "Sci-Fi", "Suspense"],
+      "genres": [
+        "Avant Garde",
+        "Award Winning",
+        "Drama",
+        "Sci-Fi",
+        "Suspense"
+      ],
       "lastUpdated": "2026-07-01"
     },
     {
@@ -49,8 +65,12 @@
       "totalSeasons": 4,
       "posterUrl": "https://cdn.myanimelist.net/images/anime/5/86830l.jpg",
       "studio": "Lerche",
-      "genres": ["Drama", "Suspense"],
-      "lastUpdated": "2026-07-01"
+      "genres": [
+        "Drama",
+        "Suspense"
+      ],
+      "lastUpdated": "2026-07-01",
+      "malScore": 7.82
     },
     {
       "id": "record-of-ragnarok",
@@ -62,7 +82,11 @@
       "totalSeasons": 3,
       "posterUrl": "https://cdn.myanimelist.net/images/anime/1456/115123l.jpg",
       "studio": "Graphinica",
-      "genres": ["Action", "Drama", "Fantasy"],
+      "genres": [
+        "Action",
+        "Drama",
+        "Fantasy"
+      ],
       "lastUpdated": "2026-07-01"
     },
     {
@@ -75,8 +99,11 @@
       "totalSeasons": 1,
       "posterUrl": "https://cdn.myanimelist.net/images/anime/1726/155542l.jpg",
       "studio": "BUG FILMS",
-      "genres": ["Fantasy"],
-      "lastUpdated": "2026-07-01"
+      "genres": [
+        "Fantasy"
+      ],
+      "lastUpdated": "2026-07-01",
+      "malScore": 8.57
     },
     {
       "id": "fire-force",
@@ -88,7 +115,11 @@
       "totalSeasons": 3,
       "posterUrl": "https://cdn.myanimelist.net/images/anime/1664/103275l.jpg",
       "studio": "David Production",
-      "genres": ["Action", "Fantasy", "Sci-Fi"],
+      "genres": [
+        "Action",
+        "Fantasy",
+        "Sci-Fi"
+      ],
       "lastUpdated": "2026-07-01"
     },
     {
@@ -101,7 +132,11 @@
       "totalSeasons": 2,
       "posterUrl": "https://cdn.myanimelist.net/images/anime/1500/139931l.jpg",
       "studio": "C2C",
-      "genres": ["Action", "Adventure", "Fantasy"],
+      "genres": [
+        "Action",
+        "Adventure",
+        "Fantasy"
+      ],
       "lastUpdated": "2026-07-01"
     },
     {
@@ -114,7 +149,11 @@
       "totalSeasons": 4,
       "posterUrl": "https://cdn.myanimelist.net/images/anime/1522/128039l.jpg",
       "studio": "White Fox",
-      "genres": ["Drama", "Fantasy", "Suspense"],
+      "genres": [
+        "Drama",
+        "Fantasy",
+        "Suspense"
+      ],
       "lastUpdated": "2026-07-01"
     },
     {
@@ -127,7 +166,11 @@
       "totalSeasons": 3,
       "posterUrl": "https://cdn.myanimelist.net/images/anime/1441/122795l.jpg",
       "studio": "Wit Studio",
-      "genres": ["Action", "Award Winning", "Comedy"],
+      "genres": [
+        "Action",
+        "Award Winning",
+        "Comedy"
+      ],
       "lastUpdated": "2026-07-01"
     },
     {
@@ -140,7 +183,10 @@
       "totalSeasons": 2,
       "posterUrl": "https://cdn.myanimelist.net/images/anime/1708/138033l.jpg",
       "studio": "OLM",
-      "genres": ["Drama", "Mystery"],
+      "genres": [
+        "Drama",
+        "Mystery"
+      ],
       "lastUpdated": "2026-07-01"
     },
     {
@@ -153,7 +199,10 @@
       "totalSeasons": 4,
       "posterUrl": "https://media.themoviedb.org/t/p/w300_and_h450_face/kv1nRqgebSsREnd7vdC2pSGjpLo.jpg",
       "studio": "USA Network",
-      "genres": ["Crime", "Drama"],
+      "genres": [
+        "Crime",
+        "Drama"
+      ],
       "lastUpdated": "2026-07-01"
     },
     {
@@ -166,102 +215,518 @@
       "totalSeasons": 2,
       "posterUrl": "https://cdn.myanimelist.net/images/anime/12/80032l.jpg",
       "studio": "Madhouse",
-      "genres": ["Suspense"],
+      "genres": [
+        "Suspense"
+      ],
       "lastUpdated": "2026-07-01"
     }
   ],
   "watchlist": [
-    { "id": "fmab", "title": "Fullmetal Alchemist: Brotherhood" },
-    { "id": "link-click", "title": "Link Click" },
-    { "id": "kingdom", "title": "Kingdom" },
-    { "id": "logh", "title": "Legend of the Galactic Heroes" },
-    { "id": "monster", "title": "Monster" },
-    { "id": "golden-kamuy", "title": "Golden Kamuy" },
-    { "id": "orb", "title": "Orb: On the Movements of the Earth" },
-    { "id": "nippon-sangoku", "title": "Nippon Sangoku" },
-    { "id": "ranking-of-kings", "title": "Ranking of Kings" },
-    { "id": "gachiakuta", "title": "Gachiakuta" },
-    { "id": "dororo", "title": "Dororo" },
-    { "id": "fate-zero", "title": "Fate/Zero" },
-    { "id": "banana-fish", "title": "Banana Fish" },
-    { "id": "psycho-pass", "title": "Psycho-Pass" },
-    { "id": "rakugo", "title": "Showa Genroku Rakugo Shinju" },
-    { "id": "sentenced-hero", "title": "Sentenced to Be a Hero" },
-    { "id": "vampire-hunter-d", "title": "Vampire Hunter D" },
-    { "id": "march-lion", "title": "March Comes in Like a Lion" }
+    {
+      "id": "fmab",
+      "title": "Fullmetal Alchemist: Brotherhood"
+    },
+    {
+      "id": "link-click",
+      "title": "Link Click"
+    },
+    {
+      "id": "kingdom",
+      "title": "Kingdom"
+    },
+    {
+      "id": "logh",
+      "title": "Legend of the Galactic Heroes"
+    },
+    {
+      "id": "monster",
+      "title": "Monster"
+    },
+    {
+      "id": "golden-kamuy",
+      "title": "Golden Kamuy"
+    },
+    {
+      "id": "orb",
+      "title": "Orb: On the Movements of the Earth"
+    },
+    {
+      "id": "nippon-sangoku",
+      "title": "Nippon Sangoku"
+    },
+    {
+      "id": "ranking-of-kings",
+      "title": "Ranking of Kings"
+    },
+    {
+      "id": "gachiakuta",
+      "title": "Gachiakuta"
+    },
+    {
+      "id": "dororo",
+      "title": "Dororo"
+    },
+    {
+      "id": "fate-zero",
+      "title": "Fate/Zero"
+    },
+    {
+      "id": "banana-fish",
+      "title": "Banana Fish"
+    },
+    {
+      "id": "psycho-pass",
+      "title": "Psycho-Pass"
+    },
+    {
+      "id": "rakugo",
+      "title": "Showa Genroku Rakugo Shinju"
+    },
+    {
+      "id": "sentenced-hero",
+      "title": "Sentenced to Be a Hero"
+    },
+    {
+      "id": "vampire-hunter-d",
+      "title": "Vampire Hunter D"
+    },
+    {
+      "id": "march-lion",
+      "title": "March Comes in Like a Lion"
+    }
   ],
   "watched": [
-    { "id": "attack-on-titan", "title": "Attack on Titan", "posterUrl": "https://cdn.myanimelist.net/images/anime/10/47347l.jpg" },
-    { "id": "vinland-saga", "title": "Vinland Saga", "posterUrl": "https://cdn.myanimelist.net/images/anime/1500/103005l.jpg" },
-    { "id": "cowboy-bebop", "title": "Cowboy Bebop", "posterUrl": "https://cdn.myanimelist.net/images/anime/4/19644l.jpg" },
-    { "id": "steins-gate", "title": "Steins;Gate", "posterUrl": "https://cdn.myanimelist.net/images/anime/1935/127974l.jpg" },
-    { "id": "demon-slayer", "title": "Demon Slayer: Kimetsu no Yaiba", "posterUrl": "https://cdn.myanimelist.net/images/anime/1286/99889l.jpg" },
-    { "id": "avatar-last-airbender", "title": "Avatar: The Last Airbender", "posterUrl": "https://media.themoviedb.org/t/p/w300_and_h450_face/yaGt4GIutpbXHsv48tWceWg6s56.jpg" },
-    { "id": "cyberpunk-edgerunners", "title": "Cyberpunk: Edgerunners", "posterUrl": "https://cdn.myanimelist.net/images/anime/1818/126435l.jpg" },
-    { "id": "jujutsu-kaisen", "title": "Jujutsu Kaisen", "posterUrl": "https://cdn.myanimelist.net/images/anime/1171/109222l.jpg" },
-    { "id": "mob-psycho-100", "title": "Mob Psycho 100", "posterUrl": "https://cdn.myanimelist.net/images/anime/8/80356l.jpg" },
-    { "id": "frieren", "title": "Frieren: Beyond Journey's End", "posterUrl": "https://cdn.myanimelist.net/images/anime/1015/138006l.jpg" },
-    { "id": "eighty-six", "title": "86", "posterUrl": "https://cdn.myanimelist.net/images/anime/1987/117507l.jpg" },
-    { "id": "oregairu-snafu", "title": "My Teen Romantic Comedy SNAFU", "posterUrl": "https://cdn.myanimelist.net/images/anime/1786/120117l.jpg" },
-    { "id": "hunter-x-hunter-2011", "title": "Hunter × Hunter (2011)", "posterUrl": "https://cdn.myanimelist.net/images/anime/1337/99013l.jpg" },
-    { "id": "haikyuu-dumpster-battle", "title": "Haikyu!! The Dumpster Battle", "posterUrl": "https://cdn.myanimelist.net/images/anime/1665/140360l.jpg" },
-    { "id": "code-geass-resurrection", "title": "Code Geass: Lelouch of the Re;Surrection", "posterUrl": "https://cdn.myanimelist.net/images/anime/1274/113436l.jpg" },
-    { "id": "cheat-skill-another-world", "title": "I Got a Cheat Skill in Another World and Became Unrivaled in the Real World, Too", "posterUrl": "https://cdn.myanimelist.net/images/anime/1316/134327l.jpg" },
-    { "id": "chainsaw-man", "title": "Chainsaw Man", "posterUrl": "https://cdn.myanimelist.net/images/anime/1806/126216l.jpg" },
-    { "id": "your-name", "title": "Your Name.", "posterUrl": "https://cdn.myanimelist.net/images/anime/5/87048l.jpg" },
-    { "id": "haikyuu", "title": "Haikyuu!!", "posterUrl": "https://cdn.myanimelist.net/images/anime/7/76014l.jpg" },
-    { "id": "solo-leveling", "title": "Solo Leveling", "posterUrl": "https://cdn.myanimelist.net/images/anime/1801/142390l.jpg" },
-    { "id": "one-punch-man", "title": "One Punch Man", "posterUrl": "https://cdn.myanimelist.net/images/anime/12/76049l.jpg" },
-    { "id": "berserk-1997", "title": "Berserk (1997)", "posterUrl": "https://cdn.myanimelist.net/images/anime/1384/119988l.jpg" },
-    { "id": "trigun", "title": "Trigun", "posterUrl": "https://cdn.myanimelist.net/images/anime/1130/120002l.jpg" },
-    { "id": "death-note", "title": "Death Note", "posterUrl": "https://cdn.myanimelist.net/images/anime/1079/138100l.jpg" },
-    { "id": "code-geass-rebellion", "title": "Code Geass: Lelouch of the Rebellion", "posterUrl": "https://cdn.myanimelist.net/images/anime/1032/135088l.jpg" },
-    { "id": "jojo-bizarre-adventure", "title": "JoJo's Bizarre Adventure", "posterUrl": "https://cdn.myanimelist.net/images/anime/3/40409l.jpg" },
-    { "id": "blue-lock", "title": "Blue Lock", "posterUrl": "https://cdn.myanimelist.net/images/anime/1258/126929l.jpg" },
-    { "id": "one-piece", "title": "One Piece", "posterUrl": "https://cdn.myanimelist.net/images/anime/1244/138851l.jpg" },
-    { "id": "tokyo-ghoul", "title": "Tokyo Ghoul", "posterUrl": "https://cdn.myanimelist.net/images/anime/1498/134443l.jpg" },
-    { "id": "bleach", "title": "Bleach", "posterUrl": "https://cdn.myanimelist.net/images/anime/1541/147774l.jpg" },
-    { "id": "bleach-tybw", "title": "Bleach: Thousand-Year Blood War", "posterUrl": "https://cdn.myanimelist.net/images/anime/1908/135431l.jpg" },
-    { "id": "lazarus", "title": "Lazarus", "posterUrl": "https://cdn.myanimelist.net/images/anime/1098/150300l.jpg" },
-    { "id": "made-in-abyss", "title": "Made in Abyss", "posterUrl": "https://cdn.myanimelist.net/images/anime/6/86733l.jpg" },
-    { "id": "a-silent-voice", "title": "A Silent Voice", "posterUrl": "https://cdn.myanimelist.net/images/anime/1122/96435l.jpg" },
-    { "id": "sakamoto-days", "title": "Sakamoto Days", "posterUrl": "https://cdn.myanimelist.net/images/anime/1026/146459l.jpg" },
-    { "id": "grand-blue", "title": "Grand Blue Dreaming", "posterUrl": "https://cdn.myanimelist.net/images/anime/1302/94882l.jpg" },
-    { "id": "promised-neverland", "title": "The Promised Neverland", "posterUrl": "https://cdn.myanimelist.net/images/anime/1830/118780l.jpg" },
-    { "id": "gurren-lagann", "title": "Gurren Lagann", "posterUrl": "https://cdn.myanimelist.net/images/anime/4/5123l.jpg" },
-    { "id": "made-in-abyss-dawn", "title": "Made in Abyss: Dawn of the Deep Soul", "posterUrl": "https://cdn.myanimelist.net/images/anime/1803/117183l.jpg" },
-    { "id": "takopis-original-sin", "title": "Takopi's Original Sin", "posterUrl": "https://cdn.myanimelist.net/images/anime/1182/149879l.jpg" },
-    { "id": "devilman-crybaby", "title": "Devilman: Crybaby", "posterUrl": "https://cdn.myanimelist.net/images/anime/2/89973l.jpg" },
-    { "id": "the-fable", "title": "The Fable", "posterUrl": "https://cdn.myanimelist.net/images/anime/1254/141155l.jpg" },
-    { "id": "baccano", "title": "Baccano!", "posterUrl": "https://cdn.myanimelist.net/images/anime/3/14547l.jpg" },
-    { "id": "pluto", "title": "Pluto", "posterUrl": "https://cdn.myanimelist.net/images/anime/1021/138568l.jpg" },
-    { "id": "flcl", "title": "FLCL", "posterUrl": "https://cdn.myanimelist.net/images/anime/7/77356l.jpg" },
-    { "id": "to-be-hero-x", "title": "To Be Hero X", "posterUrl": "https://cdn.myanimelist.net/images/anime/1492/150628l.jpg" },
-    { "id": "fragrant-flower-dignity", "title": "The Fragrant Flower Blooms with Dignity", "posterUrl": "https://cdn.myanimelist.net/images/anime/1744/150433l.jpg" },
-    { "id": "dandadan", "title": "Dandadan", "posterUrl": "https://cdn.myanimelist.net/images/anime/1584/143719l.jpg" },
-    { "id": "kaiju-no-8", "title": "Kaiju No. 8", "posterUrl": "https://cdn.myanimelist.net/images/anime/1370/140362l.jpg" },
-    { "id": "demon-slayer-infinity-castle", "title": "Demon Slayer: Infinity Castle", "posterUrl": "https://cdn.myanimelist.net/images/anime/1681/148216l.jpg" },
-    { "id": "odd-taxi", "title": "Odd Taxi", "posterUrl": "https://cdn.myanimelist.net/images/anime/1981/113348l.jpg" },
-    { "id": "suzume", "title": "Suzume", "posterUrl": "https://cdn.myanimelist.net/images/anime/1598/128450l.jpg" },
-    { "id": "my-hero-academia", "title": "My Hero Academia", "posterUrl": "https://cdn.myanimelist.net/images/anime/10/78745l.jpg" },
-    { "id": "kurokos-basketball", "title": "Kuroko's Basketball", "posterUrl": "https://cdn.myanimelist.net/images/anime/11/50453l.jpg" },
-    { "id": "kurokos-basketball-last-game", "title": "Kuroko's Basketball: Last Game", "posterUrl": "https://cdn.myanimelist.net/images/anime/2/83106l.jpg" },
-    { "id": "zom-100", "title": "Zom 100: Bucket List of the Dead", "posterUrl": "https://cdn.myanimelist.net/images/anime/1384/136408l.jpg" },
-    { "id": "cote", "title": "Classroom of the Elite", "posterUrl": "https://cdn.myanimelist.net/images/anime/5/86830l.jpg" },
-    { "id": "chainsaw-man-reze-arc", "title": "Chainsaw Man – The Movie: Reze Arc", "posterUrl": "https://cdn.myanimelist.net/images/anime/1763/150638l.jpg" },
-    { "id": "hyakuemu-100-meters", "title": "100 Meters", "posterUrl": "https://cdn.myanimelist.net/images/anime/1259/151080l.jpg" },
-    { "id": "mushoku-tensei", "title": "Mushoku Tensei: Jobless Reincarnation", "posterUrl": "https://cdn.myanimelist.net/images/anime/1530/117776l.jpg" },
-    { "id": "hells-paradise", "title": "Hell's Paradise", "posterUrl": "https://cdn.myanimelist.net/images/anime/1075/131925l.jpg" },
-    { "id": "parasyte-the-maxim", "title": "Parasyte: The Maxim", "posterUrl": "https://cdn.myanimelist.net/images/anime/3/73178l.jpg" },
-    { "id": "jujutsu-kaisen-0", "title": "Jujutsu Kaisen 0", "posterUrl": "https://cdn.myanimelist.net/images/anime/1121/119044l.jpg" },
-    { "id": "great-pretender", "title": "Great Pretender", "posterUrl": "https://cdn.myanimelist.net/images/anime/1418/107954l.jpg" },
-    { "id": "redline", "title": "Redline", "posterUrl": "https://cdn.myanimelist.net/images/anime/12/28553l.jpg" },
-    { "id": "naruto-shippuden", "title": "Naruto: Shippuden", "posterUrl": "https://cdn.myanimelist.net/images/anime/1565/111305l.jpg" },
-    { "id": "naruto", "title": "Naruto", "posterUrl": "https://cdn.myanimelist.net/images/anime/1141/142503l.jpg" },
-    { "id": "summer-time-rendering", "title": "Summer Time Rendering", "posterUrl": "https://cdn.myanimelist.net/images/anime/1120/120796l.jpg" },
-    { "id": "golden-boy", "title": "Golden Boy", "posterUrl": "https://cdn.myanimelist.net/images/anime/3/62867l.jpg" },
-    { "id": "ghost-in-the-shell-1995", "title": "Ghost in the Shell (1995)", "posterUrl": "https://cdn.myanimelist.net/images/anime/10/82594l.jpg" },
-    { "id": "witch-hat-atelier", "title": "Witch Hat Atelier", "posterUrl": "https://cdn.myanimelist.net/images/anime/1726/155542l.jpg" },
-    { "id": "samurai-champloo", "title": "Samurai Champloo", "posterUrl": "https://cdn.myanimelist.net/images/anime/1370/135212l.jpg" }
+    {
+      "id": "attack-on-titan",
+      "title": "Attack on Titan",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/10/47347l.jpg",
+      "malScore": 8.57
+    },
+    {
+      "id": "vinland-saga",
+      "title": "Vinland Saga",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1500/103005l.jpg",
+      "malScore": 8.78
+    },
+    {
+      "id": "cowboy-bebop",
+      "title": "Cowboy Bebop",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/4/19644l.jpg",
+      "malScore": 8.75
+    },
+    {
+      "id": "steins-gate",
+      "title": "Steins;Gate",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1935/127974l.jpg",
+      "malScore": 9.07
+    },
+    {
+      "id": "demon-slayer",
+      "title": "Demon Slayer: Kimetsu no Yaiba",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1286/99889l.jpg",
+      "malScore": 8.4
+    },
+    {
+      "id": "avatar-last-airbender",
+      "title": "Avatar: The Last Airbender",
+      "posterUrl": "https://media.themoviedb.org/t/p/w300_and_h450_face/yaGt4GIutpbXHsv48tWceWg6s56.jpg",
+      "malScore": null
+    },
+    {
+      "id": "cyberpunk-edgerunners",
+      "title": "Cyberpunk: Edgerunners",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1818/126435l.jpg",
+      "malScore": 8.62
+    },
+    {
+      "id": "jujutsu-kaisen",
+      "title": "Jujutsu Kaisen",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1171/109222l.jpg",
+      "malScore": 8.5
+    },
+    {
+      "id": "mob-psycho-100",
+      "title": "Mob Psycho 100",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/8/80356l.jpg",
+      "malScore": 8.49
+    },
+    {
+      "id": "frieren",
+      "title": "Frieren: Beyond Journey's End",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1015/138006l.jpg",
+      "malScore": 9.26
+    },
+    {
+      "id": "eighty-six",
+      "title": "86",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1987/117507l.jpg",
+      "malScore": 8.35
+    },
+    {
+      "id": "oregairu-snafu",
+      "title": "My Teen Romantic Comedy SNAFU",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1786/120117l.jpg",
+      "malScore": 8
+    },
+    {
+      "id": "hunter-x-hunter-2011",
+      "title": "Hunter × Hunter (2011)",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1337/99013l.jpg",
+      "malScore": 9.03
+    },
+    {
+      "id": "haikyuu-dumpster-battle",
+      "title": "Haikyu!! The Dumpster Battle",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1665/140360l.jpg",
+      "malScore": 8.62
+    },
+    {
+      "id": "code-geass-resurrection",
+      "title": "Code Geass: Lelouch of the Re;Surrection",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1274/113436l.jpg",
+      "malScore": 7.91
+    },
+    {
+      "id": "cheat-skill-another-world",
+      "title": "I Got a Cheat Skill in Another World and Became Unrivaled in the Real World, Too",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1316/134327l.jpg",
+      "malScore": 6.33
+    },
+    {
+      "id": "chainsaw-man",
+      "title": "Chainsaw Man",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1806/126216l.jpg",
+      "malScore": 8.42
+    },
+    {
+      "id": "your-name",
+      "title": "Your Name.",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/5/87048l.jpg",
+      "malScore": 8.82
+    },
+    {
+      "id": "haikyuu",
+      "title": "Haikyuu!!",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/7/76014l.jpg",
+      "malScore": 8.43
+    },
+    {
+      "id": "solo-leveling",
+      "title": "Solo Leveling",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1801/142390l.jpg",
+      "malScore": 8.15
+    },
+    {
+      "id": "one-punch-man",
+      "title": "One Punch Man",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/12/76049l.jpg",
+      "malScore": 8.47
+    },
+    {
+      "id": "berserk-1997",
+      "title": "Berserk (1997)",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1384/119988l.jpg",
+      "malScore": 8.61
+    },
+    {
+      "id": "trigun",
+      "title": "Trigun",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1130/120002l.jpg",
+      "malScore": 8.22
+    },
+    {
+      "id": "death-note",
+      "title": "Death Note",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1079/138100l.jpg",
+      "malScore": 8.62
+    },
+    {
+      "id": "code-geass-rebellion",
+      "title": "Code Geass: Lelouch of the Rebellion",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1032/135088l.jpg",
+      "malScore": 8.71
+    },
+    {
+      "id": "jojo-bizarre-adventure",
+      "title": "JoJo's Bizarre Adventure",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/3/40409l.jpg",
+      "malScore": 7.87
+    },
+    {
+      "id": "blue-lock",
+      "title": "Blue Lock",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1258/126929l.jpg",
+      "malScore": 8.1
+    },
+    {
+      "id": "one-piece",
+      "title": "One Piece",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1244/138851l.jpg",
+      "malScore": 8.73
+    },
+    {
+      "id": "tokyo-ghoul",
+      "title": "Tokyo Ghoul",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1498/134443l.jpg",
+      "malScore": 7.79
+    },
+    {
+      "id": "bleach",
+      "title": "Bleach",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1541/147774l.jpg",
+      "malScore": 8
+    },
+    {
+      "id": "bleach-tybw",
+      "title": "Bleach: Thousand-Year Blood War",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1908/135431l.jpg",
+      "malScore": 8.98
+    },
+    {
+      "id": "lazarus",
+      "title": "Lazarus",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1098/150300l.jpg",
+      "malScore": 7.19
+    },
+    {
+      "id": "made-in-abyss",
+      "title": "Made in Abyss",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/6/86733l.jpg",
+      "malScore": 8.62
+    },
+    {
+      "id": "a-silent-voice",
+      "title": "A Silent Voice",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1122/96435l.jpg",
+      "malScore": 8.93
+    },
+    {
+      "id": "sakamoto-days",
+      "title": "Sakamoto Days",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1026/146459l.jpg",
+      "malScore": 7.59
+    },
+    {
+      "id": "grand-blue",
+      "title": "Grand Blue Dreaming",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1302/94882l.jpg",
+      "malScore": 8.45
+    },
+    {
+      "id": "promised-neverland",
+      "title": "The Promised Neverland",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1830/118780l.jpg",
+      "malScore": 8.47
+    },
+    {
+      "id": "gurren-lagann",
+      "title": "Gurren Lagann",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/4/5123l.jpg",
+      "malScore": 8.64
+    },
+    {
+      "id": "made-in-abyss-dawn",
+      "title": "Made in Abyss: Dawn of the Deep Soul",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1803/117183l.jpg",
+      "malScore": 8.6
+    },
+    {
+      "id": "takopis-original-sin",
+      "title": "Takopi's Original Sin",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1182/149879l.jpg",
+      "malScore": 8.75
+    },
+    {
+      "id": "devilman-crybaby",
+      "title": "Devilman: Crybaby",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/2/89973l.jpg",
+      "malScore": 7.74
+    },
+    {
+      "id": "the-fable",
+      "title": "The Fable",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1254/141155l.jpg",
+      "malScore": 8.15
+    },
+    {
+      "id": "baccano",
+      "title": "Baccano!",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/3/14547l.jpg",
+      "malScore": 8.34
+    },
+    {
+      "id": "pluto",
+      "title": "Pluto",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1021/138568l.jpg",
+      "malScore": 8.44
+    },
+    {
+      "id": "flcl",
+      "title": "FLCL",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/7/77356l.jpg",
+      "malScore": 8.04
+    },
+    {
+      "id": "to-be-hero-x",
+      "title": "To Be Hero X",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1492/150628l.jpg",
+      "malScore": 8.67
+    },
+    {
+      "id": "fragrant-flower-dignity",
+      "title": "The Fragrant Flower Blooms with Dignity",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1744/150433l.jpg",
+      "malScore": 8.49
+    },
+    {
+      "id": "dandadan",
+      "title": "Dandadan",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1584/143719l.jpg",
+      "malScore": 8.4
+    },
+    {
+      "id": "kaiju-no-8",
+      "title": "Kaiju No. 8",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1370/140362l.jpg",
+      "malScore": 8.2
+    },
+    {
+      "id": "demon-slayer-infinity-castle",
+      "title": "Demon Slayer: Infinity Castle",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1681/148216l.jpg",
+      "malScore": 8.66
+    },
+    {
+      "id": "odd-taxi",
+      "title": "Odd Taxi",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1981/113348l.jpg",
+      "malScore": 8.63
+    },
+    {
+      "id": "suzume",
+      "title": "Suzume",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1598/128450l.jpg",
+      "malScore": 8.24
+    },
+    {
+      "id": "my-hero-academia",
+      "title": "My Hero Academia",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/10/78745l.jpg",
+      "malScore": 7.82
+    },
+    {
+      "id": "kurokos-basketball",
+      "title": "Kuroko's Basketball",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/11/50453l.jpg",
+      "malScore": 8.04
+    },
+    {
+      "id": "kurokos-basketball-last-game",
+      "title": "Kuroko's Basketball: Last Game",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/2/83106l.jpg",
+      "malScore": 8.08
+    },
+    {
+      "id": "zom-100",
+      "title": "Zom 100: Bucket List of the Dead",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1384/136408l.jpg",
+      "malScore": 7.7
+    },
+    {
+      "id": "cote",
+      "title": "Classroom of the Elite",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/5/86830l.jpg",
+      "malScore": 7.82
+    },
+    {
+      "id": "chainsaw-man-reze-arc",
+      "title": "Chainsaw Man – The Movie: Reze Arc",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1763/150638l.jpg",
+      "malScore": 9.06
+    },
+    {
+      "id": "hyakuemu-100-meters",
+      "title": "100 Meters",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1259/151080l.jpg",
+      "malScore": 8.34
+    },
+    {
+      "id": "mushoku-tensei",
+      "title": "Mushoku Tensei: Jobless Reincarnation",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1530/117776l.jpg",
+      "malScore": 8.32
+    },
+    {
+      "id": "hells-paradise",
+      "title": "Hell's Paradise",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1075/131925l.jpg",
+      "malScore": 8.08
+    },
+    {
+      "id": "parasyte-the-maxim",
+      "title": "Parasyte: The Maxim",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/3/73178l.jpg",
+      "malScore": 8.32
+    },
+    {
+      "id": "jujutsu-kaisen-0",
+      "title": "Jujutsu Kaisen 0",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1121/119044l.jpg",
+      "malScore": 8.36
+    },
+    {
+      "id": "great-pretender",
+      "title": "Great Pretender",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1418/107954l.jpg",
+      "malScore": 8.19
+    },
+    {
+      "id": "redline",
+      "title": "Redline",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/12/28553l.jpg",
+      "malScore": 8.29
+    },
+    {
+      "id": "naruto-shippuden",
+      "title": "Naruto: Shippuden",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1565/111305l.jpg",
+      "malScore": 8.29
+    },
+    {
+      "id": "naruto",
+      "title": "Naruto",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1141/142503l.jpg",
+      "malScore": 8.02
+    },
+    {
+      "id": "summer-time-rendering",
+      "title": "Summer Time Rendering",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1120/120796l.jpg",
+      "malScore": 8.46
+    },
+    {
+      "id": "golden-boy",
+      "title": "Golden Boy",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/3/62867l.jpg",
+      "malScore": 8.04
+    },
+    {
+      "id": "ghost-in-the-shell-1995",
+      "title": "Ghost in the Shell (1995)",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/10/82594l.jpg",
+      "malScore": 8.27
+    },
+    {
+      "id": "witch-hat-atelier",
+      "title": "Witch Hat Atelier",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1726/155542l.jpg",
+      "malScore": 8.57
+    },
+    {
+      "id": "samurai-champloo",
+      "title": "Samurai Champloo",
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1370/135212l.jpg",
+      "malScore": 8.52
+    }
   ]
 }
