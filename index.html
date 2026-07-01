@@ -425,6 +425,12 @@
   .mode-toggle { display: flex; gap: 0.5rem; }
   .mode-btn.active { border-color: var(--accent); color: var(--accent); }
 
+  .tierlist-controls-right {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
   .tier-hint {
     font-size: 0.6rem;
     letter-spacing: 0.15em;
@@ -495,6 +501,7 @@
     color: var(--text);
     cursor: grab;
     user-select: none;
+    touch-action: none;
     transition: transform 0.12s, box-shadow 0.12s;
     white-space: nowrap;
     max-width: 220px;
@@ -555,6 +562,8 @@
     border: 1px solid var(--border);
     border-radius: 6px;
     cursor: grab;
+    touch-action: none;
+    user-select: none;
   }
 
   .rank-row.dragging { opacity: 0.3; }
@@ -659,7 +668,10 @@
         <button class="btn mode-btn active" data-mode="tier">Tier List</button>
         <button class="btn mode-btn" data-mode="ranked">Ranked List</button>
       </div>
-      <span class="tier-hint" id="tier-hint">drag shows into tiers</span>
+      <div class="tierlist-controls-right">
+        <span class="tier-hint" id="tier-hint">drag shows into tiers</span>
+        <button class="btn" id="btn-export">Copy Export</button>
+      </div>
     </div>
 
     <div class="tiers" id="tiers">
@@ -975,27 +987,56 @@
     return watchedShowsCache;
   }
 
+  // Pointer Events drive dragging for both mouse and touch — native HTML5
+  // drag-and-drop (dragstart/dragover) has no touch equivalent and silently
+  // does nothing on phones/tablets.
+  let tierPointerId = null;
+
   function createShowChip(show) {
     const el = document.createElement('div');
     el.className = 'show-chip';
-    el.draggable = true;
     el.dataset.id = show.id;
     el.title = show.title;
     el.innerHTML = `${show.posterUrl ? `<img src="${show.posterUrl}" alt="" onerror="this.remove()">` : ''}<span>${show.title}</span>`;
-    el.addEventListener('dragstart', function (e) {
-      tierDraggedEl = this;
-      requestAnimationFrame(() => this.classList.add('dragging'));
-      e.dataTransfer.effectAllowed = 'move';
-      e.dataTransfer.setData('text/plain', show.id);
-    });
-    el.addEventListener('dragend', function () {
-      this.classList.remove('dragging');
-      tierDraggedEl = null;
-      document.querySelectorAll('.drag-over').forEach(z => z.classList.remove('drag-over'));
-      saveTierState();
-      updatePoolCount();
-    });
+    el.addEventListener('pointerdown', onChipPointerDown);
     return el;
+  }
+
+  function onChipPointerDown(e) {
+    if (e.button !== undefined && e.button > 0) return;
+    tierDraggedEl = this;
+    tierPointerId = e.pointerId;
+    this.classList.add('dragging');
+    document.addEventListener('pointermove', onChipPointerMove);
+    document.addEventListener('pointerup', onChipPointerUp);
+    document.addEventListener('pointercancel', onChipPointerUp);
+  }
+
+  function onChipPointerMove(e) {
+    if (!tierDraggedEl || e.pointerId !== tierPointerId) return;
+    e.preventDefault();
+    tierDraggedEl.style.pointerEvents = 'none';
+    const target = document.elementFromPoint(e.clientX, e.clientY);
+    tierDraggedEl.style.pointerEvents = '';
+    const zone = target && target.closest('#view-tierlist .tier-zone');
+    document.querySelectorAll('.drag-over').forEach(z => { if (z !== zone) z.classList.remove('drag-over'); });
+    if (!zone) return;
+    zone.classList.add('drag-over');
+    const after = getChipInsertionPoint(zone, e.clientY, e.clientX);
+    if (after) zone.insertBefore(tierDraggedEl, after);
+    else zone.appendChild(tierDraggedEl);
+  }
+
+  function onChipPointerUp(e) {
+    if (!tierDraggedEl || e.pointerId !== tierPointerId) return;
+    tierDraggedEl.classList.remove('dragging');
+    document.removeEventListener('pointermove', onChipPointerMove);
+    document.removeEventListener('pointerup', onChipPointerUp);
+    document.removeEventListener('pointercancel', onChipPointerUp);
+    document.querySelectorAll('.drag-over').forEach(z => z.classList.remove('drag-over'));
+    tierDraggedEl = null;
+    saveTierState();
+    updatePoolCount();
   }
 
   function getChipInsertionPoint(zone, clientY, clientX) {
@@ -1006,24 +1047,6 @@
       if (clientY < r.bottom && clientX < r.left + r.width * 0.5) return chip;
     }
     return null;
-  }
-
-  function wireTierZone(zone) {
-    zone.addEventListener('dragover', e => {
-      e.preventDefault();
-      if (!tierDraggedEl) return;
-      zone.classList.add('drag-over');
-      const after = getChipInsertionPoint(zone, e.clientY, e.clientX);
-      if (after) zone.insertBefore(tierDraggedEl, after);
-      else zone.appendChild(tierDraggedEl);
-    });
-    zone.addEventListener('dragleave', e => {
-      if (!zone.contains(e.relatedTarget)) zone.classList.remove('drag-over');
-    });
-    zone.addEventListener('drop', e => {
-      e.preventDefault();
-      zone.classList.remove('drag-over');
-    });
   }
 
   function updatePoolCount() {
@@ -1075,50 +1098,59 @@
 
   // ── Ranked List ──
   let rankDraggedEl = null;
+  let rankPointerId = null;
 
   function createRankRow(show, index) {
     const el = document.createElement('div');
     el.className = 'rank-row';
-    el.draggable = true;
     el.dataset.id = show.id;
     el.innerHTML = `
       <span class="rank-num">${index + 1}</span>
       ${show.posterUrl ? `<img src="${show.posterUrl}" alt="" onerror="this.remove()">` : ''}
       <span class="rank-title">${show.title}</span>
     `;
-    el.addEventListener('dragstart', function (e) {
-      rankDraggedEl = this;
-      requestAnimationFrame(() => this.classList.add('dragging'));
-      e.dataTransfer.effectAllowed = 'move';
-      e.dataTransfer.setData('text/plain', show.id);
-    });
-    el.addEventListener('dragend', function () {
-      this.classList.remove('dragging');
-      rankDraggedEl = null;
-      renumberRanks();
-      saveRankOrder();
-    });
+    el.addEventListener('pointerdown', onRankPointerDown);
     return el;
+  }
+
+  function onRankPointerDown(e) {
+    if (e.button !== undefined && e.button > 0) return;
+    rankDraggedEl = this;
+    rankPointerId = e.pointerId;
+    this.classList.add('dragging');
+    document.addEventListener('pointermove', onRankPointerMove);
+    document.addEventListener('pointerup', onRankPointerUp);
+    document.addEventListener('pointercancel', onRankPointerUp);
+  }
+
+  function onRankPointerMove(e) {
+    if (!rankDraggedEl || e.pointerId !== rankPointerId) return;
+    e.preventDefault();
+    const zone = document.getElementById('ranked-zone');
+    const rows = [...zone.querySelectorAll('.rank-row:not(.dragging)')];
+    let after = null;
+    for (const row of rows) {
+      const r = row.getBoundingClientRect();
+      if (e.clientY < r.top + r.height * 0.5) { after = row; break; }
+    }
+    if (after) zone.insertBefore(rankDraggedEl, after);
+    else zone.appendChild(rankDraggedEl);
+  }
+
+  function onRankPointerUp(e) {
+    if (!rankDraggedEl || e.pointerId !== rankPointerId) return;
+    rankDraggedEl.classList.remove('dragging');
+    document.removeEventListener('pointermove', onRankPointerMove);
+    document.removeEventListener('pointerup', onRankPointerUp);
+    document.removeEventListener('pointercancel', onRankPointerUp);
+    rankDraggedEl = null;
+    renumberRanks();
+    saveRankOrder();
   }
 
   function renumberRanks() {
     [...document.querySelectorAll('#ranked-zone .rank-row')].forEach((row, i) => {
       row.querySelector('.rank-num').textContent = i + 1;
-    });
-  }
-
-  function wireRankZone(zone) {
-    zone.addEventListener('dragover', e => {
-      e.preventDefault();
-      if (!rankDraggedEl) return;
-      const rows = [...zone.querySelectorAll('.rank-row:not(.dragging)')];
-      let after = null;
-      for (const row of rows) {
-        const r = row.getBoundingClientRect();
-        if (e.clientY < r.top + r.height * 0.5) { after = row; break; }
-      }
-      if (after) zone.insertBefore(rankDraggedEl, after);
-      else zone.appendChild(rankDraggedEl);
     });
   }
 
@@ -1140,17 +1172,46 @@
     order.forEach((id, i) => zone.appendChild(createRankRow(byId[id], i)));
   }
 
-  let tierlistWired = false;
-
   function initTierlistView() {
-    if (!tierlistWired) {
-      document.querySelectorAll('#view-tierlist .tier-zone').forEach(wireTierZone);
-      wireRankZone(document.getElementById('ranked-zone'));
-      tierlistWired = true;
-    }
     renderTierList();
     renderRankedList();
   }
+
+  // ── Export ──
+  function exportTierList() {
+    const lines = ['TIER LIST', ''];
+    ['s', 'a', 'b', 'c', 'd', 'f'].forEach(tier => {
+      const zone = document.querySelector(`#view-tierlist .tier-zone[data-tier="${tier}"]`);
+      const chips = [...zone.querySelectorAll('.show-chip')];
+      if (!chips.length) return;
+      lines.push(`${tier.toUpperCase()} TIER`);
+      chips.forEach(c => lines.push(`  ${c.title}`));
+      lines.push('');
+    });
+    const untiered = [...document.getElementById('pool-zone').querySelectorAll('.show-chip')];
+    if (untiered.length) {
+      lines.push('UNTIERED');
+      untiered.forEach(c => lines.push(`  ${c.title}`));
+    }
+    navigator.clipboard.writeText(lines.join('\n'))
+      .then(() => showToast('Tier list copied to clipboard'))
+      .catch(() => showToast('Copy failed — try again'));
+  }
+
+  function exportRankedList() {
+    const rows = [...document.querySelectorAll('#ranked-zone .rank-row')];
+    const lines = ['RANKED LIST', ''];
+    rows.forEach((r, i) => lines.push(`${i + 1}. ${r.querySelector('.rank-title').textContent}`));
+    navigator.clipboard.writeText(lines.join('\n'))
+      .then(() => showToast('Ranked list copied to clipboard'))
+      .catch(() => showToast('Copy failed — try again'));
+  }
+
+  document.getElementById('btn-export').addEventListener('click', () => {
+    const mode = document.querySelector('.mode-btn.active').dataset.mode;
+    if (mode === 'tier') exportTierList();
+    else exportRankedList();
+  });
 
   loadShows();
 </script>
