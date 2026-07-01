@@ -1055,6 +1055,45 @@
     updatePoolCount();
   }
 
+  // Auto-scroll the page when a drag nears the top/bottom viewport edge —
+  // shared by both the tier-list chip drag and the ranked-list row drag.
+  // `tickFn` re-runs the caller's reorder logic each animation frame using
+  // its last known pointer position, since scrolling moves elements under
+  // a pointer that may not itself be generating new move events.
+  const AUTOSCROLL_MARGIN = 72;
+  const AUTOSCROLL_MAX_SPEED = 16;
+  let autoScrollDir = 0;
+  let autoScrollRAF = null;
+  let autoScrollTick = null;
+
+  function updateAutoScroll(clientY, tickFn) {
+    const vh = window.innerHeight;
+    autoScrollTick = tickFn;
+    if (clientY < AUTOSCROLL_MARGIN) {
+      autoScrollDir = -(1 - clientY / AUTOSCROLL_MARGIN);
+    } else if (clientY > vh - AUTOSCROLL_MARGIN) {
+      autoScrollDir = (clientY - (vh - AUTOSCROLL_MARGIN)) / AUTOSCROLL_MARGIN;
+    } else {
+      autoScrollDir = 0;
+    }
+    if (autoScrollDir !== 0 && !autoScrollRAF) {
+      const step = () => {
+        if (autoScrollDir === 0) { autoScrollRAF = null; return; }
+        window.scrollBy(0, autoScrollDir * AUTOSCROLL_MAX_SPEED);
+        if (autoScrollTick) autoScrollTick();
+        autoScrollRAF = requestAnimationFrame(step);
+      };
+      autoScrollRAF = requestAnimationFrame(step);
+    }
+  }
+
+  function stopAutoScroll() {
+    if (autoScrollRAF) cancelAnimationFrame(autoScrollRAF);
+    autoScrollRAF = null;
+    autoScrollDir = 0;
+    autoScrollTick = null;
+  }
+
   function onChipPointerDown(e) {
     if (e.button !== undefined && e.button > 0) return;
     tierDraggedEl = this;
@@ -1067,6 +1106,23 @@
     document.addEventListener('pointercancel', onChipPointerUp);
   }
 
+  let tierLastX = 0;
+  let tierLastY = 0;
+
+  function updateChipPosition(clientX, clientY) {
+    if (!tierDraggedEl) return;
+    tierDraggedEl.style.pointerEvents = 'none';
+    const target = document.elementFromPoint(clientX, clientY);
+    tierDraggedEl.style.pointerEvents = '';
+    const zone = target && target.closest('#view-tierlist .tier-zone');
+    document.querySelectorAll('.drag-over').forEach(z => { if (z !== zone) z.classList.remove('drag-over'); });
+    if (!zone) return;
+    zone.classList.add('drag-over');
+    const after = getChipInsertionPoint(zone, clientY, clientX);
+    if (after) zone.insertBefore(tierDraggedEl, after);
+    else zone.appendChild(tierDraggedEl);
+  }
+
   function onChipPointerMove(e) {
     if (!tierDraggedEl || e.pointerId !== tierPointerId) return;
     if (!tierDragStarted) {
@@ -1077,16 +1133,10 @@
       setPickedChip(null);
     }
     e.preventDefault();
-    tierDraggedEl.style.pointerEvents = 'none';
-    const target = document.elementFromPoint(e.clientX, e.clientY);
-    tierDraggedEl.style.pointerEvents = '';
-    const zone = target && target.closest('#view-tierlist .tier-zone');
-    document.querySelectorAll('.drag-over').forEach(z => { if (z !== zone) z.classList.remove('drag-over'); });
-    if (!zone) return;
-    zone.classList.add('drag-over');
-    const after = getChipInsertionPoint(zone, e.clientY, e.clientX);
-    if (after) zone.insertBefore(tierDraggedEl, after);
-    else zone.appendChild(tierDraggedEl);
+    tierLastX = e.clientX;
+    tierLastY = e.clientY;
+    updateChipPosition(e.clientX, e.clientY);
+    updateAutoScroll(e.clientY, () => updateChipPosition(tierLastX, tierLastY));
   }
 
   function onChipPointerUp(e) {
@@ -1097,6 +1147,7 @@
     document.removeEventListener('pointerup', onChipPointerUp);
     document.removeEventListener('pointercancel', onChipPointerUp);
     tierDraggedEl = null;
+    stopAutoScroll();
 
     if (wasDragging) {
       chip.classList.remove('dragging');
@@ -1221,18 +1272,27 @@
     document.addEventListener('pointercancel', onRankPointerUp);
   }
 
-  function onRankPointerMove(e) {
-    if (!rankDraggedEl || e.pointerId !== rankPointerId) return;
-    e.preventDefault();
+  let rankLastY = 0;
+
+  function updateRankPosition(clientY) {
+    if (!rankDraggedEl) return;
     const zone = document.getElementById('ranked-zone');
     const rows = [...zone.querySelectorAll('.rank-row:not(.dragging)')];
     let after = null;
     for (const row of rows) {
       const r = row.getBoundingClientRect();
-      if (e.clientY < r.top + r.height * 0.5) { after = row; break; }
+      if (clientY < r.top + r.height * 0.5) { after = row; break; }
     }
     if (after) zone.insertBefore(rankDraggedEl, after);
     else zone.appendChild(rankDraggedEl);
+  }
+
+  function onRankPointerMove(e) {
+    if (!rankDraggedEl || e.pointerId !== rankPointerId) return;
+    e.preventDefault();
+    rankLastY = e.clientY;
+    updateRankPosition(e.clientY);
+    updateAutoScroll(e.clientY, () => updateRankPosition(rankLastY));
   }
 
   function onRankPointerUp(e) {
@@ -1242,6 +1302,7 @@
     document.removeEventListener('pointerup', onRankPointerUp);
     document.removeEventListener('pointercancel', onRankPointerUp);
     rankDraggedEl = null;
+    stopAutoScroll();
     renumberRanks();
     saveRankOrder();
   }
