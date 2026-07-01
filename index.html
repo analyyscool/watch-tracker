@@ -139,6 +139,7 @@
 
   /* ── Card ── */
   .card {
+    display: flex;
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 8px;
@@ -150,6 +151,21 @@
   .card:hover {
     border-color: var(--border2);
     box-shadow: var(--card-shadow-hv);
+  }
+
+  .card-poster {
+    width: 56px;
+    height: auto;
+    object-fit: cover;
+    flex-shrink: 0;
+    background: var(--surface2);
+  }
+
+  .card-body {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
   }
 
   .card-top {
@@ -465,19 +481,22 @@
         const card = document.createElement('div');
         card.className = 'card';
         card.innerHTML = `
-          <div class="card-top">
-            <div class="card-title">${show.title}</div>
-            <div class="card-right">
-              <span class="card-meta">${epLabel}</span>
-              <span class="card-pct">${pct}%</span>
+          ${show.posterUrl ? `<img class="card-poster" src="${show.posterUrl}" alt="" onerror="this.remove()">` : ''}
+          <div class="card-body">
+            <div class="card-top">
+              <div class="card-title">${show.title}</div>
+              <div class="card-right">
+                <span class="card-meta">${epLabel}</span>
+                <span class="card-pct">${pct}%</span>
+              </div>
             </div>
-          </div>
-          <div class="card-stats">
-            <span class="stat"><strong>${show.currentEpisode}</strong> watched</span>
-            <span class="stat"><strong>${remaining}</strong> left</span>
-          </div>
-          <div class="progress-bar">
-            <div class="progress-fill" style="width:${pct}%"></div>
+            <div class="card-stats">
+              <span class="stat"><strong>${show.currentEpisode}</strong> watched</span>
+              <span class="stat"><strong>${remaining}</strong> left</span>
+            </div>
+            <div class="progress-bar">
+              <div class="progress-fill" style="width:${pct}%"></div>
+            </div>
           </div>
         `;
         grid.appendChild(card);
@@ -499,18 +518,21 @@
         const card = document.createElement('div');
         card.className = 'card';
         card.innerHTML = `
-          <div class="card-top">
-            <div class="card-title">${show.title}</div>
-            <div class="card-right">
-              <span class="card-meta">${epLabel}</span>
-              <span class="card-pct done">done</span>
+          ${show.posterUrl ? `<img class="card-poster" src="${show.posterUrl}" alt="" onerror="this.remove()">` : ''}
+          <div class="card-body">
+            <div class="card-top">
+              <div class="card-title">${show.title}</div>
+              <div class="card-right">
+                <span class="card-meta">${epLabel}</span>
+                <span class="card-pct done">done</span>
+              </div>
             </div>
-          </div>
-          <div class="card-stats">
-            <span class="stat"><strong>${show.totalEpisodes}</strong> episodes</span>
-          </div>
-          <div class="progress-bar">
-            <div class="progress-fill" style="width:100%; background:var(--muted); box-shadow:none"></div>
+            <div class="card-stats">
+              <span class="stat"><strong>${show.totalEpisodes}</strong> episodes</span>
+            </div>
+            <div class="progress-bar">
+              <div class="progress-fill" style="width:100%; background:var(--muted); box-shadow:none"></div>
+            </div>
           </div>
         `;
         completedEl.appendChild(card);
