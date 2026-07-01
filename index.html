@@ -520,6 +520,7 @@
   .show-chip:hover { transform: translateY(-1px); box-shadow: var(--card-shadow-hv); z-index: 2; }
   .show-chip:active { cursor: grabbing; }
   .show-chip.dragging { opacity: 0.3; transform: scale(0.95); }
+  .show-chip.picked { outline: 2px solid var(--accent); background: var(--surface); }
 
   .pool-section { margin-top: 3px; }
 
@@ -590,6 +591,30 @@
     font-size: 0.85rem;
     flex: 1;
   }
+
+  .rank-arrows {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex-shrink: 0;
+  }
+
+  .rank-arrow {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.6rem;
+    line-height: 1;
+    padding: 0.2rem 0.45rem;
+    border: 1px solid var(--border2);
+    border-radius: 3px;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    touch-action: manipulation;
+    transition: all 0.15s;
+  }
+
+  .rank-arrow:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  .rank-arrow:disabled { opacity: 0.3; cursor: default; }
 
   /* ── Modal ── */
   .modal-backdrop {
@@ -669,7 +694,7 @@
         <button class="btn mode-btn" data-mode="ranked">Ranked List</button>
       </div>
       <div class="tierlist-controls-right">
-        <span class="tier-hint" id="tier-hint">drag shows into tiers</span>
+        <span class="tier-hint" id="tier-hint">drag shows into tiers, or tap to pick up and tap a tier to place</span>
         <button class="btn" id="btn-export">Copy Export</button>
       </div>
     </div>
@@ -967,7 +992,10 @@
       document.getElementById('tiers').style.display = mode === 'tier' ? '' : 'none';
       document.getElementById('pool-section').style.display = mode === 'tier' ? '' : 'none';
       document.getElementById('ranked-view').style.display = mode === 'ranked' ? '' : 'none';
-      document.getElementById('tier-hint').textContent = mode === 'tier' ? 'drag shows into tiers' : 'drag to reorder';
+      setPickedChip(null);
+      document.getElementById('tier-hint').textContent = mode === 'tier'
+        ? 'drag shows into tiers, or tap to pick up and tap a tier to place'
+        : 'drag to reorder, or use the arrows';
     });
   });
 
@@ -990,7 +1018,16 @@
   // Pointer Events drive dragging for both mouse and touch — native HTML5
   // drag-and-drop (dragstart/dragover) has no touch equivalent and silently
   // does nothing on phones/tablets.
+  //
+  // A plain tap (movement under DRAG_THRESHOLD) is treated as "pick up /
+  // place" instead of a drag — this is what lets you pick a show and scroll
+  // to a tier that's off-screen, which a held drag can't do.
+  const DRAG_THRESHOLD = 8;
   let tierPointerId = null;
+  let tierStartX = 0;
+  let tierStartY = 0;
+  let tierDragStarted = false;
+  let pickedChip = null;
 
   function createShowChip(show) {
     const el = document.createElement('div');
@@ -1002,11 +1039,29 @@
     return el;
   }
 
+  function setPickedChip(chip) {
+    if (pickedChip) pickedChip.classList.remove('picked');
+    pickedChip = chip;
+    if (pickedChip) pickedChip.classList.add('picked');
+    const hint = document.getElementById('tier-hint');
+    hint.textContent = pickedChip
+      ? `Tap a tier to place "${pickedChip.title}" — tap it again to cancel`
+      : 'drag shows into tiers, or tap to pick up and tap a tier to place';
+  }
+
+  function placeChipInZone(chip, zone) {
+    zone.appendChild(chip);
+    saveTierState();
+    updatePoolCount();
+  }
+
   function onChipPointerDown(e) {
     if (e.button !== undefined && e.button > 0) return;
     tierDraggedEl = this;
     tierPointerId = e.pointerId;
-    this.classList.add('dragging');
+    tierStartX = e.clientX;
+    tierStartY = e.clientY;
+    tierDragStarted = false;
     document.addEventListener('pointermove', onChipPointerMove);
     document.addEventListener('pointerup', onChipPointerUp);
     document.addEventListener('pointercancel', onChipPointerUp);
@@ -1014,6 +1069,13 @@
 
   function onChipPointerMove(e) {
     if (!tierDraggedEl || e.pointerId !== tierPointerId) return;
+    if (!tierDragStarted) {
+      const dist = Math.hypot(e.clientX - tierStartX, e.clientY - tierStartY);
+      if (dist < DRAG_THRESHOLD) return;
+      tierDragStarted = true;
+      tierDraggedEl.classList.add('dragging');
+      setPickedChip(null);
+    }
     e.preventDefault();
     tierDraggedEl.style.pointerEvents = 'none';
     const target = document.elementFromPoint(e.clientX, e.clientY);
@@ -1029,14 +1091,31 @@
 
   function onChipPointerUp(e) {
     if (!tierDraggedEl || e.pointerId !== tierPointerId) return;
-    tierDraggedEl.classList.remove('dragging');
+    const chip = tierDraggedEl;
+    const wasDragging = tierDragStarted;
     document.removeEventListener('pointermove', onChipPointerMove);
     document.removeEventListener('pointerup', onChipPointerUp);
     document.removeEventListener('pointercancel', onChipPointerUp);
-    document.querySelectorAll('.drag-over').forEach(z => z.classList.remove('drag-over'));
     tierDraggedEl = null;
-    saveTierState();
-    updatePoolCount();
+
+    if (wasDragging) {
+      chip.classList.remove('dragging');
+      document.querySelectorAll('.drag-over').forEach(z => z.classList.remove('drag-over'));
+      saveTierState();
+      updatePoolCount();
+      return;
+    }
+
+    // Plain tap: pick up, or place the currently-picked chip in this one's zone.
+    if (pickedChip === chip) {
+      setPickedChip(null);
+    } else if (pickedChip) {
+      const zone = chip.closest('#view-tierlist .tier-zone');
+      if (zone) placeChipInZone(pickedChip, zone);
+      setPickedChip(null);
+    } else {
+      setPickedChip(chip);
+    }
   }
 
   function getChipInsertionPoint(zone, clientY, clientX) {
@@ -1108,13 +1187,32 @@
       <span class="rank-num">${index + 1}</span>
       ${show.posterUrl ? `<img src="${show.posterUrl}" alt="" onerror="this.remove()">` : ''}
       <span class="rank-title">${show.title}</span>
+      <div class="rank-arrows">
+        <button class="rank-arrow" data-dir="up" aria-label="Move ${show.title} up">▲</button>
+        <button class="rank-arrow" data-dir="down" aria-label="Move ${show.title} down">▼</button>
+      </div>
     `;
     el.addEventListener('pointerdown', onRankPointerDown);
+    el.querySelector('[data-dir="up"]').addEventListener('click', () => moveRank(el, -1));
+    el.querySelector('[data-dir="down"]').addEventListener('click', () => moveRank(el, 1));
     return el;
+  }
+
+  function moveRank(row, delta) {
+    const zone = document.getElementById('ranked-zone');
+    const rows = [...zone.children];
+    const idx = rows.indexOf(row);
+    const newIdx = idx + delta;
+    if (newIdx < 0 || newIdx >= rows.length) return;
+    if (delta < 0) zone.insertBefore(row, rows[newIdx]);
+    else zone.insertBefore(row, rows[newIdx].nextSibling);
+    renumberRanks();
+    saveRankOrder();
   }
 
   function onRankPointerDown(e) {
     if (e.button !== undefined && e.button > 0) return;
+    if (e.target.closest('.rank-arrow')) return;
     rankDraggedEl = this;
     rankPointerId = e.pointerId;
     this.classList.add('dragging');
@@ -1149,8 +1247,11 @@
   }
 
   function renumberRanks() {
-    [...document.querySelectorAll('#ranked-zone .rank-row')].forEach((row, i) => {
+    const rows = [...document.querySelectorAll('#ranked-zone .rank-row')];
+    rows.forEach((row, i) => {
       row.querySelector('.rank-num').textContent = i + 1;
+      row.querySelector('[data-dir="up"]').disabled = i === 0;
+      row.querySelector('[data-dir="down"]').disabled = i === rows.length - 1;
     });
   }
 
@@ -1170,7 +1271,18 @@
     const zone = document.getElementById('ranked-zone');
     zone.innerHTML = '';
     order.forEach((id, i) => zone.appendChild(createRankRow(byId[id], i)));
+    renumberRanks();
   }
+
+  // Tapping empty space in a zone (not on a chip — chips handle their own
+  // taps in onChipPointerUp) places the currently-picked chip there.
+  document.querySelectorAll('#view-tierlist .tier-zone').forEach(zone => {
+    zone.addEventListener('click', e => {
+      if (!pickedChip || e.target !== zone) return;
+      placeChipInZone(pickedChip, zone);
+      setPickedChip(null);
+    });
+  });
 
   function initTierlistView() {
     renderTierList();
