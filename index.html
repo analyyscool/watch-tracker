@@ -153,6 +153,8 @@
     box-shadow: var(--card-shadow-hv);
   }
 
+  .card.pinned { border-left: 3px solid var(--accent); }
+
   .card-poster {
     width: 84px;
     height: auto;
@@ -491,7 +493,15 @@
     const pinned = getPinned();
     const active = watching
       .filter(s => s.currentEpisode < s.totalEpisodes)
-      .sort((a, b) => (1 - a.currentEpisode / a.totalEpisodes) - (1 - b.currentEpisode / b.totalEpisodes));
+      .sort((a, b) => {
+        const pa = pinned.indexOf(a.id), pb = pinned.indexOf(b.id);
+        if (pa !== -1 || pb !== -1) {
+          if (pa === -1) return 1;
+          if (pb === -1) return -1;
+          return pa - pb;
+        }
+        return (1 - a.currentEpisode / a.totalEpisodes) - (1 - b.currentEpisode / b.totalEpisodes);
+      });
     const completed = watching.filter(s => s.currentEpisode >= s.totalEpisodes);
     const watchlist = data.watchlist ?? [];
 
@@ -520,8 +530,8 @@
           ? `S${show.currentSeason} · E${show.seasonEpisode}`
           : `E${show.seasonEpisode}`;
         const card = document.createElement('div');
-        card.className = 'card';
         const isPinned = pinned.includes(show.id);
+        card.className = 'card' + (isPinned ? ' pinned' : '');
         card.innerHTML = `
           ${show.posterUrl ? `<img class="card-poster" src="${show.posterUrl}" alt="" onerror="this.remove()">` : ''}
           <div class="card-body">
