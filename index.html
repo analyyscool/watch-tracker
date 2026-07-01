@@ -259,21 +259,6 @@
   .pin-btn:hover { color: var(--accent); }
   .pin-btn.pinned { color: var(--accent); }
 
-  .bump-btn {
-    font-family: 'DM Mono', monospace;
-    font-size: 0.58rem;
-    letter-spacing: 0.05em;
-    padding: 0.15rem 0.4rem;
-    border: 1px solid var(--border2);
-    border-radius: 3px;
-    background: transparent;
-    color: var(--muted);
-    cursor: pointer;
-    transition: all 0.15s;
-  }
-
-  .bump-btn:hover { border-color: var(--accent); color: var(--accent); }
-
   .card-tags {
     padding: 0 1.25rem 0.5rem;
     font-size: 0.6rem;
@@ -786,22 +771,6 @@
     return parts.join(' · ');
   }
 
-  // Quick episode bump (copies a command for Claude to apply to data.json)
-  let lastActiveShows = [];
-
-  function bumpEpisode(id) {
-    const show = lastActiveShows.find(s => s.id === id);
-    if (!show) return;
-    const nextEp = show.currentEpisode + 1;
-    const nextSeasonEp = show.seasonEpisode + 1;
-    const cmd = show.totalSeasons > 1
-      ? `Bump ${show.title} to S${show.currentSeason}E${nextSeasonEp} (episode ${nextEp} total)`
-      : `Bump ${show.title} to E${nextSeasonEp}`;
-    navigator.clipboard.writeText(cmd)
-      .then(() => showToast('Copied — paste to Claude'))
-      .catch(() => showToast('Tell Claude: ' + cmd));
-  }
-
   // Watchlist search
   let watchlistCache = [];
 
@@ -850,7 +819,6 @@
     const completed = watching.filter(s => s.currentEpisode >= s.totalEpisodes);
     const watchlist = data.watchlist ?? [];
 
-    lastActiveShows = active;
     watchlistCache = watchlist;
 
     const grid = document.getElementById('grid');
@@ -892,7 +860,6 @@
                 </button>
                 <span class="card-meta">${epLabel}</span>
                 <span class="card-pct">${pct}%</span>
-                <button class="bump-btn" onclick="bumpEpisode('${show.id}')" aria-label="Log next episode watched for ${show.title}">+1 ep</button>
               </div>
             </div>
             ${showTags(show) ? `<div class="card-tags">${showTags(show)}</div>` : ''}

@@ -27,4 +27,4 @@ Flag to the user if a season is ongoing and the total is not yet confirmed.
 
 ## Bumping episode progress
 
-The page has a "+1 ep" button on each active card that copies a command like `Bump <Title> to S2E6` to the clipboard for the user to paste here. When you receive a message like that, update `currentEpisode`, `seasonEpisode` (and `currentSeason` if it rolled over), and `lastUpdated` (today's date) for that show in `data.json`, then commit per the rule above.
+When the user asks to bump/update progress on a show, update `currentEpisode`, `seasonEpisode` (and `currentSeason` if it rolled over), and `lastUpdated` (today's date) for that show in `data.json`, then commit per the rule above.
