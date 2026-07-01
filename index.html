@@ -432,7 +432,9 @@
     const res = await fetch('data.json?t=' + Date.now());
     const data = await res.json();
     const watching = data.watching ?? data;
-    const active = watching.filter(s => s.currentEpisode < s.totalEpisodes);
+    const active = watching
+      .filter(s => s.currentEpisode < s.totalEpisodes)
+      .sort((a, b) => (1 - a.currentEpisode / a.totalEpisodes) - (1 - b.currentEpisode / b.totalEpisodes));
     const completed = watching.filter(s => s.currentEpisode >= s.totalEpisodes);
     const watchlist = data.watchlist ?? [];
 
