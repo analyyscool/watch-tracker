@@ -211,6 +211,21 @@
     font-variant-numeric: tabular-nums;
   }
 
+  .pin-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    color: var(--muted);
+    transition: color 0.15s;
+  }
+
+  .pin-btn:hover { color: var(--accent); }
+  .pin-btn.pinned { color: var(--accent); }
+
   .card-stats {
     display: flex;
     gap: 1.5rem;
@@ -443,11 +458,37 @@
     }, 2500);
   }
 
+  // Pinning
+  function getPinned() {
+    return JSON.parse(localStorage.getItem('pinnedShows') || '[]');
+  }
+
+  function setPinned(ids) {
+    localStorage.setItem('pinnedShows', JSON.stringify(ids));
+  }
+
+  function togglePin(id) {
+    const pinned = getPinned();
+    const idx = pinned.indexOf(id);
+    if (idx !== -1) {
+      pinned.splice(idx, 1);
+      setPinned(pinned);
+    } else if (pinned.length >= 3) {
+      showToast('Max 3 pinned — unpin one first');
+      return;
+    } else {
+      pinned.push(id);
+      setPinned(pinned);
+    }
+    loadShows();
+  }
+
   // Render
   async function loadShows() {
     const res = await fetch('data.json?t=' + Date.now());
     const data = await res.json();
     const watching = data.watching ?? data;
+    const pinned = getPinned();
     const active = watching
       .filter(s => s.currentEpisode < s.totalEpisodes)
       .sort((a, b) => (1 - a.currentEpisode / a.totalEpisodes) - (1 - b.currentEpisode / b.totalEpisodes));
@@ -480,12 +521,19 @@
           : `E${show.seasonEpisode}`;
         const card = document.createElement('div');
         card.className = 'card';
+        const isPinned = pinned.includes(show.id);
         card.innerHTML = `
           ${show.posterUrl ? `<img class="card-poster" src="${show.posterUrl}" alt="" onerror="this.remove()">` : ''}
           <div class="card-body">
             <div class="card-top">
               <div class="card-title">${show.title}</div>
               <div class="card-right">
+                <button class="pin-btn${isPinned ? ' pinned' : ''}" onclick="togglePin('${show.id}')" aria-label="${isPinned ? 'Unpin' : 'Pin'} ${show.title}">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="${isPinned ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+                    <circle cx="12" cy="10" r="3"></circle>
+                  </svg>
+                </button>
                 <span class="card-meta">${epLabel}</span>
                 <span class="card-pct">${pct}%</span>
               </div>
