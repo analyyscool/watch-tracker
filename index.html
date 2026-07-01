@@ -968,7 +968,10 @@
     const res = await fetch('data.json?t=' + Date.now());
     const data = await res.json();
     const watching = data.watching ?? data;
-    watchedShowsCache = watching.filter(s => s.currentEpisode >= s.totalEpisodes);
+    const completedFromWatching = watching.filter(s => s.currentEpisode >= s.totalEpisodes);
+    const watchedList = data.watched ?? [];
+    const seen = new Set(completedFromWatching.map(s => s.id));
+    watchedShowsCache = [...completedFromWatching, ...watchedList.filter(s => !seen.has(s.id))];
     return watchedShowsCache;
   }
 
