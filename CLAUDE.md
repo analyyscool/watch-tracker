@@ -12,9 +12,19 @@ Do this automatically — do not ask the user to run it.
 
 ## Research episode counts when adding a new show
 
-When adding a new show to `data.json`, always web-search the exact episode count before writing the entry. Look up:
-- Total episodes per season
-- Total seasons (confirmed and announced)
-- Total episode count across all seasons
+When adding a new show to `data.json`, look up the exact episode count before writing the entry:
+- For anime, query the Jikan API (`https://api.jikan.moe/v4/anime?q=<title>&limit=1`) — it wraps MyAnimeList and gives `episodes`, `status`, poster (`images.jpg.large_image_url`), `studios[0].name`, and `genres[].name` in one call. Jikan rate-limits aggressively; space out calls (one at a time) if adding several shows.
+- For live-action, use TMDB (`https://www.themoviedb.org/tv/<id>-<slug>`) for episode/season counts, poster, network, and genres.
 
-Use the researched numbers for `totalEpisodes`, `totalSeasons`, and to calculate `currentEpisode` (global episode number across seasons). Flag to the user if a season is ongoing and the total is not yet confirmed.
+Fill in from the lookup:
+- `totalEpisodes`, `totalSeasons`, and `currentEpisode` (global episode number across seasons)
+- `posterUrl` from the lookup's poster image
+- `studio` (single string, e.g. `studios[0].name` or the network)
+- `genres` (array of strings)
+- `lastUpdated` set to today's date (`YYYY-MM-DD`)
+
+Flag to the user if a season is ongoing and the total is not yet confirmed.
+
+## Bumping episode progress
+
+The page has a "+1 ep" button on each active card that copies a command like `Bump <Title> to S2E6` to the clipboard for the user to paste here. When you receive a message like that, update `currentEpisode`, `seasonEpisode` (and `currentSeason` if it rolled over), and `lastUpdated` (today's date) for that show in `data.json`, then commit per the rule above.

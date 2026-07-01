@@ -8,7 +8,10 @@
       "currentEpisode": 18,
       "totalEpisodes": 26,
       "totalSeasons": 2,
-      "posterUrl": "https://cdn.myanimelist.net/images/anime/1075/131925l.jpg"
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1075/131925l.jpg",
+      "studio": "MAPPA",
+      "genres": ["Action", "Adventure", "Supernatural"],
+      "lastUpdated": "2026-07-01"
     },
     {
       "id": "samurai-champloo",
@@ -18,7 +21,10 @@
       "currentEpisode": 26,
       "totalEpisodes": 26,
       "totalSeasons": 1,
-      "posterUrl": "https://cdn.myanimelist.net/images/anime/1370/135212l.jpg"
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1370/135212l.jpg",
+      "studio": "Manglobe",
+      "genres": ["Action", "Adventure", "Comedy"],
+      "lastUpdated": "2026-07-01"
     },
     {
       "id": "nge",
@@ -28,7 +34,10 @@
       "currentEpisode": 4,
       "totalEpisodes": 26,
       "totalSeasons": 1,
-      "posterUrl": "https://cdn.myanimelist.net/images/anime/1314/108941l.jpg"
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1314/108941l.jpg",
+      "studio": "Gainax",
+      "genres": ["Avant Garde", "Award Winning", "Drama", "Sci-Fi", "Suspense"],
+      "lastUpdated": "2026-07-01"
     },
     {
       "id": "cote",
@@ -38,7 +47,10 @@
       "currentEpisode": 44,
       "totalEpisodes": 55,
       "totalSeasons": 4,
-      "posterUrl": "https://cdn.myanimelist.net/images/anime/5/86830l.jpg"
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/5/86830l.jpg",
+      "studio": "Lerche",
+      "genres": ["Drama", "Suspense"],
+      "lastUpdated": "2026-07-01"
     },
     {
       "id": "record-of-ragnarok",
@@ -48,7 +60,10 @@
       "currentEpisode": 16,
       "totalEpisodes": 42,
       "totalSeasons": 3,
-      "posterUrl": "https://cdn.myanimelist.net/images/anime/1456/115123l.jpg"
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1456/115123l.jpg",
+      "studio": "Graphinica",
+      "genres": ["Action", "Drama", "Fantasy"],
+      "lastUpdated": "2026-07-01"
     },
     {
       "id": "witch-hat-atelier",
@@ -58,7 +73,10 @@
       "currentEpisode": 13,
       "totalEpisodes": 13,
       "totalSeasons": 1,
-      "posterUrl": "https://cdn.myanimelist.net/images/anime/1726/155542l.jpg"
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1726/155542l.jpg",
+      "studio": "BUG FILMS",
+      "genres": ["Fantasy"],
+      "lastUpdated": "2026-07-01"
     },
     {
       "id": "fire-force",
@@ -68,7 +86,10 @@
       "currentEpisode": 30,
       "totalEpisodes": 72,
       "totalSeasons": 3,
-      "posterUrl": "https://cdn.myanimelist.net/images/anime/1664/103275l.jpg"
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1664/103275l.jpg",
+      "studio": "David Production",
+      "genres": ["Action", "Fantasy", "Sci-Fi"],
+      "lastUpdated": "2026-07-01"
     },
     {
       "id": "shangri-la-frontier",
@@ -78,7 +99,10 @@
       "currentEpisode": 11,
       "totalEpisodes": 50,
       "totalSeasons": 2,
-      "posterUrl": "https://cdn.myanimelist.net/images/anime/1500/139931l.jpg"
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1500/139931l.jpg",
+      "studio": "C2C",
+      "genres": ["Action", "Adventure", "Fantasy"],
+      "lastUpdated": "2026-07-01"
     },
     {
       "id": "rezero",
@@ -88,7 +112,10 @@
       "currentEpisode": 3,
       "totalEpisodes": 66,
       "totalSeasons": 4,
-      "posterUrl": "https://cdn.myanimelist.net/images/anime/1522/128039l.jpg"
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1522/128039l.jpg",
+      "studio": "White Fox",
+      "genres": ["Drama", "Fantasy", "Suspense"],
+      "lastUpdated": "2026-07-01"
     },
     {
       "id": "spy-x-family",
@@ -98,7 +125,10 @@
       "currentEpisode": 28,
       "totalEpisodes": 50,
       "totalSeasons": 3,
-      "posterUrl": "https://cdn.myanimelist.net/images/anime/1441/122795l.jpg"
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1441/122795l.jpg",
+      "studio": "Wit Studio",
+      "genres": ["Action", "Award Winning", "Comedy"],
+      "lastUpdated": "2026-07-01"
     },
     {
       "id": "apothecary-diaries",
@@ -108,7 +138,10 @@
       "currentEpisode": 6,
       "totalEpisodes": 24,
       "totalSeasons": 1,
-      "posterUrl": "https://cdn.myanimelist.net/images/anime/1708/138033l.jpg"
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1708/138033l.jpg",
+      "studio": "OLM",
+      "genres": ["Drama", "Mystery"],
+      "lastUpdated": "2026-07-01"
     },
     {
       "id": "mr-robot",
@@ -118,7 +151,10 @@
       "currentEpisode": 13,
       "totalEpisodes": 45,
       "totalSeasons": 4,
-      "posterUrl": "https://media.themoviedb.org/t/p/w300_and_h450_face/kv1nRqgebSsREnd7vdC2pSGjpLo.jpg"
+      "posterUrl": "https://media.themoviedb.org/t/p/w300_and_h450_face/kv1nRqgebSsREnd7vdC2pSGjpLo.jpg",
+      "studio": "USA Network",
+      "genres": ["Crime", "Drama"],
+      "lastUpdated": "2026-07-01"
     },
     {
       "id": "kaiji",
@@ -128,7 +164,10 @@
       "currentEpisode": 10,
       "totalEpisodes": 26,
       "totalSeasons": 2,
-      "posterUrl": "https://cdn.myanimelist.net/images/anime/12/80032l.jpg"
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/12/80032l.jpg",
+      "studio": "Madhouse",
+      "genres": ["Suspense"],
+      "lastUpdated": "2026-07-01"
     }
   ],
   "watchlist": [
