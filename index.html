@@ -522,6 +522,16 @@
   .show-chip.dragging { opacity: 0.3; transform: scale(0.95); }
   .show-chip.picked { outline: 2px solid var(--accent); background: var(--surface); }
 
+  .score-badge {
+    flex-shrink: 0;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    color: var(--muted);
+    font-size: 0.62rem;
+  }
+
   .pool-section { margin-top: 3px; }
 
   .pool-header {
@@ -1034,7 +1044,7 @@
     el.className = 'show-chip';
     el.dataset.id = show.id;
     el.title = show.title;
-    el.innerHTML = `${show.posterUrl ? `<img src="${show.posterUrl}" alt="" onerror="this.remove()">` : ''}<span>${show.title}</span>`;
+    el.innerHTML = `${show.posterUrl ? `<img src="${show.posterUrl}" alt="" onerror="this.remove()">` : ''}<span>${show.title}</span>${show.malScore != null ? `<span class="score-badge" title="MAL score">${show.malScore.toFixed(2)}</span>` : ''}`;
     el.addEventListener('pointerdown', onChipPointerDown);
     return el;
   }
@@ -1238,6 +1248,7 @@
       <span class="rank-num">${index + 1}</span>
       ${show.posterUrl ? `<img src="${show.posterUrl}" alt="" onerror="this.remove()">` : ''}
       <span class="rank-title">${show.title}</span>
+      ${show.malScore != null ? `<span class="score-badge" title="MAL score">${show.malScore.toFixed(2)}</span>` : ''}
       <div class="rank-arrows">
         <button class="rank-arrow" data-dir="up" aria-label="Move ${show.title} up">▲</button>
         <button class="rank-arrow" data-dir="down" aria-label="Move ${show.title} down">▼</button>
