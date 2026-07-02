@@ -1,19 +1,6 @@
 {
   "watching": [
     {
-      "id": "hells-paradise",
-      "title": "Hell's Paradise",
-      "currentSeason": 2,
-      "seasonEpisode": 5,
-      "currentEpisode": 18,
-      "totalEpisodes": 25,
-      "totalSeasons": 2,
-      "posterUrl": "https://cdn.myanimelist.net/images/anime/1075/131925l.jpg",
-      "studio": "MAPPA",
-      "genres": ["Action", "Adventure", "Supernatural"],
-      "lastUpdated": "2026-07-01"
-    },
-    {
       "id": "samurai-champloo",
       "title": "Samurai Champloo",
       "currentSeason": 1,
