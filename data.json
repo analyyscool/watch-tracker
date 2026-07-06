@@ -30,14 +30,14 @@
       "id": "cote",
       "title": "Classroom of the Elite",
       "currentSeason": 4,
-      "seasonEpisode": 5,
-      "currentEpisode": 43,
+      "seasonEpisode": 8,
+      "currentEpisode": 46,
       "totalEpisodes": 54,
       "totalSeasons": 4,
       "posterUrl": "https://cdn.myanimelist.net/images/anime/5/86830l.jpg",
       "studio": "Lerche",
       "genres": ["Drama", "Suspense"],
-      "lastUpdated": "2026-07-01"
+      "lastUpdated": "2026-07-07"
     },
     {
       "id": "record-of-ragnarok",
@@ -155,6 +155,19 @@
       "studio": "Madhouse",
       "genres": ["Suspense"],
       "lastUpdated": "2026-07-01"
+    },
+    {
+      "id": "dragon-ball",
+      "title": "Dragon Ball (Fan Cut)",
+      "currentSeason": 1,
+      "seasonEpisode": 26,
+      "currentEpisode": 26,
+      "totalEpisodes": 82,
+      "totalSeasons": 1,
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1887/92364l.jpg",
+      "studio": "Toei Animation",
+      "genres": ["Action", "Adventure", "Comedy", "Fantasy"],
+      "lastUpdated": "2026-07-07"
     }
   ],
   "watchlist": [
