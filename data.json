@@ -155,6 +155,19 @@
       "studio": "Toei Animation",
       "genres": ["Action", "Adventure", "Comedy", "Fantasy"],
       "lastUpdated": "2026-07-08"
+    },
+    {
+      "id": "moriarty-the-patriot",
+      "title": "Moriarty the Patriot",
+      "currentSeason": 1,
+      "seasonEpisode": 4,
+      "currentEpisode": 4,
+      "totalEpisodes": 24,
+      "totalSeasons": 2,
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1464/108330l.jpg",
+      "studio": "Production I.G",
+      "genres": ["Mystery", "Suspense"],
+      "lastUpdated": "2026-07-08"
     }
   ],
   "watchlist": [
