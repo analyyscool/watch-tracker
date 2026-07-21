@@ -147,27 +147,14 @@
       "id": "dragon-ball",
       "title": "Dragon Ball (Fan Cut)",
       "currentSeason": 1,
-      "seasonEpisode": 45,
-      "currentEpisode": 45,
+      "seasonEpisode": 55,
+      "currentEpisode": 55,
       "totalEpisodes": 82,
       "totalSeasons": 1,
       "posterUrl": "https://cdn.myanimelist.net/images/anime/1887/92364l.jpg",
       "studio": "Toei Animation",
       "genres": ["Action", "Adventure", "Comedy", "Fantasy"],
-      "lastUpdated": "2026-07-20"
-    },
-    {
-      "id": "moriarty-the-patriot",
-      "title": "Moriarty the Patriot",
-      "currentSeason": 1,
-      "seasonEpisode": 19,
-      "currentEpisode": 19,
-      "totalEpisodes": 24,
-      "totalSeasons": 2,
-      "posterUrl": "https://cdn.myanimelist.net/images/anime/1464/108330l.jpg",
-      "studio": "Production I.G",
-      "genres": ["Mystery", "Suspense"],
-      "lastUpdated": "2026-07-20"
+      "lastUpdated": "2026-07-22"
     }
   ],
   "watchlist": [
@@ -191,6 +178,7 @@
     { "id": "march-lion", "title": "March Comes in Like a Lion" }
   ],
   "watched": [
+    { "id": "moriarty-the-patriot", "title": "Moriarty the Patriot", "posterUrl": "https://cdn.myanimelist.net/images/anime/1464/108330l.jpg" },
     { "id": "attack-on-titan", "title": "Attack on Titan", "posterUrl": "https://cdn.myanimelist.net/images/anime/10/47347l.jpg" },
     { "id": "vinland-saga", "title": "Vinland Saga", "posterUrl": "https://cdn.myanimelist.net/images/anime/1500/103005l.jpg" },
     { "id": "cowboy-bebop", "title": "Cowboy Bebop", "posterUrl": "https://cdn.myanimelist.net/images/anime/4/19644l.jpg" },
