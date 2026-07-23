@@ -29,6 +29,14 @@ Flag to the user if a season is ongoing and the total is not yet confirmed.
 
 When the user asks to bump/update progress on a show, update `currentEpisode`, `seasonEpisode` (and `currentSeason` if it rolled over), and `lastUpdated` (today's date) for that show in `data.json`, then commit per the rule above.
 
+## Marking a show finished
+
+When the user says they finished a show, do NOT remove it from `watching`. Instead:
+- In `watching`, set `currentEpisode`/`seasonEpisode` to `totalEpisodes` (and `currentSeason` to `totalSeasons` if applicable), and update `lastUpdated`. This is what makes it appear in the app's "Completed" section (which reads full metadata — studio, genres, episode count — from the `watching` entry).
+- Also add a matching `{ id, title, posterUrl }` entry to `watched` (used for the tier-list poster grid).
+
+Do not backfill this for shows that were already finished before this rule was adopted — they only need to live in `watched`/tierlist, no need to touch `watching` for those.
+
 ## Session checkpoints
 
 When the user says "end of session" (or an equivalent closing phrase), run `/capture-workflow` first, then append a new dated entry to `docs/checkpoints.md` summarizing what was done in the session — a few bullet points, newest entry at the bottom. Create the file if it doesn't exist yet.
