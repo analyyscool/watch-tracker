@@ -147,14 +147,27 @@
       "id": "dragon-ball",
       "title": "Dragon Ball (Fan Cut)",
       "currentSeason": 1,
-      "seasonEpisode": 55,
-      "currentEpisode": 55,
+      "seasonEpisode": 65,
+      "currentEpisode": 65,
       "totalEpisodes": 82,
       "totalSeasons": 1,
       "posterUrl": "https://cdn.myanimelist.net/images/anime/1887/92364l.jpg",
       "studio": "Toei Animation",
       "genres": ["Action", "Adventure", "Comedy", "Fantasy"],
-      "lastUpdated": "2026-07-22"
+      "lastUpdated": "2026-07-23"
+    },
+    {
+      "id": "moriarty-the-patriot",
+      "title": "Moriarty the Patriot",
+      "currentSeason": 2,
+      "seasonEpisode": 24,
+      "currentEpisode": 24,
+      "totalEpisodes": 24,
+      "totalSeasons": 2,
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1464/108330l.jpg",
+      "studio": "Production I.G",
+      "genres": ["Mystery", "Suspense"],
+      "lastUpdated": "2026-07-23"
     }
   ],
   "watchlist": [
