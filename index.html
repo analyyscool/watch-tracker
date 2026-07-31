@@ -856,6 +856,11 @@
     const completed = watching.filter(s => s.currentEpisode >= s.totalEpisodes);
     const watchlist = data.watchlist ?? [];
 
+    const finishedIds = new Set(completed.map(s => s.id));
+    if (pinned.some(id => finishedIds.has(id))) {
+      setPinned(pinned.filter(id => !finishedIds.has(id)));
+    }
+
     watchlistCache = watchlist;
 
     const grid = document.getElementById('grid');
