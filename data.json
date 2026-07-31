@@ -157,6 +157,19 @@
       "lastUpdated": "2026-07-31"
     },
     {
+      "id": "dragon-ball-z-kai-recut",
+      "title": "Dragon Ball Z Kai (Recut) Part 1",
+      "currentSeason": 1,
+      "seasonEpisode": 12,
+      "currentEpisode": 12,
+      "totalEpisodes": 47,
+      "totalSeasons": 1,
+      "posterUrl": "https://cdn.myanimelist.net/images/anime/1887/92364l.jpg",
+      "studio": "Toei Animation",
+      "genres": ["Action", "Adventure", "Comedy", "Fantasy"],
+      "lastUpdated": "2026-07-31"
+    },
+    {
       "id": "loki",
       "title": "Loki",
       "currentSeason": 1,
