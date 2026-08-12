@@ -160,27 +160,27 @@
       "id": "dragon-ball-z-kai-recut",
       "title": "Dragon Ball Z Kai (Recut) Part 1",
       "currentSeason": 1,
-      "seasonEpisode": 12,
-      "currentEpisode": 12,
+      "seasonEpisode": 17,
+      "currentEpisode": 17,
       "totalEpisodes": 47,
       "totalSeasons": 1,
       "posterUrl": "https://media.themoviedb.org/t/p/w300_and_h450_face/ojsPI8fNwcecKLhVC4rB4ZZhFMc.jpg",
       "studio": "Toei Animation",
       "genres": ["Action", "Adventure", "Comedy", "Fantasy"],
-      "lastUpdated": "2026-07-31"
+      "lastUpdated": "2026-08-12"
     },
     {
       "id": "loki",
       "title": "Loki",
-      "currentSeason": 1,
+      "currentSeason": 2,
       "seasonEpisode": 6,
-      "currentEpisode": 6,
+      "currentEpisode": 12,
       "totalEpisodes": 12,
       "totalSeasons": 2,
       "posterUrl": "https://media.themoviedb.org/t/p/w300_and_h450_face/rX1wQMTKFqF0gvZyS0DDQqgnQPB.jpg",
       "studio": "Disney+",
       "genres": ["Drama", "Sci-Fi & Fantasy"],
-      "lastUpdated": "2026-07-31"
+      "lastUpdated": "2026-08-12"
     },
     {
       "id": "moriarty-the-patriot",
@@ -217,6 +217,7 @@
     { "id": "march-lion", "title": "March Comes in Like a Lion" }
   ],
   "watched": [
+    { "id": "loki", "title": "Loki", "posterUrl": "https://media.themoviedb.org/t/p/w300_and_h450_face/rX1wQMTKFqF0gvZyS0DDQqgnQPB.jpg" },
     { "id": "dragon-ball", "title": "Dragon Ball (Fan Cut)", "posterUrl": "https://cdn.myanimelist.net/images/anime/1887/92364l.jpg" },
     { "id": "moriarty-the-patriot", "title": "Moriarty the Patriot", "posterUrl": "https://cdn.myanimelist.net/images/anime/1464/108330l.jpg" },
     { "id": "attack-on-titan", "title": "Attack on Titan", "posterUrl": "https://cdn.myanimelist.net/images/anime/10/47347l.jpg" },
