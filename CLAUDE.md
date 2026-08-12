@@ -22,6 +22,7 @@ Fill in from the lookup:
 - `studio` (single string, e.g. `studios[0].name` or the network)
 - `genres` (array of strings)
 - `lastUpdated` set to today's date (`YYYY-MM-DD`)
+- `category` — one of `"anime"`, `"western"`, or `"movie"` (used by the Tier List's Anime/Western/Movies sub-tabs). Movies are bucketed by format regardless of origin — an anime film like *Suzume* is `"movie"`, not `"anime"`.
 
 Flag to the user if a season is ongoing and the total is not yet confirmed.
 
@@ -33,7 +34,7 @@ When the user asks to bump/update progress on a show, update `currentEpisode`, `
 
 When the user says they finished a show, do NOT remove it from `watching`. Instead:
 - In `watching`, set `currentEpisode`/`seasonEpisode` to `totalEpisodes` (and `currentSeason` to `totalSeasons` if applicable), and update `lastUpdated`. This is what makes it appear in the app's "Completed" section (which reads full metadata — studio, genres, episode count — from the `watching` entry).
-- Also add a matching `{ id, title, posterUrl }` entry to `watched` (used for the tier-list poster grid).
+- Also add a matching `{ id, title, posterUrl, category }` entry to `watched` (used for the tier-list poster grid), with `category` set to `"anime"`, `"western"`, or `"movie"` per the rule above.
 
 Do not backfill this for shows that were already finished before this rule was adopted — they only need to live in `watched`/tierlist, no need to touch `watching` for those.
 
