@@ -742,12 +742,6 @@
   .note-btn:hover { color: var(--accent); }
   .note-btn.has-note { color: var(--accent2); }
 
-  .chip-note-btn {
-    position: relative;
-    margin-left: 2px;
-    padding: 2px;
-  }
-
   /* ── Movies tab ── */
   .movies-controls {
     display: flex;
@@ -1558,11 +1552,8 @@
     el.className = 'show-chip';
     el.dataset.id = show.id;
     el.title = show.title;
-    el.innerHTML = `${show.posterUrl ? `<img src="${show.posterUrl}" alt="" onerror="this.remove()">` : ''}<span>${show.title}</span>${noteButtonHTML(show.id, show.title, 'chip-note-btn')}`;
+    el.innerHTML = `${show.posterUrl ? `<img src="${show.posterUrl}" alt="" onerror="this.remove()">` : ''}<span>${show.title}</span>`;
     el.addEventListener('pointerdown', onChipPointerDown);
-    // The note icon must not start a chip drag/pick — stop it at pointerdown,
-    // before onChipPointerDown (bound above, fires on bubble) ever sees it.
-    el.querySelector('.note-btn').addEventListener('pointerdown', e => e.stopPropagation());
     return el;
   }
 
