@@ -23,6 +23,7 @@ Fill in from the lookup:
 - `genres` (array of strings)
 - `lastUpdated` set to today's date (`YYYY-MM-DD`)
 - `category` — one of `"anime"`, `"western"`, or `"movie"` (used by the Tier List's Anime/Western/Movies sub-tabs). Movies are bucketed by format regardless of origin — an anime film like *Suzume* is `"movie"`, not `"anime"`.
+- `runtimeMinutes` — only for `category: "western"` or `category: "movie"` entries. For western, the per-episode runtime; for movies, the total film length. Look this up (web search or TMDB) the same way as episode counts. Not needed for anime — the Stats tab assumes a flat 20 min/episode for anime instead.
 
 Flag to the user if a season is ongoing and the total is not yet confirmed.
 
@@ -37,6 +38,14 @@ When the user says they finished a show, do NOT remove it from `watching`. Inste
 - Also add a matching `{ id, title, posterUrl, category }` entry to `watched` (used for the tier-list poster grid), with `category` set to `"anime"`, `"western"`, or `"movie"` per the rule above.
 
 Do not backfill this for shows that were already finished before this rule was adopted — they only need to live in `watched`/tierlist, no need to touch `watching` for those.
+
+## Merging a "RATINGS & NOTES EXPORT" paste
+
+Ratings (movies only, 0–5 in 0.5 steps) and notes (any watched show) are set in-browser and live in that browser's `localStorage` — `data.json` only gets updated when the user pastes a "RATINGS & NOTES EXPORT" block copied from the Movies tab. When the user pastes one of these blocks:
+
+- For each show listed, set `rating` and/or `note` on its matching entry in the `watched` array (a show may have one, the other, or both — skip whichever isn't present in the block, e.g. `(no rating)` means don't touch `rating`).
+- Leave every `watched` entry not mentioned in the block untouched — the export only contains shows that currently have a rating or note set, not the full list.
+- Commit per the auto-commit rule above.
 
 ## Session checkpoints
 

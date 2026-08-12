@@ -658,6 +658,251 @@
   }
 
   .modal-close { width: 100%; text-align: center; }
+
+  .modal textarea {
+    width: 100%;
+    min-height: 100px;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.75rem;
+    padding: 0.6rem 0.75rem;
+    border: 1px solid var(--border2);
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--text);
+    resize: vertical;
+    margin-bottom: 1rem;
+  }
+
+  .modal textarea:focus { outline: none; border-color: var(--accent); }
+
+  .modal-actions { display: flex; gap: 0.6rem; }
+  .modal-actions .btn { flex: 1; }
+
+  /* ── Star rating ── */
+  .star-rating {
+    display: inline-flex;
+    gap: 1px;
+  }
+
+  .star-slot {
+    position: relative;
+    display: inline-block;
+    width: 1.05rem;
+    height: 1rem;
+    font-size: 1.05rem;
+    line-height: 1;
+  }
+
+  .star-empty, .star-filled {
+    position: absolute;
+    top: 0; left: 0;
+    pointer-events: none;
+    white-space: nowrap;
+  }
+
+  .star-empty { color: var(--border2); }
+  .star-filled { color: #ffd60a; overflow: hidden; }
+
+  .star-hit {
+    position: absolute;
+    top: 0;
+    height: 100%;
+    width: 50%;
+    background: transparent;
+    border: none;
+    padding: 0;
+    margin: 0;
+    cursor: pointer;
+    z-index: 1;
+  }
+
+  .star-hit.left { left: 0; }
+  .star-hit.right { right: 0; }
+
+  .rating-label {
+    font-size: 0.62rem;
+    color: var(--muted);
+    margin-left: 0.4rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ── Notes ── */
+  .note-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    color: var(--muted);
+    transition: color 0.15s;
+  }
+
+  .note-btn:hover { color: var(--accent); }
+  .note-btn.has-note { color: var(--accent2); }
+
+  .chip-note-btn {
+    position: relative;
+    margin-left: 2px;
+    padding: 2px;
+  }
+
+  /* ── Movies tab ── */
+  .movies-controls {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1.25rem;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+
+  .movies-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 0.9rem;
+  }
+
+  .movie-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .movie-card img {
+    width: 100%;
+    aspect-ratio: 2/3;
+    object-fit: cover;
+    background: var(--surface2);
+    display: block;
+  }
+
+  .movie-card-body {
+    padding: 0.6rem 0.7rem 0.7rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  .movie-card-title {
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 0.72rem;
+    color: var(--text);
+    line-height: 1.3;
+  }
+
+  .movie-card-rating {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  /* ── Sort / filter bar ── */
+  .sort-filter-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.9rem;
+  }
+
+  .sf-select {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.65rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 0.4rem 0.6rem;
+    border: 1px solid var(--border2);
+    border-radius: 4px;
+    background: var(--surface);
+    color: var(--muted);
+    cursor: pointer;
+  }
+
+  .sf-select:focus { outline: none; border-color: var(--accent); color: var(--text); }
+
+  /* ── Stats tab ── */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 2rem;
+  }
+
+  .stat-tile {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem;
+    text-align: center;
+  }
+
+  .stat-tile-value {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 2rem;
+    color: var(--text);
+    line-height: 1;
+  }
+
+  .stat-tile-label {
+    font-size: 0.58rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-top: 0.4rem;
+  }
+
+  .stats-section-title {
+    font-size: 0.6rem;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 1.75rem 0 0.9rem;
+  }
+
+  .bar-row {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .bar-row-label {
+    font-size: 0.65rem;
+    color: var(--text);
+    width: 120px;
+    flex-shrink: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .bar-row-track {
+    flex: 1;
+    height: 8px;
+    background: var(--surface2);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+
+  .bar-row-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+  }
+
+  .bar-row-count {
+    font-size: 0.62rem;
+    color: var(--muted);
+    width: 1.8rem;
+    text-align: right;
+    flex-shrink: 0;
+    font-variant-numeric: tabular-nums;
+  }
 </style>
 </head>
 <body>
@@ -676,9 +921,21 @@
   <div class="tabs">
     <button class="tab-btn active" data-tab="watching">Watching</button>
     <button class="tab-btn" data-tab="tierlist">Tier List</button>
+    <button class="tab-btn" data-tab="movies">Movies</button>
+    <button class="tab-btn" data-tab="stats">Stats</button>
   </div>
 
   <div id="view-watching">
+    <div class="sort-filter-bar" id="watching-sf">
+      <select class="sf-select" id="watching-sort">
+        <option value="pinned">Sort: Pinned first</option>
+        <option value="pct">Sort: % complete</option>
+        <option value="updated">Sort: Last updated</option>
+        <option value="alpha">Sort: A–Z</option>
+      </select>
+      <select class="sf-select" id="watching-genre"><option value="">Genre: All</option></select>
+      <select class="sf-select" id="watching-studio"><option value="">Studio: All</option></select>
+    </div>
     <div id="grid"></div>
     <div id="empty">No shows in progress — tell Claude to add one.</div>
 
@@ -687,8 +944,31 @@
     <div id="watchlist"></div>
 
     <div class="section-divider" id="completed-divider" style="display:none"><span>completed</span></div>
+    <div class="sort-filter-bar" id="completed-sf">
+      <select class="sf-select" id="completed-sort">
+        <option value="updated">Sort: Last updated</option>
+        <option value="alpha">Sort: A–Z</option>
+      </select>
+      <select class="sf-select" id="completed-genre"><option value="">Genre: All</option></select>
+      <select class="sf-select" id="completed-studio"><option value="">Studio: All</option></select>
+    </div>
     <div id="completed"></div>
   </div>
+
+  <div id="view-movies" style="display:none">
+    <div class="movies-controls">
+      <select class="sf-select" id="movies-sort">
+        <option value="rating">Sort: Rating</option>
+        <option value="alpha">Sort: A–Z</option>
+        <option value="added">Sort: Recently added</option>
+      </select>
+      <button class="btn" id="btn-export-ratings">Copy Ratings & Notes</button>
+    </div>
+    <div class="movies-grid" id="movies-grid"></div>
+    <div id="movies-empty" style="display:none; text-align:center; padding:3.5rem 1rem; font-size:0.7rem; letter-spacing:0.12em; text-transform:uppercase; color:var(--muted);">No movies in your watched list yet.</div>
+  </div>
+
+  <div id="view-stats" style="display:none"></div>
 
   <div id="view-tierlist" style="display:none">
     <div class="category-toggle">
@@ -746,6 +1026,17 @@
   </div>
 </div>
 
+<div class="modal-backdrop" id="note-modal">
+  <div class="modal">
+    <h2 id="note-modal-title">Note</h2>
+    <textarea id="note-modal-text" placeholder="What did you think?"></textarea>
+    <div class="modal-actions">
+      <button class="btn" id="note-modal-cancel">Cancel</button>
+      <button class="btn btn-primary" id="note-modal-save">Save</button>
+    </div>
+  </div>
+</div>
+
 <script>
   // Theme
   const html = document.documentElement;
@@ -798,6 +1089,132 @@
     loadShows();
   }
 
+  // ── Ratings & Notes ──
+  // Browser-local only (localStorage) — never written back to data.json
+  // automatically. The "Copy Ratings & Notes" button in the Movies tab
+  // exports everything as a paste-able block for Claude to merge in.
+  function getRatings() {
+    try { return JSON.parse(localStorage.getItem('watchRatings') || '{}'); } catch { return {}; }
+  }
+  function setRating(id, value) {
+    const ratings = getRatings();
+    if (value == null) delete ratings[id];
+    else ratings[id] = value;
+    localStorage.setItem('watchRatings', JSON.stringify(ratings));
+  }
+  function getNotes() {
+    try { return JSON.parse(localStorage.getItem('watchNotes') || '{}'); } catch { return {}; }
+  }
+  function setNote(id, text) {
+    const notes = getNotes();
+    if (!text) delete notes[id];
+    else notes[id] = text;
+    localStorage.setItem('watchNotes', JSON.stringify(notes));
+  }
+
+  // Renders a 5-star, half-star-precision rating widget as a self-contained
+  // <div class="star-rating">. bindStarRatings() wires click handling and
+  // re-renders just the inner slots (not the wrapper) on change, so the
+  // element identity — and any listeners attached to its container — survive.
+  function starsInnerHTML(id, rating) {
+    const r = rating || 0;
+    let html = '';
+    for (let i = 1; i <= 5; i++) {
+      const fillPct = Math.max(0, Math.min(1, r - (i - 1))) * 100;
+      html += `
+        <span class="star-slot">
+          <span class="star-empty">★</span>
+          <span class="star-filled" style="width:${fillPct}%">★</span>
+          <button class="star-hit left" data-star="${i - 0.5}" aria-label="Rate ${i - 0.5} stars"></button>
+          <button class="star-hit right" data-star="${i}" aria-label="Rate ${i} stars"></button>
+        </span>`;
+    }
+    return html;
+  }
+
+  function renderStars(id, rating) {
+    return `<div class="star-rating" data-id="${id}">${starsInnerHTML(id, rating)}</div>`;
+  }
+
+  // Event delegation — handles every star widget on the page, including
+  // ones rendered after this runs.
+  document.body.addEventListener('click', e => {
+    const btn = e.target.closest('.star-hit');
+    if (!btn) return;
+    e.stopPropagation();
+    const widget = btn.closest('.star-rating');
+    const id = widget.dataset.id;
+    const value = parseFloat(btn.dataset.star);
+    const current = getRatings()[id];
+    // Clicking the same value again clears the rating.
+    setRating(id, current === value ? null : value);
+    widget.innerHTML = starsInnerHTML(id, getRatings()[id]);
+    const label = widget.parentElement && widget.parentElement.querySelector('.rating-label');
+    if (label) {
+      const r = getRatings()[id];
+      label.textContent = r ? `${r}` : '—';
+    }
+  });
+
+  function noteButtonHTML(id, title, extraClass = '') {
+    const hasNote = !!getNotes()[id];
+    return `<button class="note-btn ${extraClass}${hasNote ? ' has-note' : ''}" data-note-id="${id}" data-note-title="${title.replace(/"/g, '&quot;')}" aria-label="Note" title="Note">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+        <path d="M14 2v6h6"></path>
+        <line x1="8" y1="13" x2="16" y2="13"></line>
+        <line x1="8" y1="17" x2="13" y2="17"></line>
+      </svg>
+    </button>`;
+  }
+
+  let noteModalShowId = null;
+  let noteModalOnSave = null;
+
+  function openNoteModal(id, title, onSave) {
+    noteModalShowId = id;
+    noteModalOnSave = onSave;
+    document.getElementById('note-modal-title').textContent = `Note — ${title}`;
+    document.getElementById('note-modal-text').value = getNotes()[id] || '';
+    document.getElementById('note-modal').classList.add('open');
+    document.getElementById('note-modal-text').focus();
+  }
+
+  function closeNoteModal() {
+    document.getElementById('note-modal').classList.remove('open');
+    noteModalShowId = null;
+    noteModalOnSave = null;
+  }
+
+  document.getElementById('note-modal-cancel').addEventListener('click', closeNoteModal);
+  document.getElementById('note-modal').addEventListener('click', e => {
+    if (e.target === e.currentTarget) closeNoteModal();
+  });
+  document.getElementById('note-modal-save').addEventListener('click', () => {
+    if (!noteModalShowId) return;
+    const text = document.getElementById('note-modal-text').value.trim();
+    setNote(noteModalShowId, text);
+    if (noteModalOnSave) noteModalOnSave();
+    showToast(text ? 'Note saved' : 'Note cleared');
+    closeNoteModal();
+  });
+
+  // Event delegation for every .note-btn on the page — cards, chips, movie
+  // grid — so new ones (re-rendered often) don't need individual listeners.
+  document.body.addEventListener('click', e => {
+    const btn = e.target.closest('.note-btn');
+    if (!btn) return;
+    e.stopPropagation();
+    const id = btn.dataset.noteId;
+    const title = btn.dataset.noteTitle || id;
+    openNoteModal(id, title, () => {
+      const hasNote = !!getNotes()[id];
+      document.querySelectorAll(`.note-btn[data-note-id="${CSS.escape(id)}"]`).forEach(b => {
+        b.classList.toggle('has-note', hasNote);
+      });
+    });
+  });
+
   // Last-updated formatting
   function timeAgo(dateStr) {
     if (!dateStr) return '';
@@ -845,27 +1262,90 @@
     renderWatchlist(watchlistCache.filter(i => i.title.toLowerCase().includes(q)));
   });
 
+  document.getElementById('watching-sort').addEventListener('change', e => { setSF('watching', { sort: e.target.value }); loadShows(); });
+  document.getElementById('watching-genre').addEventListener('change', e => { setSF('watching', { genre: e.target.value }); loadShows(); });
+  document.getElementById('watching-studio').addEventListener('change', e => { setSF('watching', { studio: e.target.value }); loadShows(); });
+  document.getElementById('completed-sort').addEventListener('change', e => { setSF('completed', { sort: e.target.value }); loadShows(); });
+  document.getElementById('completed-genre').addEventListener('change', e => { setSF('completed', { genre: e.target.value }); loadShows(); });
+  document.getElementById('completed-studio').addEventListener('change', e => { setSF('completed', { studio: e.target.value }); loadShows(); });
+
   // Render
+  // ── Sort / filter (Watching + Completed) ──
+  function getSF(section) {
+    try { return JSON.parse(localStorage.getItem(`sf:${section}`) || '{}'); } catch { return {}; }
+  }
+  function setSF(section, patch) {
+    localStorage.setItem(`sf:${section}`, JSON.stringify({ ...getSF(section), ...patch }));
+  }
+
+  function populateFilterSelect(select, values, prefix, desired) {
+    const options = [...new Set(values)].filter(Boolean).sort();
+    select.innerHTML = `<option value="">${prefix}: All</option>` +
+      options.map(v => `<option value="${v}">${v}</option>`).join('');
+    if (desired && options.includes(desired)) select.value = desired;
+  }
+
+  function applyFilter(list, genre, studio) {
+    return list.filter(s =>
+      (!genre || (s.genres || []).includes(genre)) &&
+      (!studio || s.studio === studio)
+    );
+  }
+
+  function sortActive(list, sortKey, pinned) {
+    const arr = [...list];
+    if (sortKey === 'pct') {
+      return arr.sort((a, b) => (b.currentEpisode / b.totalEpisodes) - (a.currentEpisode / a.totalEpisodes));
+    }
+    if (sortKey === 'updated') {
+      return arr.sort((a, b) => (b.lastUpdated || '').localeCompare(a.lastUpdated || ''));
+    }
+    if (sortKey === 'alpha') {
+      return arr.sort((a, b) => a.title.localeCompare(b.title));
+    }
+    // 'pinned' (default) — pinned shows first (in pin order), rest by remaining %
+    return arr.sort((a, b) => {
+      const pa = pinned.indexOf(a.id), pb = pinned.indexOf(b.id);
+      if (pa !== -1 || pb !== -1) {
+        if (pa === -1) return 1;
+        if (pb === -1) return -1;
+        return pa - pb;
+      }
+      return (1 - a.currentEpisode / a.totalEpisodes) - (1 - b.currentEpisode / b.totalEpisodes);
+    });
+  }
+
+  function sortCompleted(list, sortKey) {
+    const arr = [...list];
+    if (sortKey === 'alpha') return arr.sort((a, b) => a.title.localeCompare(b.title));
+    return arr.sort((a, b) => (b.lastUpdated || '').localeCompare(a.lastUpdated || ''));
+  }
+
   async function loadShows() {
     const res = await fetch('data.json?t=' + Date.now());
     const data = await res.json();
     const watching = data.watching ?? data;
     const pinned = getPinned();
-    const active = watching
-      .filter(s => s.currentEpisode < s.totalEpisodes)
-      .sort((a, b) => {
-        const pa = pinned.indexOf(a.id), pb = pinned.indexOf(b.id);
-        if (pa !== -1 || pb !== -1) {
-          if (pa === -1) return 1;
-          if (pb === -1) return -1;
-          return pa - pb;
-        }
-        return (1 - a.currentEpisode / a.totalEpisodes) - (1 - b.currentEpisode / b.totalEpisodes);
-      });
-    const completed = watching.filter(s => s.currentEpisode >= s.totalEpisodes);
+    const watchingSF = getSF('watching');
+    const completedSF = getSF('completed');
+
+    let active = watching.filter(s => s.currentEpisode < s.totalEpisodes);
+    populateFilterSelect(document.getElementById('watching-genre'), active.flatMap(s => s.genres || []), 'Genre', watchingSF.genre);
+    populateFilterSelect(document.getElementById('watching-studio'), active.map(s => s.studio), 'Studio', watchingSF.studio);
+    document.getElementById('watching-sort').value = watchingSF.sort || 'pinned';
+    active = applyFilter(active, watchingSF.genre, watchingSF.studio);
+    active = sortActive(active, watchingSF.sort || 'pinned', pinned);
+
+    const allCompleted = watching.filter(s => s.currentEpisode >= s.totalEpisodes);
+    populateFilterSelect(document.getElementById('completed-genre'), allCompleted.flatMap(s => s.genres || []), 'Genre', completedSF.genre);
+    populateFilterSelect(document.getElementById('completed-studio'), allCompleted.map(s => s.studio), 'Studio', completedSF.studio);
+    document.getElementById('completed-sort').value = completedSF.sort || 'updated';
+    let completed = applyFilter(allCompleted, completedSF.genre, completedSF.studio);
+    completed = sortCompleted(completed, completedSF.sort || 'updated');
+
     const watchlist = data.watchlist ?? [];
 
-    const finishedIds = new Set(completed.map(s => s.id));
+    const finishedIds = new Set(allCompleted.map(s => s.id));
     if (pinned.some(id => finishedIds.has(id))) {
       setPinned(pinned.filter(id => !finishedIds.has(id)));
     }
@@ -948,6 +1428,7 @@
             <div class="card-top">
               <div class="card-title">${show.title}</div>
               <div class="card-right">
+                ${noteButtonHTML(show.id, show.title)}
                 <span class="card-meta">${epLabel}</span>
                 <span class="card-pct done">done</span>
               </div>
@@ -991,9 +1472,18 @@
       const tab = btn.dataset.tab;
       document.getElementById('view-watching').style.display = tab === 'watching' ? '' : 'none';
       document.getElementById('view-tierlist').style.display = tab === 'tierlist' ? '' : 'none';
+      document.getElementById('view-movies').style.display = tab === 'movies' ? '' : 'none';
+      document.getElementById('view-stats').style.display = tab === 'stats' ? '' : 'none';
       if (tab === 'tierlist') {
         watchedShowsCache = null;
         initTierlistView();
+      }
+      if (tab === 'movies') {
+        watchedShowsCache = null;
+        renderMoviesTab();
+      }
+      if (tab === 'stats') {
+        renderStatsTab();
       }
     });
   });
@@ -1070,8 +1560,11 @@
     el.className = 'show-chip';
     el.dataset.id = show.id;
     el.title = show.title;
-    el.innerHTML = `${show.posterUrl ? `<img src="${show.posterUrl}" alt="" onerror="this.remove()">` : ''}<span>${show.title}</span>`;
+    el.innerHTML = `${show.posterUrl ? `<img src="${show.posterUrl}" alt="" onerror="this.remove()">` : ''}<span>${show.title}</span>${noteButtonHTML(show.id, show.title, 'chip-note-btn')}`;
     el.addEventListener('pointerdown', onChipPointerDown);
+    // The note icon must not start a chip drag/pick — stop it at pointerdown,
+    // before onChipPointerDown (bound above, fires on bubble) ever sees it.
+    el.querySelector('.note-btn').addEventListener('pointerdown', e => e.stopPropagation());
     return el;
   }
 
@@ -1434,6 +1927,156 @@
     if (mode === 'tier') exportTierList();
     else exportRankedList();
   });
+
+  // ── Movies Tab ──
+  async function renderMoviesTab() {
+    const shows = await getAllWatchedShows();
+    const movies = shows.filter(s => (s.category ?? 'anime') === 'movie');
+    const ratings = getRatings();
+    const sortKey = document.getElementById('movies-sort').value;
+    const sorted = [...movies];
+    if (sortKey === 'alpha') sorted.sort((a, b) => a.title.localeCompare(b.title));
+    else if (sortKey === 'rating') sorted.sort((a, b) => (ratings[b.id] || 0) - (ratings[a.id] || 0));
+    // 'added' — leave in data.json order
+
+    const grid = document.getElementById('movies-grid');
+    const empty = document.getElementById('movies-empty');
+    grid.innerHTML = '';
+
+    if (!sorted.length) {
+      empty.style.display = 'block';
+      return;
+    }
+    empty.style.display = 'none';
+
+    sorted.forEach(show => {
+      const r = ratings[show.id];
+      const card = document.createElement('div');
+      card.className = 'movie-card';
+      card.innerHTML = `
+        ${show.posterUrl ? `<img src="${show.posterUrl}" alt="" onerror="this.remove()">` : ''}
+        <div class="movie-card-body">
+          <div class="movie-card-title">${show.title}</div>
+          <div class="movie-card-rating">
+            ${renderStars(show.id, r)}
+            <span class="rating-label">${r || '—'}</span>
+          </div>
+          ${noteButtonHTML(show.id, show.title)}
+        </div>
+      `;
+      grid.appendChild(card);
+    });
+  }
+
+  document.getElementById('movies-sort').addEventListener('change', renderMoviesTab);
+
+  // ── Copy Ratings & Notes export ──
+  document.getElementById('btn-export-ratings').addEventListener('click', async () => {
+    const shows = await getAllWatchedShows();
+    const byId = Object.fromEntries(shows.map(s => [s.id, s]));
+    const ratings = getRatings();
+    const notes = getNotes();
+    const ids = [...new Set([...Object.keys(ratings), ...Object.keys(notes)])]
+      .filter(id => byId[id])
+      .sort((a, b) => byId[a].title.localeCompare(byId[b].title));
+
+    if (!ids.length) {
+      showToast('No ratings or notes to export yet');
+      return;
+    }
+
+    const lines = ['RATINGS & NOTES EXPORT', ''];
+    ids.forEach(id => {
+      const show = byId[id];
+      const r = ratings[id];
+      lines.push(`${id}: ${r ? r + ' stars' : '(no rating)'}`);
+      if (notes[id]) lines.push(`  "${notes[id]}"`);
+    });
+    navigator.clipboard.writeText(lines.join('\n'))
+      .then(() => showToast('Copied — paste to Claude'))
+      .catch(() => showToast('Copy failed — try again'));
+  });
+
+  // ── Stats Tab ──
+  async function renderStatsTab() {
+    const res = await fetch('data.json?t=' + Date.now());
+    const data = await res.json();
+    const watching = data.watching ?? [];
+    const watchedOnly = data.watched ?? [];
+    const watchlist = data.watchlist ?? [];
+
+    const activeWatching = watching.filter(s => s.currentEpisode < s.totalEpisodes);
+    const completedWatching = watching.filter(s => s.currentEpisode >= s.totalEpisodes);
+    const seen = new Set(completedWatching.map(s => s.id));
+    const allWatched = [...completedWatching, ...watchedOnly.filter(s => !seen.has(s.id))];
+
+    // Episodes/hours can only be computed for shows that carry episode counts
+    // (i.e. everything that passed through `watching`) plus movies (a movie
+    // is a single "watch" of its own runtime). Older `watched`-only anime/
+    // western entries were added before episode counts were tracked there,
+    // so they're counted toward "shows completed" but not toward episodes/hours.
+    let episodesWatched = 0;
+    let minutesWatched = 0;
+    const runtimeFor = s => s.runtimeMinutes || (s.category === 'anime' || !s.category ? 20 : 20);
+    activeWatching.forEach(s => { episodesWatched += s.currentEpisode; minutesWatched += s.currentEpisode * runtimeFor(s); });
+    completedWatching.forEach(s => { episodesWatched += s.totalEpisodes; minutesWatched += s.totalEpisodes * runtimeFor(s); });
+    watchedOnly.filter(s => !seen.has(s.id) && s.category === 'movie').forEach(s => {
+      episodesWatched += 1;
+      minutesWatched += s.runtimeMinutes || 100;
+    });
+
+    const categoryCounts = { anime: 0, western: 0, movie: 0 };
+    allWatched.forEach(s => { categoryCounts[s.category ?? 'anime']++; });
+
+    // Genre/studio breakdown only draws from `watching` (active + completed
+    // from it) — genres/studio aren't stored on older watched-only entries.
+    const genreCounts = {};
+    const studioCounts = {};
+    [...activeWatching, ...completedWatching].forEach(s => {
+      (s.genres || []).forEach(g => { genreCounts[g] = (genreCounts[g] || 0) + 1; });
+      if (s.studio) studioCounts[s.studio] = (studioCounts[s.studio] || 0) + 1;
+    });
+
+    function barRows(counts, max = 8) {
+      const entries = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, max);
+      const top = entries[0]?.[1] || 1;
+      return entries.map(([label, count]) => `
+        <div class="bar-row">
+          <span class="bar-row-label">${label}</span>
+          <div class="bar-row-track"><div class="bar-row-fill" style="width:${(count / top) * 100}%"></div></div>
+          <span class="bar-row-count">${count}</span>
+        </div>
+      `).join('');
+    }
+
+    const hours = (minutesWatched / 60).toFixed(1);
+
+    document.getElementById('view-stats').innerHTML = `
+      <div class="stats-grid">
+        <div class="stat-tile"><div class="stat-tile-value">${activeWatching.length}</div><div class="stat-tile-label">Watching</div></div>
+        <div class="stat-tile"><div class="stat-tile-value">${allWatched.length}</div><div class="stat-tile-label">Completed</div></div>
+        <div class="stat-tile"><div class="stat-tile-value">${watchlist.length}</div><div class="stat-tile-label">Watchlist</div></div>
+        <div class="stat-tile"><div class="stat-tile-value">${episodesWatched}</div><div class="stat-tile-label">Episodes Watched</div></div>
+        <div class="stat-tile"><div class="stat-tile-value">${hours}</div><div class="stat-tile-label">Hours Watched</div></div>
+      </div>
+      <p style="font-size:0.6rem; color:var(--muted); margin-top:-1.25rem; margin-bottom:1.5rem;">
+        Episodes/hours only cover shows tracked with episode counts (everything that passed through "Watching") plus movies — older watched-only entries added before that count toward "Completed" but not toward the episode/hour totals.
+      </p>
+
+      <div class="stats-section-title">Category split</div>
+      ${barRows({ Anime: categoryCounts.anime, Western: categoryCounts.western, Movies: categoryCounts.movie })}
+
+      <div class="stats-section-title">Top genres</div>
+      ${Object.keys(genreCounts).length ? barRows(genreCounts) : '<p style="font-size:0.65rem; color:var(--muted)">No genre data yet.</p>'}
+
+      <div class="stats-section-title">Top studios</div>
+      ${Object.keys(studioCounts).length ? barRows(studioCounts) : '<p style="font-size:0.65rem; color:var(--muted)">No studio data yet.</p>'}
+
+      <p style="font-size:0.6rem; color:var(--muted); margin-top:1rem;">
+        Genre/studio breakdown is based on the ${activeWatching.length + completedWatching.length} shows tracked with full metadata (currently watching or finished-from-watching) — most of the older watched history predates genre/studio tracking.
+      </p>
+    `;
+  }
 
   loadShows();
 </script>
