@@ -1292,27 +1292,18 @@
     );
   }
 
-  function sortActive(list, sortKey, pinned) {
+  // Sorts non-pinned shows only — pinned shows are handled separately in
+  // loadShows() so they always lead the list regardless of sort/filter.
+  function sortActive(list, sortKey) {
     const arr = [...list];
-    if (sortKey === 'pct') {
-      return arr.sort((a, b) => (b.currentEpisode / b.totalEpisodes) - (a.currentEpisode / a.totalEpisodes));
-    }
     if (sortKey === 'updated') {
       return arr.sort((a, b) => (b.lastUpdated || '').localeCompare(a.lastUpdated || ''));
     }
     if (sortKey === 'alpha') {
       return arr.sort((a, b) => a.title.localeCompare(b.title));
     }
-    // 'pinned' (default) — pinned shows first (in pin order), rest by remaining %
-    return arr.sort((a, b) => {
-      const pa = pinned.indexOf(a.id), pb = pinned.indexOf(b.id);
-      if (pa !== -1 || pb !== -1) {
-        if (pa === -1) return 1;
-        if (pb === -1) return -1;
-        return pa - pb;
-      }
-      return (1 - a.currentEpisode / a.totalEpisodes) - (1 - b.currentEpisode / b.totalEpisodes);
-    });
+    // 'pinned' (default) and 'pct' both order by remaining %, least remaining first
+    return arr.sort((a, b) => (1 - a.currentEpisode / a.totalEpisodes) - (1 - b.currentEpisode / b.totalEpisodes));
   }
 
   function sortCompleted(list, sortKey) {
@@ -1329,12 +1320,19 @@
     const watchingSF = getSF('watching');
     const completedSF = getSF('completed');
 
-    let active = watching.filter(s => s.currentEpisode < s.totalEpisodes);
-    populateFilterSelect(document.getElementById('watching-genre'), active.flatMap(s => s.genres || []), 'Genre', watchingSF.genre);
-    populateFilterSelect(document.getElementById('watching-studio'), active.map(s => s.studio), 'Studio', watchingSF.studio);
+    const allActive = watching.filter(s => s.currentEpisode < s.totalEpisodes);
+    populateFilterSelect(document.getElementById('watching-genre'), allActive.flatMap(s => s.genres || []), 'Genre', watchingSF.genre);
+    populateFilterSelect(document.getElementById('watching-studio'), allActive.map(s => s.studio), 'Studio', watchingSF.studio);
     document.getElementById('watching-sort').value = watchingSF.sort || 'pinned';
-    active = applyFilter(active, watchingSF.genre, watchingSF.studio);
-    active = sortActive(active, watchingSF.sort || 'pinned', pinned);
+    // Pinned shows always lead the list and are exempt from genre/studio
+    // filters — filters only narrow down the non-pinned remainder.
+    const pinnedActive = allActive
+      .filter(s => pinned.includes(s.id))
+      .sort((a, b) => pinned.indexOf(a.id) - pinned.indexOf(b.id));
+    let nonPinnedActive = allActive.filter(s => !pinned.includes(s.id));
+    nonPinnedActive = applyFilter(nonPinnedActive, watchingSF.genre, watchingSF.studio);
+    nonPinnedActive = sortActive(nonPinnedActive, watchingSF.sort || 'pinned');
+    const active = [...pinnedActive, ...nonPinnedActive];
 
     const allCompleted = watching.filter(s => s.currentEpisode >= s.totalEpisodes);
     populateFilterSelect(document.getElementById('completed-genre'), allCompleted.flatMap(s => s.genres || []), 'Genre', completedSF.genre);
