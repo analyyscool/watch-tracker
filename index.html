@@ -524,6 +524,13 @@
   .show-chip:active { cursor: grabbing; }
   .show-chip.dragging { opacity: 0.3; transform: scale(0.95); }
   .show-chip.picked { outline: 2px solid var(--accent); background: var(--surface); }
+  .show-chip.search-dim, .rank-row.search-dim { opacity: 0.15; }
+
+  .chip-rating {
+    font-size: 0.6rem;
+    color: #ffd60a;
+    flex-shrink: 0;
+  }
 
   .pool-section { margin-top: 3px; }
 
@@ -950,6 +957,7 @@
   </div>
 
   <div id="view-movies" style="display:none">
+    <input type="text" id="movies-search" class="search-input" placeholder="Filter movies…">
     <div class="movies-controls">
       <select class="sf-select" id="movies-sort">
         <option value="rating">Sort: Rating</option>
@@ -970,6 +978,8 @@
       <button class="btn category-btn" data-category="western">Western</button>
       <button class="btn category-btn" data-category="movie">Movies</button>
     </div>
+
+    <input type="text" id="tierlist-search" class="search-input" placeholder="Filter shows…">
 
     <div class="tierlist-controls">
       <div class="mode-toggle">
@@ -1067,14 +1077,16 @@
     localStorage.setItem('pinnedShows', JSON.stringify(ids));
   }
 
+  const MAX_PINNED = 5;
+
   function togglePin(id) {
     const pinned = getPinned();
     const idx = pinned.indexOf(id);
     if (idx !== -1) {
       pinned.splice(idx, 1);
       setPinned(pinned);
-    } else if (pinned.length >= 3) {
-      showToast('Max 3 pinned — unpin one first');
+    } else if (pinned.length >= MAX_PINNED) {
+      showToast(`Max ${MAX_PINNED} pinned — unpin one first`);
       return;
     } else {
       pinned.push(id);
@@ -1148,6 +1160,7 @@
       const r = getRatings()[id];
       label.textContent = r ? `${r}` : '—';
     }
+    updateSyncBadge();
   });
 
   function noteButtonHTML(id, title, extraClass = '') {
@@ -1189,6 +1202,7 @@
     const text = document.getElementById('note-modal-text').value.trim();
     setNote(noteModalShowId, text);
     if (noteModalOnSave) noteModalOnSave();
+    updateSyncBadge();
     showToast(text ? 'Note saved' : 'Note cleared');
     closeNoteModal();
   });
@@ -1552,7 +1566,8 @@
     el.className = 'show-chip';
     el.dataset.id = show.id;
     el.title = show.title;
-    el.innerHTML = `${show.posterUrl ? `<img src="${show.posterUrl}" alt="" onerror="this.remove()">` : ''}<span>${show.title}</span>`;
+    const rating = show.category === 'movie' ? getRatings()[show.id] : null;
+    el.innerHTML = `${show.posterUrl ? `<img src="${show.posterUrl}" alt="" onerror="this.remove()">` : ''}<span>${show.title}</span>${rating ? `<span class="chip-rating">★${rating}</span>` : ''}`;
     el.addEventListener('pointerdown', onChipPointerDown);
     return el;
   }
@@ -1742,6 +1757,7 @@
     const pool = document.getElementById('pool-zone');
     shows.filter(s => !placed.has(s.id)).forEach(s => pool.appendChild(createShowChip(s)));
     updatePoolCount();
+    applyTierSearch();
   }
 
   // ── Ranked List ──
@@ -1851,7 +1867,21 @@
     zone.innerHTML = '';
     order.forEach((id, i) => zone.appendChild(createRankRow(byId[id], i)));
     renumberRanks();
+    applyTierSearch();
   }
+
+  function applyTierSearch() {
+    const q = (document.getElementById('tierlist-search').value || '').toLowerCase();
+    document.querySelectorAll('#view-tierlist .show-chip').forEach(chip => {
+      chip.classList.toggle('search-dim', !(!q || chip.title.toLowerCase().includes(q)));
+    });
+    document.querySelectorAll('#view-tierlist .rank-row').forEach(row => {
+      const title = row.querySelector('.rank-title').textContent;
+      row.classList.toggle('search-dim', !(!q || title.toLowerCase().includes(q)));
+    });
+  }
+
+  document.getElementById('tierlist-search').addEventListener('input', applyTierSearch);
 
   // Tapping empty space in a zone (not on a chip — chips handle their own
   // taps in onChipPointerUp) places the currently-picked chip there.
@@ -1928,17 +1958,22 @@
     else if (sortKey === 'rating') sorted.sort((a, b) => (ratings[b.id] || 0) - (ratings[a.id] || 0));
     // 'added' — leave in data.json order
 
+    const q = (document.getElementById('movies-search').value || '').toLowerCase();
+    const visible = q ? sorted.filter(s => s.title.toLowerCase().includes(q)) : sorted;
+
     const grid = document.getElementById('movies-grid');
     const empty = document.getElementById('movies-empty');
     grid.innerHTML = '';
 
-    if (!sorted.length) {
+    if (!visible.length) {
+      empty.textContent = q ? 'No movies match your search.' : 'No movies in your watched list yet.';
       empty.style.display = 'block';
+      updateSyncBadge();
       return;
     }
     empty.style.display = 'none';
 
-    sorted.forEach(show => {
+    visible.forEach(show => {
       const r = ratings[show.id];
       const card = document.createElement('div');
       card.className = 'movie-card';
@@ -1955,9 +1990,38 @@
       `;
       grid.appendChild(card);
     });
+
+    updateSyncBadge();
   }
 
   document.getElementById('movies-sort').addEventListener('change', renderMoviesTab);
+  document.getElementById('movies-search').addEventListener('input', renderMoviesTab);
+
+  // ── Unsynced ratings/notes badge ──
+  // "Unsynced" = a show whose local rating/note doesn't match what's
+  // currently in data.json (which only ever gets updated via the export ->
+  // paste-to-Claude -> merge flow), so this tracks what a fresh export
+  // would actually change.
+  async function countUnsynced() {
+    const shows = await getAllWatchedShows();
+    const ratings = getRatings();
+    const notes = getNotes();
+    let count = 0;
+    shows.forEach(s => {
+      const localR = ratings[s.id] ?? null;
+      const localN = notes[s.id] || '';
+      const remoteR = s.rating ?? null;
+      const remoteN = s.note || '';
+      if (localR !== remoteR || localN !== remoteN) count++;
+    });
+    return count;
+  }
+
+  async function updateSyncBadge() {
+    const n = await countUnsynced();
+    const btn = document.getElementById('btn-export-ratings');
+    btn.textContent = n > 0 ? `Copy Ratings & Notes (${n})` : 'Copy Ratings & Notes';
+  }
 
   // ── Copy Ratings & Notes export ──
   document.getElementById('btn-export-ratings').addEventListener('click', async () => {
@@ -2066,6 +2130,20 @@
       </p>
     `;
   }
+
+  // ── Auto-refresh on focus ──
+  // Refetches data.json (rather than waiting for a manual Reload click)
+  // whenever the tab regains focus — covers the common case of Claude
+  // updating data.json in another window while this page sits open.
+  function refreshCurrentView() {
+    watchedShowsCache = null;
+    const tab = document.querySelector('.tab-btn.active')?.dataset.tab;
+    if (tab === 'tierlist') initTierlistView();
+    else if (tab === 'movies') renderMoviesTab();
+    else if (tab === 'stats') renderStatsTab();
+    else loadShows();
+  }
+  window.addEventListener('focus', refreshCurrentView);
 
   loadShows();
 </script>
