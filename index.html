@@ -428,6 +428,7 @@
   .category-toggle { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
   .category-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
   .ratings-category-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .scope-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 
   .tierlist-controls-right {
     display: flex;
@@ -921,6 +922,12 @@
     </div>
   </header>
 
+  <div class="category-toggle" id="scope-toggle">
+    <button class="btn scope-btn active" data-scope="karl">Karl</button>
+    <button class="btn scope-btn" data-scope="liisa">Liisa</button>
+    <button class="btn scope-btn" data-scope="together">Together</button>
+  </div>
+
   <div class="tabs">
     <button class="tab-btn active" data-tab="watching">Watching</button>
     <button class="tab-btn" data-tab="tierlist">Tier List</button>
@@ -1060,13 +1067,19 @@
   window.supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
   let currentProfile = null; // { id, display_name } once signed in
-  let activeScope = 'karl'; // hardcoded until Task 4 adds the scope switcher
+  let activeScope = 'karl';
+  let hasAutoSwitchedScope = false; // only auto-switch the scope once per sign-in
+
+  function canWriteScope(scope) {
+    return scope === 'together' || (currentProfile && scope === currentProfile.display_name.toLowerCase());
+  }
 
   async function refreshAuthUI() {
     const { data: { session } } = await supabase.auth.getSession();
     const authArea = document.getElementById('auth-area');
     if (!session) {
       currentProfile = null;
+      hasAutoSwitchedScope = false;
       authArea.innerHTML = `<button class="btn" id="btn-signin">Sign in</button>`;
       document.getElementById('btn-signin').addEventListener('click', async () => {
         const email = prompt('Email for magic link:');
@@ -1080,6 +1093,10 @@
     currentProfile = profile;
     authArea.innerHTML = `<span>${profile.display_name}</span> <button class="btn" id="btn-signout">Sign out</button>`;
     document.getElementById('btn-signout').addEventListener('click', () => supabase.auth.signOut().then(refreshAuthUI));
+    if (!hasAutoSwitchedScope) {
+      hasAutoSwitchedScope = true;
+      document.querySelector(`.scope-btn[data-scope="${profile.display_name.toLowerCase()}"]`)?.click();
+    }
   }
 
   supabase.auth.onAuthStateChange(() => refreshAuthUI());
@@ -1139,29 +1156,24 @@
   }
 
   // Pinning
-  function getPinned() {
-    return JSON.parse(localStorage.getItem('pinnedShows') || '[]');
-  }
-
-  function setPinned(ids) {
-    localStorage.setItem('pinnedShows', JSON.stringify(ids));
+  function getPinnedIds(rows) {
+    return rows.filter(s => s.pinned).map(s => s.id);
   }
 
   const MAX_PINNED = 5;
 
-  function togglePin(id) {
-    const pinned = getPinned();
-    const idx = pinned.indexOf(id);
-    if (idx !== -1) {
-      pinned.splice(idx, 1);
-      setPinned(pinned);
-    } else if (pinned.length >= MAX_PINNED) {
+  async function togglePin(id) {
+    if (!canWriteScope(activeScope)) return;
+    const rows = await fetchShows(activeScope);
+    const show = rows.find(s => s.id === id);
+    if (!show) return;
+    const current = !!show.pinned;
+    if (!current && getPinnedIds(rows).length >= MAX_PINNED) {
       showToast(`Max ${MAX_PINNED} pinned — unpin one first`);
       return;
-    } else {
-      pinned.push(id);
-      setPinned(pinned);
     }
+    await supabase.from('shows').update({ pinned: !current }).eq('id', id);
+    invalidateShowsCache();
     loadShows();
   }
 
@@ -1394,7 +1406,7 @@
     const rows = await fetchShows(activeScope);
     const watching = rows.filter(s => s.listStatus === 'watching');
     const watchlist = rows.filter(s => s.listStatus === 'watchlist');
-    const pinned = getPinned();
+    const pinned = getPinnedIds(rows);
     const watchingSF = getSF('watching');
     const completedSF = getSF('completed');
 
@@ -1420,8 +1432,10 @@
     completed = sortCompleted(completed, completedSF.sort || 'updated');
 
     const finishedIds = new Set(allCompleted.map(s => s.id));
-    if (pinned.some(id => finishedIds.has(id))) {
-      setPinned(pinned.filter(id => !finishedIds.has(id)));
+    const stalePinnedIds = pinned.filter(id => finishedIds.has(id));
+    if (stalePinnedIds.length) {
+      supabase.from('shows').update({ pinned: false }).in('id', stalePinnedIds)
+        .then(() => invalidateShowsCache());
     }
 
     watchlistCache = watchlist;
@@ -1457,7 +1471,7 @@
             <div class="card-top">
               <div class="card-title">${show.title}</div>
               <div class="card-right">
-                <button class="pin-btn${isPinned ? ' pinned' : ''}" onclick="togglePin('${show.id}')" aria-label="${isPinned ? 'Unpin' : 'Pin'} ${show.title}">
+                <button class="pin-btn${isPinned ? ' pinned' : ''}" ${canWriteScope(activeScope) ? '' : 'disabled'} onclick="togglePin('${show.id}')" aria-label="${isPinned ? 'Unpin' : 'Pin'} ${show.title}">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="${isPinned ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
                     <circle cx="12" cy="10" r="3"></circle>
@@ -1559,6 +1573,22 @@
       if (tab === 'stats') {
         renderStatsTab();
       }
+    });
+  });
+
+  // ── Scope switcher ──
+  document.querySelectorAll('.scope-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (btn.classList.contains('active')) return;
+      document.querySelectorAll('.scope-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      activeScope = btn.dataset.scope;
+      invalidateShowsCache();
+      const tab = document.querySelector('.tab-btn.active')?.dataset.tab;
+      if (tab === 'tierlist') initTierlistView();
+      else if (tab === 'ratings') renderRatingsTab();
+      else if (tab === 'stats') renderStatsTab();
+      else loadShows();
     });
   });
 
