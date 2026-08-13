@@ -917,6 +917,7 @@
       <button class="btn btn-primary" id="btn-add">+ Add Show</button>
       <button class="btn" id="btn-reload">↺ Reload</button>
       <button class="btn" id="btn-theme">dark mode</button>
+      <span id="auth-area"></span>
     </div>
   </header>
 
@@ -1047,7 +1048,70 @@
   </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
+  // Supabase client + auth
+  const SUPABASE_URL = 'https://ppelaixzzgfhqximihpr.supabase.co';
+  const SUPABASE_ANON_KEY = 'sb_publishable_gaxXcTPI8efpzoATbGqXnA_XqKLlH3_';
+  // The supabase-js UMD bundle declares its own top-level `var supabase`
+  // (in addition to setting window.supabase), so `const supabase = ...`
+  // here would throw "Identifier 'supabase' has already been declared".
+  // Reassigning window.supabase updates the same global binding instead.
+  window.supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  let currentProfile = null; // { id, display_name } once signed in
+  let activeScope = 'karl'; // hardcoded until Task 4 adds the scope switcher
+
+  async function refreshAuthUI() {
+    const { data: { session } } = await supabase.auth.getSession();
+    const authArea = document.getElementById('auth-area');
+    if (!session) {
+      currentProfile = null;
+      authArea.innerHTML = `<button class="btn" id="btn-signin">Sign in</button>`;
+      document.getElementById('btn-signin').addEventListener('click', async () => {
+        const email = prompt('Email for magic link:');
+        if (!email) return;
+        const { error } = await supabase.auth.signInWithOtp({ email });
+        authArea.innerHTML = error ? `<span>Sign-in failed</span>` : `<span>Check your email</span>`;
+      });
+      return;
+    }
+    const { data: profile } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
+    currentProfile = profile;
+    authArea.innerHTML = `<span>${profile.display_name}</span> <button class="btn" id="btn-signout">Sign out</button>`;
+    document.getElementById('btn-signout').addEventListener('click', () => supabase.auth.signOut().then(refreshAuthUI));
+  }
+
+  supabase.auth.onAuthStateChange(() => refreshAuthUI());
+  refreshAuthUI();
+
+  // Shows data access
+  let showsCache = null;
+
+  async function fetchShows(scope) {
+    const key = scope || 'all';
+    if (showsCache && showsCache.key === key) return showsCache.rows;
+    let query = supabase.from('shows').select('*, ratings(user_id, rating, note)');
+    if (scope) query = query.eq('scope', scope);
+    const { data, error } = await query;
+    if (error) { console.error(error); return []; }
+    const rows = data.map(s => ({
+      id: s.id, title: s.title, category: s.category, scope: s.scope,
+      posterUrl: s.poster_url, studio: s.studio, genres: s.genres,
+      totalEpisodes: s.total_episodes, totalSeasons: s.total_seasons,
+      currentEpisode: s.current_episode, seasonEpisode: s.season_episode,
+      currentSeason: s.current_season, runtimeMinutes: s.runtime_minutes,
+      listStatus: s.list_status, inTierPool: s.in_tier_pool, pinned: s.pinned,
+      tags: s.tags, lastUpdated: s.last_updated,
+      rating: currentProfile ? s.ratings.find(r => r.user_id === currentProfile.id)?.rating ?? null : null,
+      note: currentProfile ? s.ratings.find(r => r.user_id === currentProfile.id)?.note ?? null : null,
+    }));
+    showsCache = { key, rows };
+    return rows;
+  }
+
+  function invalidateShowsCache() { showsCache = null; }
+
   // Theme
   const html = document.documentElement;
   const themeBtn = document.getElementById('btn-theme');
@@ -1327,9 +1391,9 @@
   }
 
   async function loadShows() {
-    const res = await fetch('data.json?t=' + Date.now());
-    const data = await res.json();
-    const watching = data.watching ?? data;
+    const rows = await fetchShows(activeScope);
+    const watching = rows.filter(s => s.listStatus === 'watching');
+    const watchlist = rows.filter(s => s.listStatus === 'watchlist');
     const pinned = getPinned();
     const watchingSF = getSF('watching');
     const completedSF = getSF('completed');
@@ -1354,8 +1418,6 @@
     document.getElementById('completed-sort').value = completedSF.sort || 'updated';
     let completed = applyFilter(allCompleted, completedSF.genre, completedSF.studio);
     completed = sortCompleted(completed, completedSF.sort || 'updated');
-
-    const watchlist = data.watchlist ?? [];
 
     const finishedIds = new Set(allCompleted.map(s => s.id));
     if (pinned.some(id => finishedIds.has(id))) {
@@ -1462,7 +1524,7 @@
     renderWatchlist(watchlist);
   }
 
-  document.getElementById('btn-reload').addEventListener('click', loadShows);
+  document.getElementById('btn-reload').addEventListener('click', () => { invalidateShowsCache(); loadShows(); });
 
   document.getElementById('btn-add').addEventListener('click', () => {
     document.getElementById('modal').classList.add('open');
@@ -1537,15 +1599,7 @@
   })();
 
   async function getAllWatchedShows() {
-    if (watchedShowsCache) return watchedShowsCache;
-    const res = await fetch('data.json?t=' + Date.now());
-    const data = await res.json();
-    const watching = data.watching ?? data;
-    const completedFromWatching = watching.filter(s => s.currentEpisode >= s.totalEpisodes);
-    const watchedList = data.watched ?? [];
-    const seen = new Set(completedFromWatching.map(s => s.id));
-    watchedShowsCache = [...completedFromWatching, ...watchedList.filter(s => !seen.has(s.id))];
-    return watchedShowsCache;
+    return (await fetchShows(activeScope)).filter(s => s.inTierPool || (s.listStatus === 'watching' && s.currentEpisode >= s.totalEpisodes));
   }
 
   async function getWatchedShows(category = activeCategory) {
@@ -2070,11 +2124,10 @@
 
   // ── Stats Tab ──
   async function renderStatsTab() {
-    const res = await fetch('data.json?t=' + Date.now());
-    const data = await res.json();
-    const watching = data.watching ?? [];
-    const watchedOnly = data.watched ?? [];
-    const watchlist = data.watchlist ?? [];
+    const rows = await fetchShows(activeScope);
+    const watching = rows.filter(s => s.listStatus === 'watching');
+    const watchedOnly = rows.filter(s => s.inTierPool);
+    const watchlist = rows.filter(s => s.listStatus === 'watchlist');
 
     const activeWatching = watching.filter(s => s.currentEpisode < s.totalEpisodes);
     const completedWatching = watching.filter(s => s.currentEpisode >= s.totalEpisodes);
@@ -2155,6 +2208,7 @@
   // updating data.json in another window while this page sits open.
   function refreshCurrentView() {
     watchedShowsCache = null;
+    invalidateShowsCache();
     const tab = document.querySelector('.tab-btn.active')?.dataset.tab;
     if (tab === 'tierlist') initTierlistView();
     else if (tab === 'ratings') renderRatingsTab();
