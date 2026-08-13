@@ -57,7 +57,7 @@ create policy "ratings readable by authenticated" on ratings
   for select using (auth.role() = 'authenticated');
 
 create policy "ratings writable by owner" on ratings
-  for insert, update, delete using (user_id = auth.uid());
+  for all using (user_id = auth.uid());
 
 -- Karl's existing shows
 insert into shows
