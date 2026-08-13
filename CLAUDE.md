@@ -41,7 +41,7 @@ Do not backfill this for shows that were already finished before this rule was a
 
 ## Merging a "RATINGS & NOTES EXPORT" paste
 
-Ratings (movies only, 0–5 in 0.5 steps) and notes (any watched show) are set in-browser and live in that browser's `localStorage` — `data.json` only gets updated when the user pastes a "RATINGS & NOTES EXPORT" block copied from the Movies tab. When the user pastes one of these blocks:
+Ratings (0–5 in 0.5 steps, any watched show — anime/western/movie) and notes (any watched show) are set in-browser and live in that browser's `localStorage` — `data.json` only gets updated when the user pastes a "RATINGS & NOTES EXPORT" block copied from the Ratings tab. When the user pastes one of these blocks:
 
 - For each show listed, set `rating` and/or `note` on its matching entry in the `watched` array (a show may have one, the other, or both — skip whichever isn't present in the block, e.g. `(no rating)` means don't touch `rating`).
 - Leave every `watched` entry not mentioned in the block untouched — the export only contains shows that currently have a rating or note set, not the full list.

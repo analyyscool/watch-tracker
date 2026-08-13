@@ -427,6 +427,7 @@
 
   .category-toggle { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
   .category-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .ratings-category-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 
   .tierlist-controls-right {
     display: flex;
@@ -749,7 +750,7 @@
   .note-btn:hover { color: var(--accent); }
   .note-btn.has-note { color: var(--accent2); }
 
-  /* ── Movies tab ── */
+  /* ── Ratings tab ── */
   .movies-controls {
     display: flex;
     align-items: center;
@@ -922,7 +923,7 @@
   <div class="tabs">
     <button class="tab-btn active" data-tab="watching">Watching</button>
     <button class="tab-btn" data-tab="tierlist">Tier List</button>
-    <button class="tab-btn" data-tab="movies">Movies</button>
+    <button class="tab-btn" data-tab="ratings">Ratings</button>
     <button class="tab-btn" data-tab="stats">Stats</button>
   </div>
 
@@ -956,18 +957,23 @@
     <div id="completed"></div>
   </div>
 
-  <div id="view-movies" style="display:none">
-    <input type="text" id="movies-search" class="search-input" placeholder="Filter movies…">
+  <div id="view-ratings" style="display:none">
+    <div class="category-toggle" id="ratings-category-toggle">
+      <button class="btn ratings-category-btn active" data-category="anime">Anime</button>
+      <button class="btn ratings-category-btn" data-category="western">Western</button>
+      <button class="btn ratings-category-btn" data-category="movie">Movies</button>
+    </div>
+    <input type="text" id="ratings-search" class="search-input" placeholder="Filter…">
     <div class="movies-controls">
-      <select class="sf-select" id="movies-sort">
+      <select class="sf-select" id="ratings-sort">
         <option value="rating">Sort: Rating</option>
         <option value="alpha">Sort: A–Z</option>
         <option value="added">Sort: Recently added</option>
       </select>
       <button class="btn" id="btn-export-ratings">Copy Ratings & Notes</button>
     </div>
-    <div class="movies-grid" id="movies-grid"></div>
-    <div id="movies-empty" style="display:none; text-align:center; padding:3.5rem 1rem; font-size:0.7rem; letter-spacing:0.12em; text-transform:uppercase; color:var(--muted);">No movies in your watched list yet.</div>
+    <div class="movies-grid" id="ratings-grid"></div>
+    <div id="ratings-empty" style="display:none; text-align:center; padding:3.5rem 1rem; font-size:0.7rem; letter-spacing:0.12em; text-transform:uppercase; color:var(--muted);">Nothing here yet.</div>
   </div>
 
   <div id="view-stats" style="display:none"></div>
@@ -1097,7 +1103,7 @@
 
   // ── Ratings & Notes ──
   // Browser-local only (localStorage) — never written back to data.json
-  // automatically. The "Copy Ratings & Notes" button in the Movies tab
+  // automatically. The "Copy Ratings & Notes" button in the Ratings tab
   // exports everything as a paste-able block for Claude to merge in.
   function getRatings() {
     try { return JSON.parse(localStorage.getItem('watchRatings') || '{}'); } catch { return {}; }
@@ -1478,15 +1484,15 @@
       const tab = btn.dataset.tab;
       document.getElementById('view-watching').style.display = tab === 'watching' ? '' : 'none';
       document.getElementById('view-tierlist').style.display = tab === 'tierlist' ? '' : 'none';
-      document.getElementById('view-movies').style.display = tab === 'movies' ? '' : 'none';
+      document.getElementById('view-ratings').style.display = tab === 'ratings' ? '' : 'none';
       document.getElementById('view-stats').style.display = tab === 'stats' ? '' : 'none';
       if (tab === 'tierlist') {
         watchedShowsCache = null;
         initTierlistView();
       }
-      if (tab === 'movies') {
+      if (tab === 'ratings') {
         watchedShowsCache = null;
-        renderMoviesTab();
+        renderRatingsTab();
       }
       if (tab === 'stats') {
         renderStatsTab();
@@ -1566,7 +1572,7 @@
     el.className = 'show-chip';
     el.dataset.id = show.id;
     el.title = show.title;
-    const rating = show.category === 'movie' ? getRatings()[show.id] : null;
+    const rating = getRatings()[show.id];
     el.innerHTML = `${show.posterUrl ? `<img src="${show.posterUrl}" alt="" onerror="this.remove()">` : ''}<span>${show.title}</span>${rating ? `<span class="chip-rating">★${rating}</span>` : ''}`;
     el.addEventListener('pointerdown', onChipPointerDown);
     return el;
@@ -1947,26 +1953,29 @@
     else exportRankedList();
   });
 
-  // ── Movies Tab ──
-  async function renderMoviesTab() {
+  // ── Ratings Tab ──
+  let activeRatingsCategory = 'anime';
+  const RATINGS_EMPTY_LABEL = { anime: 'No anime in your watched list yet.', western: 'No western shows in your watched list yet.', movie: 'No movies in your watched list yet.' };
+
+  async function renderRatingsTab() {
     const shows = await getAllWatchedShows();
-    const movies = shows.filter(s => (s.category ?? 'anime') === 'movie');
+    const inCategory = shows.filter(s => (s.category ?? 'anime') === activeRatingsCategory);
     const ratings = getRatings();
-    const sortKey = document.getElementById('movies-sort').value;
-    const sorted = [...movies];
+    const sortKey = document.getElementById('ratings-sort').value;
+    const sorted = [...inCategory];
     if (sortKey === 'alpha') sorted.sort((a, b) => a.title.localeCompare(b.title));
     else if (sortKey === 'rating') sorted.sort((a, b) => (ratings[b.id] || 0) - (ratings[a.id] || 0));
     // 'added' — leave in data.json order
 
-    const q = (document.getElementById('movies-search').value || '').toLowerCase();
+    const q = (document.getElementById('ratings-search').value || '').toLowerCase();
     const visible = q ? sorted.filter(s => s.title.toLowerCase().includes(q)) : sorted;
 
-    const grid = document.getElementById('movies-grid');
-    const empty = document.getElementById('movies-empty');
+    const grid = document.getElementById('ratings-grid');
+    const empty = document.getElementById('ratings-empty');
     grid.innerHTML = '';
 
     if (!visible.length) {
-      empty.textContent = q ? 'No movies match your search.' : 'No movies in your watched list yet.';
+      empty.textContent = q ? 'Nothing matches your search.' : RATINGS_EMPTY_LABEL[activeRatingsCategory];
       empty.style.display = 'block';
       updateSyncBadge();
       return;
@@ -1994,8 +2003,17 @@
     updateSyncBadge();
   }
 
-  document.getElementById('movies-sort').addEventListener('change', renderMoviesTab);
-  document.getElementById('movies-search').addEventListener('input', renderMoviesTab);
+  document.getElementById('ratings-sort').addEventListener('change', renderRatingsTab);
+  document.getElementById('ratings-search').addEventListener('input', renderRatingsTab);
+  document.querySelectorAll('.ratings-category-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (btn.classList.contains('active')) return;
+      document.querySelectorAll('.ratings-category-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      activeRatingsCategory = btn.dataset.category;
+      renderRatingsTab();
+    });
+  });
 
   // ── Unsynced ratings/notes badge ──
   // "Unsynced" = a show whose local rating/note doesn't match what's
@@ -2139,7 +2157,7 @@
     watchedShowsCache = null;
     const tab = document.querySelector('.tab-btn.active')?.dataset.tab;
     if (tab === 'tierlist') initTierlistView();
-    else if (tab === 'movies') renderMoviesTab();
+    else if (tab === 'ratings') renderRatingsTab();
     else if (tab === 'stats') renderStatsTab();
     else loadShows();
   }
