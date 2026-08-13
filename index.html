@@ -410,6 +410,37 @@
   .watchlist-item:hover .watchlist-name { color: var(--text); }
   .watchlist-item:hover .watchlist-cta { color: var(--accent); }
 
+  .tag-filter-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-bottom: 0.6rem;
+  }
+
+  .tag-pill.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+  .watchlist-add {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 0.6rem;
+  }
+
+  .watchlist-add input {
+    flex: 1;
+    min-width: 8rem;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.72rem;
+    padding: 0.55rem 0.8rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--text);
+  }
+
+  .watchlist-add input::placeholder { color: var(--muted); }
+  .watchlist-add input:focus { outline: none; border-color: var(--accent); }
+
   /* ── Toast ── */
   .toast {
     position: fixed;
@@ -972,6 +1003,12 @@
     <div id="empty">No shows in progress — tell Claude to add one.</div>
 
     <div class="section-divider"><span>watchlist</span></div>
+    <div class="tag-filter-bar" id="watchlist-tag-filter"></div>
+    <div class="watchlist-add" id="watchlist-add" style="display:none">
+      <input type="text" id="watchlist-add-title" placeholder="Title…">
+      <input type="text" id="watchlist-add-tags" placeholder="tags, comma, separated">
+      <button class="btn" id="watchlist-add-btn">+ Add</button>
+    </div>
     <input type="text" id="watchlist-search" class="search-input" placeholder="Filter watchlist…">
     <div id="watchlist"></div>
 
@@ -1407,6 +1444,33 @@
     renderWatchlist(watchlistCache.filter(i => i.title.toLowerCase().includes(q)));
   });
 
+  function renderWatchlistTagFilter(watchlist, activeTags) {
+    const allTags = [...new Set(watchlist.flatMap(s => s.tags || []))].sort();
+    const bar = document.getElementById('watchlist-tag-filter');
+    bar.innerHTML = allTags.map(tag => `<button class="btn tag-pill${activeTags.includes(tag) ? ' active' : ''}" data-tag="${tag}">${tag}</button>`).join('');
+    bar.querySelectorAll('.tag-pill').forEach(btn => {
+      btn.addEventListener('click', () => {
+        btn.classList.toggle('active');
+        loadShows(); // re-render with updated tag filter read fresh from the DOM
+      });
+    });
+  }
+
+  document.getElementById('watchlist-add-btn').addEventListener('click', async () => {
+    const title = document.getElementById('watchlist-add-title').value.trim();
+    const tagsRaw = document.getElementById('watchlist-add-tags').value.trim();
+    if (!title) return;
+    const id = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+    await supabase.from('shows').insert({
+      id, title, category: 'anime', scope: activeScope, list_status: 'watchlist',
+      tags: tagsRaw ? tagsRaw.split(',').map(t => t.trim()).filter(Boolean) : null,
+    });
+    document.getElementById('watchlist-add-title').value = '';
+    document.getElementById('watchlist-add-tags').value = '';
+    invalidateShowsCache();
+    loadShows();
+  });
+
   document.getElementById('watching-sort').addEventListener('change', e => { setSF('watching', { sort: e.target.value }); loadShows(); });
   document.getElementById('watching-genre').addEventListener('change', e => { setSF('watching', { genre: e.target.value }); loadShows(); });
   document.getElementById('watching-studio').addEventListener('change', e => { setSF('watching', { studio: e.target.value }); loadShows(); });
@@ -1493,7 +1557,13 @@
         .then(() => invalidateShowsCache());
     }
 
-    watchlistCache = watchlist;
+    document.getElementById('watchlist-add').style.display = canWriteScope(activeScope) ? '' : 'none';
+    const activeTags = [...document.querySelectorAll('.tag-pill.active')].map(btn => btn.dataset.tag);
+    renderWatchlistTagFilter(watchlist, activeTags);
+    const filteredWatchlist = activeTags.length
+      ? watchlist.filter(s => (s.tags || []).some(t => activeTags.includes(t)))
+      : watchlist;
+    watchlistCache = filteredWatchlist;
 
     const grid = document.getElementById('grid');
     const empty = document.getElementById('empty');
@@ -1598,7 +1668,7 @@
       });
     }
 
-    renderWatchlist(watchlist);
+    renderWatchlist(filteredWatchlist);
   }
 
   document.getElementById('btn-reload').addEventListener('click', () => { invalidateShowsCache(); loadShows(); });
