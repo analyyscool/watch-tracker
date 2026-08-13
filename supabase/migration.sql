@@ -59,6 +59,9 @@ create policy "ratings readable by authenticated" on ratings
 create policy "ratings writable by owner" on ratings
   for all using (user_id = auth.uid());
 
+grant usage on schema public to service_role, authenticated, anon;
+grant select, insert, update, delete on public.shows, public.ratings, public.profiles to service_role, authenticated, anon;
+
 -- Karl's existing shows
 insert into shows
   (id, title, category, scope, poster_url, studio, genres, total_episodes, total_seasons,
