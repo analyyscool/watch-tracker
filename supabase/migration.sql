@@ -49,8 +49,11 @@ create policy "shows readable by authenticated" on shows
 
 create policy "shows writable by owner or together" on shows
   for all using (
-    scope = 'together'
-    or scope::text = (select lower(display_name) from profiles where id = auth.uid())
+    auth.role() = 'authenticated'
+    and (
+      scope = 'together'
+      or scope::text = (select lower(display_name) from profiles where id = auth.uid())
+    )
   );
 
 create policy "ratings readable by authenticated" on ratings
