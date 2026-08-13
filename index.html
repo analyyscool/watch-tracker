@@ -303,6 +303,28 @@
     transition: width 0.4s ease;
   }
 
+  .progress-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.25rem 1.25rem;
+  }
+
+  .progress-controls .btn.progress-step {
+    padding: 0.3rem 0.6rem;
+    line-height: 1;
+  }
+
+  .progress-value {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.65rem;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .mark-finished-btn { margin-left: auto; }
+
   /* ── Empty state ── */
   #empty {
     display: none;
@@ -1177,6 +1199,43 @@
     loadShows();
   }
 
+  // ── Progress bump / mark finished ──
+  async function bumpProgress(id, delta) {
+    const rows = await fetchShows(activeScope);
+    const show = rows.find(s => s.id === id);
+    if (!show || !canWriteScope(activeScope)) return;
+    const newEpisode = Math.max(0, Math.min(show.totalEpisodes, show.currentEpisode + delta));
+    await supabase.from('shows').update({
+      current_episode: newEpisode,
+      season_episode: newEpisode, // seasons collapse to a single running total in this simplified control; per-season tracking still works via Task 8's Add Show flow setting initial values
+      last_updated: new Date().toISOString().slice(0, 10),
+    }).eq('id', id);
+    invalidateShowsCache();
+    loadShows();
+  }
+
+  async function markFinished(id) {
+    const rows = await fetchShows(activeScope);
+    const show = rows.find(s => s.id === id);
+    if (!show || !canWriteScope(activeScope)) return;
+    await supabase.from('shows').update({
+      current_episode: show.totalEpisodes,
+      season_episode: show.totalEpisodes,
+      current_season: show.totalSeasons,
+      in_tier_pool: true,
+      last_updated: new Date().toISOString().slice(0, 10),
+    }).eq('id', id);
+    invalidateShowsCache();
+    loadShows();
+  }
+
+  document.body.addEventListener('click', e => {
+    const stepBtn = e.target.closest('.progress-step');
+    if (stepBtn) { bumpProgress(stepBtn.dataset.id, parseInt(stepBtn.dataset.delta, 10)); return; }
+    const finBtn = e.target.closest('.mark-finished-btn');
+    if (finBtn) { markFinished(finBtn.dataset.id); return; }
+  });
+
   // ── Ratings & Notes ──
   // Browser-local only (localStorage) — never written back to data.json
   // automatically. The "Copy Ratings & Notes" button in the Ratings tab
@@ -1464,6 +1523,13 @@
           : `E${show.seasonEpisode}`;
         const card = document.createElement('div');
         const isPinned = pinned.includes(show.id);
+        const progressControls = canWriteScope(activeScope) ? `
+          <div class="progress-controls">
+            <button class="btn progress-step" data-id="${show.id}" data-delta="-1">−</button>
+            <span class="progress-value">${show.currentEpisode}/${show.totalEpisodes}</span>
+            <button class="btn progress-step" data-id="${show.id}" data-delta="1">+</button>
+            <button class="btn mark-finished-btn" data-id="${show.id}">Mark Finished</button>
+          </div>` : '';
         card.className = 'card' + (isPinned ? ' pinned' : '');
         card.innerHTML = `
           ${show.posterUrl ? `<img class="card-poster" src="${show.posterUrl}" alt="" onerror="this.remove()">` : ''}
@@ -1490,6 +1556,7 @@
             <div class="progress-bar">
               <div class="progress-fill" style="width:${pct}%"></div>
             </div>
+            ${progressControls}
           </div>
         `;
         grid.appendChild(card);
