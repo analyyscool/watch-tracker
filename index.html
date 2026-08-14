@@ -2180,7 +2180,7 @@
     const sorted = [...inCategory];
     if (sortKey === 'alpha') sorted.sort((a, b) => a.title.localeCompare(b.title));
     else if (sortKey === 'rating') sorted.sort((a, b) => (b.rating || 0) - (a.rating || 0));
-    // 'added' — leave in data.json order
+    // 'added' — leave in original order
 
     const q = (document.getElementById('ratings-search').value || '').toLowerCase();
     const visible = q ? sorted.filter(s => s.title.toLowerCase().includes(q)) : sorted;
@@ -2308,9 +2308,9 @@
   }
 
   // ── Auto-refresh on focus ──
-  // Refetches data.json (rather than waiting for a manual Reload click)
-  // whenever the tab regains focus — covers the common case of Claude
-  // updating data.json in another window while this page sits open.
+  // Refetches shows from Supabase (rather than waiting for a manual Reload click)
+  // whenever the tab regains focus — covers the common case of data being
+  // updated in another window while this page sits open.
   function refreshCurrentView() {
     watchedShowsCache = null;
     invalidateShowsCache();

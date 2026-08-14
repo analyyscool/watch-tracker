@@ -5,11 +5,11 @@
 When adding a new show, first ask (if not already clear from context) which
 scope it belongs to: Karl's list, Liisa's list, or Together.
 
-Look up the exact episode count before writing the entry, same as before:
+Look up the exact episode count before writing the entry:
 - Anime: Jikan API (`https://api.jikan.moe/v4/anime?q=<title>&limit=1`).
 - Live-action: TMDB.
 
-Then insert directly into Supabase instead of editing `data.json`:
+Then insert directly into Supabase:
 
 ```bash
 node scripts/supabase-write.mjs shows '[{
