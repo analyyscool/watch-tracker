@@ -1895,14 +1895,18 @@
     populateFilterSelect(document.getElementById('reading-category'), reading.map(m => m.category), 'Type', getSF('reading').category);
     document.getElementById('reading-sort').value = getSF('reading').sort || 'pinned';
 
+    const pinnedReading = reading.filter(m => m.pinned);
+    const nonPinnedReading = reading.filter(m => !m.pinned);
+    const orderedReading = [...pinnedReading, ...nonPinnedReading];
+
     const grid = document.getElementById('reading-grid');
     const empty = document.getElementById('reading-empty');
     grid.innerHTML = '';
-    if (reading.length === 0) {
+    if (orderedReading.length === 0) {
       empty.style.display = 'block';
     } else {
       empty.style.display = 'none';
-      reading.forEach(m => {
+      orderedReading.forEach(m => {
         const card = document.createElement('div');
         const isPinned = pinned.includes(m.id);
         card.className = 'card' + (isPinned ? ' pinned' : '');
@@ -1926,6 +1930,12 @@
             <div class="card-top">
               <div class="card-title">${m.title}</div>
               <div class="card-right">
+                <button class="pin-btn${isPinned ? ' pinned' : ''}" ${canWriteScope(activeScope) ? '' : 'disabled'} onclick="toggleReadingPin('${m.id}')" aria-label="${isPinned ? 'Unpin' : 'Pin'} ${m.title}">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="${isPinned ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+                    <circle cx="12" cy="10" r="3"></circle>
+                  </svg>
+                </button>
                 <span class="card-meta">${m.category}</span>
                 <span class="card-pct">${progressPct(m)}%</span>
               </div>
@@ -1974,6 +1984,24 @@
     document.getElementById('to-read-list').innerHTML = toRead.map(m => `
       <div class="watchlist-item"><span class="watchlist-name">${m.title}</span><span class="watchlist-cta">→ start</span></div>
     `).join('');
+  }
+
+  // ── Reading pinning ──
+  async function toggleReadingPin(id) {
+    if (!canWriteScope(activeScope)) return;
+    const rows = await fetchWrittenMedia(activeScope);
+    const m = rows.find(r => r.id === id);
+    if (!m) return;
+    const current = !!m.pinned;
+    const reading = rows.filter(r => r.listStatus === 'reading');
+    if (!current && reading.filter(r => r.pinned).length >= MAX_PINNED) {
+      showToast(`Max ${MAX_PINNED} pinned — unpin one first`);
+      return;
+    }
+    const { error } = await supabase.from('written_media').update({ pinned: !current }).eq('id', id);
+    if (checkWriteError(error)) return;
+    invalidateWrittenMediaCache();
+    loadReading();
   }
 
   // ── Reading progress bump / mark finished ──
