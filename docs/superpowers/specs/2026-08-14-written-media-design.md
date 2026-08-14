@@ -128,9 +128,14 @@ create policy "written_media readable by authenticated" on written_media
 
 create policy "written_media writable by owner or together" on written_media
   for all using (
-    scope = 'together'
-    or scope::text = (select lower(display_name) from profiles where id = auth.uid())
+    auth.role() = 'authenticated'
+    and (
+      scope = 'together'
+      or scope::text = (select lower(display_name) from profiles where id = auth.uid())
+    )
   );
+
+grant select, insert, update, delete on public.written_media to service_role, authenticated, anon;
 ```
 
 `ratings` policies are unchanged — they already gate on `user_id = auth.uid()`
