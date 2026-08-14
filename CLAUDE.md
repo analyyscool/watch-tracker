@@ -55,10 +55,19 @@ Look up chapter/volume counts before writing the entry:
 - Manga (and manhwa, when MAL has it): query Jikan
   (`https://api.jikan.moe/v4/manga?q=<title>&limit=1`) — gives `chapters`,
   `volumes`, `status`, cover (`images.jpg.large_image_url`), `authors[0].name`,
-  and `genres[].name`.
-- Manhwa not on MAL, webnovels, and books: no reliable free API — ask the
-  user for author, chapter/page count (or leave null if unknown/ongoing),
-  and cover art URL if they have one.
+  and `genres[].name`. No API key needed, but MAL itself occasionally goes
+  down (Jikan returns a 504 in that case) — if so, retry later rather than
+  treating it as a permanent gap.
+- Books: cover art via Open Library
+  (`https://openlibrary.org/search.json?title=<title>&limit=1` → `cover_i`,
+  then `https://covers.openlibrary.org/b/id/<cover_i>-L.jpg`) — free, no API
+  key, no quota wall. (Google Books was tried first and rejected: its
+  anonymous/no-key quota is effectively zero.) Chapter/page counts and
+  author still need to come from the user or a manual search — Open Library
+  is cover-art-only here.
+- Manhwa not on MAL, and webnovels: no reliable free API for either data or
+  cover art — ask the user for author, chapter/page count (or leave null if
+  unknown/ongoing), and cover art URL if they have one.
 
 `category` is one of `"book"`, `"manga"`, `"manhwa"`, or `"webnovel"`.
 `total_pages`/`current_page` are only meaningful for `"book"`; the rest use
