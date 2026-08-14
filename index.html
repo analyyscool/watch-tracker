@@ -331,6 +331,17 @@
 
   .mark-finished-btn { margin-left: auto; }
 
+  .page-input {
+    width: 4.5rem;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.7rem;
+    padding: 0.3rem 0.4rem;
+    border: 1px solid var(--border2);
+    border-radius: 4px;
+    background: var(--bg);
+    color: var(--text);
+  }
+
   /* ── Empty state ── */
   #empty {
     display: none;
@@ -1894,6 +1905,20 @@
         const card = document.createElement('div');
         const isPinned = pinned.includes(m.id);
         card.className = 'card' + (isPinned ? ' pinned' : '');
+        const progressControls = canWriteScope(activeScope)
+          ? (m.category === 'book'
+              ? `<div class="progress-controls">
+                   <input type="number" class="page-input" data-id="${m.id}" min="0" max="${m.totalPages || ''}" value="${m.currentPage || 0}">
+                   <span class="progress-value">/ ${m.totalPages || '?'}p</span>
+                   <button class="btn mark-finished-btn" data-media-id="${m.id}">Mark Finished</button>
+                 </div>`
+              : `<div class="progress-controls">
+                   <button class="btn chapter-step" data-id="${m.id}" data-delta="-1">−</button>
+                   <span class="progress-value">Ch ${m.currentChapter || 0}${m.totalChapters ? '/' + m.totalChapters : ''}</span>
+                   <button class="btn chapter-step" data-id="${m.id}" data-delta="1">+</button>
+                   <button class="btn mark-finished-btn" data-media-id="${m.id}">Mark Finished</button>
+                 </div>`)
+          : '';
         card.innerHTML = `
           ${m.coverUrl ? `<img class="card-poster" src="${m.coverUrl}" alt="" onerror="this.remove()">` : ''}
           <div class="card-body">
@@ -1910,6 +1935,7 @@
               <span class="stat">${timeAgo(m.lastUpdated)}</span>
             </div>
             <div class="progress-bar"><div class="progress-fill" style="width:${progressPct(m)}%"></div></div>
+            ${progressControls}
           </div>
         `;
         grid.appendChild(card);
@@ -1948,6 +1974,67 @@
       <div class="watchlist-item"><span class="watchlist-name">${m.title}</span><span class="watchlist-cta">→ start</span></div>
     `).join('');
   }
+
+  // ── Reading progress bump / mark finished ──
+  async function bumpChapter(id, delta) {
+    const rows = await fetchWrittenMedia(activeScope);
+    const m = rows.find(r => r.id === id);
+    if (!m || !canWriteScope(activeScope)) return;
+    const max = m.totalChapters ?? Infinity;
+    const newChapter = Math.max(0, Math.min(max, (m.currentChapter || 0) + delta));
+    const { error } = await supabase.from('written_media').update({
+      current_chapter: newChapter,
+      last_updated: new Date().toISOString().slice(0, 10),
+    }).eq('id', id);
+    if (checkWriteError(error)) return;
+    invalidateWrittenMediaCache();
+    loadReading();
+  }
+
+  async function setPage(id, page) {
+    const rows = await fetchWrittenMedia(activeScope);
+    const m = rows.find(r => r.id === id);
+    if (!m || !canWriteScope(activeScope)) return;
+    const max = m.totalPages ?? Infinity;
+    const newPage = Math.max(0, Math.min(max, page));
+    const { error } = await supabase.from('written_media').update({
+      current_page: newPage,
+      last_updated: new Date().toISOString().slice(0, 10),
+    }).eq('id', id);
+    if (checkWriteError(error)) return;
+    invalidateWrittenMediaCache();
+    loadReading();
+  }
+
+  async function markReadingFinished(id) {
+    const rows = await fetchWrittenMedia(activeScope);
+    const m = rows.find(r => r.id === id);
+    if (!m || !canWriteScope(activeScope)) return;
+    const { error } = await supabase.from('written_media').update({
+      current_chapter: m.totalChapters ?? m.currentChapter,
+      current_page: m.totalPages ?? m.currentPage,
+      current_volume: m.totalVolumes ?? m.currentVolume,
+      list_status: 'completed',
+      last_updated: new Date().toISOString().slice(0, 10),
+    }).eq('id', id);
+    if (checkWriteError(error)) return;
+    invalidateWrittenMediaCache();
+    loadReading();
+  }
+
+  document.body.addEventListener('click', e => {
+    const chBtn = e.target.closest('.chapter-step');
+    if (chBtn) { bumpChapter(chBtn.dataset.id, parseInt(chBtn.dataset.delta, 10)); return; }
+    const finBtn = e.target.closest('.mark-finished-btn[data-media-id]');
+    if (finBtn) { markReadingFinished(finBtn.dataset.mediaId); return; }
+  });
+
+  document.body.addEventListener('change', e => {
+    const input = e.target.closest('.page-input');
+    if (!input) return;
+    const page = parseInt(input.value, 10);
+    if (!isNaN(page)) setPage(input.dataset.id, page);
+  });
 
   document.getElementById('btn-reload').addEventListener('click', () => { invalidateShowsCache(); loadShows(); });
 
