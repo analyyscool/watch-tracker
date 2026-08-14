@@ -4,6 +4,10 @@ Open tasks queued for a future session. Newest at the top.
 
 ---
 
+## Stuck leftover worktree directory — Karl to remove manually
+
+- `.worktrees\multiuser-supabase-backend` is an empty, orphaned directory (no `.git` file, not in `git worktree list`) left over from the original multi-user-backend session — safe to delete, but locked by something (`rmdir`/`rm -rf` both fail with "Device or resource busy"). Karl tried closing/reloading VS Code and it still didn't release. Next session: remind Karl this is still pending, and try again — possibly check Task Manager for a stray `python.exe` (an old `http.server` instance) holding it as a working directory, since several were started from that exact path in earlier sessions per shell history.
+
 ## Letterboxd import for Liisa — ready to run, just needs her export
 
 - `scripts/import-letterboxd.mjs` was built during the original multi-user backend session and works — it just hasn't been run yet. Now that Liisa's account exists (invited this session, her `user_id` is in `profiles`), the only remaining blocker is Liisa actually producing the export: Letterboxd → Settings → Import & Export → Export, then sending Karl the `ratings.csv`. Run as `node scripts/import-letterboxd.mjs <path-to-ratings.csv> <liisa-user-id>`.
