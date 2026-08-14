@@ -740,6 +740,46 @@
   .modal-actions { display: flex; gap: 0.6rem; }
   .modal-actions .btn { flex: 1; }
 
+  /* ── Sign-in gate ── */
+  .signed-out-screen {
+    max-width: 320px;
+    margin: 4rem auto;
+    text-align: center;
+  }
+
+  .signed-out-screen .muted {
+    font-size: 0.72rem;
+    color: var(--muted);
+    line-height: 1.75;
+    margin-bottom: 1.5rem;
+  }
+
+  .signin-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+
+  .signin-form input {
+    width: 100%;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.75rem;
+    padding: 0.6rem 0.75rem;
+    border: 1px solid var(--border2);
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--text);
+    box-sizing: border-box;
+  }
+
+  .signin-form input:focus { outline: none; border-color: var(--accent); }
+
+  .signin-error {
+    font-size: 0.72rem;
+    color: #e05a5a;
+    margin-top: 0.4rem;
+  }
+
   /* ── Star rating ── */
   .star-rating {
     display: inline-flex;
@@ -975,6 +1015,18 @@
     </div>
   </header>
 
+  <div id="signed-out-screen" class="signed-out-screen" style="display:none">
+    <h2>Sign in</h2>
+    <p class="muted">Sign in to see Karl's, Liisa's, and Together's lists.</p>
+    <form id="signin-form" class="signin-form">
+      <input type="email" id="signin-email" placeholder="Email" autocomplete="username" required>
+      <input type="password" id="signin-password" placeholder="Password" autocomplete="current-password" required>
+      <button type="submit" class="btn btn-primary" id="signin-submit">Sign in</button>
+      <p id="signin-error" class="signin-error" style="display:none"></p>
+    </form>
+  </div>
+
+  <div id="app-content" style="display:none">
   <div class="category-toggle" id="scope-toggle">
     <button class="btn scope-btn active" data-scope="karl">Karl</button>
     <button class="btn scope-btn" data-scope="liisa">Liisa</button>
@@ -1085,6 +1137,7 @@
       <div id="ranked-zone" class="ranked-zone"></div>
     </div>
   </div>
+  </div>
 </div>
 
 <div class="modal-backdrop" id="modal">
@@ -1143,25 +1196,45 @@
     else loadShows();
   }
 
+  const signedOutScreen = document.getElementById('signed-out-screen');
+  const appContent = document.getElementById('app-content');
+  const signinForm = document.getElementById('signin-form');
+  const signinError = document.getElementById('signin-error');
+
+  signinForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    signinError.style.display = 'none';
+    const email = document.getElementById('signin-email').value.trim();
+    const password = document.getElementById('signin-password').value;
+    if (!email || !password) return;
+    const submitBtn = document.getElementById('signin-submit');
+    submitBtn.disabled = true;
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    submitBtn.disabled = false;
+    if (error) {
+      signinError.textContent = 'Sign-in failed — check your email and password.';
+      signinError.style.display = 'block';
+    }
+  });
+
   async function refreshAuthUI() {
     const { data: { session } } = await supabase.auth.getSession();
     const authArea = document.getElementById('auth-area');
     if (!session) {
       currentProfile = null;
       hasAutoSwitchedScope = false;
-      authArea.innerHTML = `<button class="btn" id="btn-signin">Sign in</button>`;
-      document.getElementById('btn-signin').addEventListener('click', async () => {
-        const email = prompt('Email for magic link:');
-        if (!email) return;
-        const { error } = await supabase.auth.signInWithOtp({ email });
-        authArea.innerHTML = error ? `<span>Sign-in failed</span>` : `<span>Check your email</span>`;
-      });
+      authArea.innerHTML = '';
+      document.getElementById('show-count').textContent = '';
+      signedOutScreen.style.display = 'block';
+      appContent.style.display = 'none';
       invalidateShowsCache();
-      rerenderActiveTab();
       return;
     }
     const { data: profile } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
     currentProfile = profile;
+    signedOutScreen.style.display = 'none';
+    appContent.style.display = '';
+    signinForm.reset();
     authArea.innerHTML = `<span>${profile.display_name}</span> <button class="btn" id="btn-signout">Sign out</button>`;
     document.getElementById('btn-signout').addEventListener('click', () => supabase.auth.signOut().then(refreshAuthUI));
     if (!hasAutoSwitchedScope) {
