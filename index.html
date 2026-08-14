@@ -1128,7 +1128,19 @@
   let hasAutoSwitchedScope = false; // only auto-switch the scope once per sign-in
 
   function canWriteScope(scope) {
-    return scope === 'together' || (currentProfile && scope === currentProfile.display_name.toLowerCase());
+    return !!currentProfile && (scope === 'together' || scope === currentProfile.display_name.toLowerCase());
+  }
+
+  // Re-renders whichever tab is currently active. Shared by the scope
+  // switcher and refreshAuthUI() so any change that affects which rows/
+  // fields are visible (scope switch, sign-in, sign-out) re-draws the
+  // right view instead of leaving stale content on screen.
+  function rerenderActiveTab() {
+    const tab = document.querySelector('.tab-btn.active')?.dataset.tab;
+    if (tab === 'tierlist') initTierlistView();
+    else if (tab === 'ratings') renderRatingsTab();
+    else if (tab === 'stats') renderStatsTab();
+    else loadShows();
   }
 
   async function refreshAuthUI() {
@@ -1144,6 +1156,8 @@
         const { error } = await supabase.auth.signInWithOtp({ email });
         authArea.innerHTML = error ? `<span>Sign-in failed</span>` : `<span>Check your email</span>`;
       });
+      invalidateShowsCache();
+      rerenderActiveTab();
       return;
     }
     const { data: profile } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
@@ -1154,6 +1168,8 @@
       hasAutoSwitchedScope = true;
       document.querySelector(`.scope-btn[data-scope="${profile.display_name.toLowerCase()}"]`)?.click();
     }
+    invalidateShowsCache();
+    rerenderActiveTab();
   }
 
   supabase.auth.onAuthStateChange(() => refreshAuthUI());
@@ -1185,6 +1201,18 @@
   }
 
   function invalidateShowsCache() { showsCache = null; }
+
+  // Shared write-error guard for Supabase mutations. Call sites destructure
+  // { error } from the write's result and do `if (checkWriteError(error)) return;`
+  // immediately after, before any cache-invalidate/re-render steps.
+  function checkWriteError(error) {
+    if (error) {
+      console.error(error);
+      showToast('Save failed — try again');
+      return true;
+    }
+    return false;
+  }
 
   // Theme
   const html = document.documentElement;
@@ -1229,7 +1257,8 @@
       showToast(`Max ${MAX_PINNED} pinned — unpin one first`);
       return;
     }
-    await supabase.from('shows').update({ pinned: !current }).eq('id', id);
+    const { error } = await supabase.from('shows').update({ pinned: !current }).eq('id', id);
+    if (checkWriteError(error)) return;
     invalidateShowsCache();
     loadShows();
   }
@@ -1240,11 +1269,12 @@
     const show = rows.find(s => s.id === id);
     if (!show || !canWriteScope(activeScope)) return;
     const newEpisode = Math.max(0, Math.min(show.totalEpisodes, show.currentEpisode + delta));
-    await supabase.from('shows').update({
+    const { error } = await supabase.from('shows').update({
       current_episode: newEpisode,
       season_episode: newEpisode, // seasons collapse to a single running total in this simplified control; per-season tracking still works via Task 8's Add Show flow setting initial values
       last_updated: new Date().toISOString().slice(0, 10),
     }).eq('id', id);
+    if (checkWriteError(error)) return;
     invalidateShowsCache();
     loadShows();
   }
@@ -1253,13 +1283,14 @@
     const rows = await fetchShows(activeScope);
     const show = rows.find(s => s.id === id);
     if (!show || !canWriteScope(activeScope)) return;
-    await supabase.from('shows').update({
+    const { error } = await supabase.from('shows').update({
       current_episode: show.totalEpisodes,
       season_episode: show.totalEpisodes,
       current_season: show.totalSeasons,
       in_tier_pool: true,
       last_updated: new Date().toISOString().slice(0, 10),
     }).eq('id', id);
+    if (checkWriteError(error)) return;
     invalidateShowsCache();
     loadShows();
   }
@@ -1277,17 +1308,19 @@
   // shared shows cache, which is invalidated on every write.
   async function setRating(id, value) {
     if (!currentProfile) return;
-    await supabase.from('ratings').upsert({
+    const { error } = await supabase.from('ratings').upsert({
       show_id: id, user_id: currentProfile.id, rating: value, updated_at: new Date().toISOString(),
     });
+    if (checkWriteError(error)) return;
     invalidateShowsCache();
   }
 
   async function setNote(id, text) {
     if (!currentProfile) return;
-    await supabase.from('ratings').upsert({
+    const { error } = await supabase.from('ratings').upsert({
       show_id: id, user_id: currentProfile.id, note: text || null, updated_at: new Date().toISOString(),
     });
+    if (checkWriteError(error)) return;
     invalidateShowsCache();
   }
 
@@ -1460,10 +1493,11 @@
     const tagsRaw = document.getElementById('watchlist-add-tags').value.trim();
     if (!title) return;
     const id = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
-    await supabase.from('shows').insert({
+    const { error } = await supabase.from('shows').insert({
       id, title, category: 'anime', scope: activeScope, list_status: 'watchlist',
       tags: tagsRaw ? tagsRaw.split(',').map(t => t.trim()).filter(Boolean) : null,
     });
+    if (checkWriteError(error)) return;
     document.getElementById('watchlist-add-title').value = '';
     document.getElementById('watchlist-add-tags').value = '';
     invalidateShowsCache();
@@ -1553,7 +1587,7 @@
     const stalePinnedIds = pinned.filter(id => finishedIds.has(id));
     if (stalePinnedIds.length) {
       supabase.from('shows').update({ pinned: false }).in('id', stalePinnedIds)
-        .then(() => invalidateShowsCache());
+        .then(({ error }) => { if (!checkWriteError(error)) invalidateShowsCache(); });
     }
 
     document.getElementById('watchlist-add').style.display = canWriteScope(activeScope) ? '' : 'none';
@@ -1716,11 +1750,7 @@
       btn.classList.add('active');
       activeScope = btn.dataset.scope;
       invalidateShowsCache();
-      const tab = document.querySelector('.tab-btn.active')?.dataset.tab;
-      if (tab === 'tierlist') initTierlistView();
-      else if (tab === 'ratings') renderRatingsTab();
-      else if (tab === 'stats') renderStatsTab();
-      else loadShows();
+      rerenderActiveTab();
     });
   });
 
