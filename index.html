@@ -454,7 +454,8 @@
     margin-bottom: 0.6rem;
   }
 
-  .watchlist-add input {
+  .watchlist-add input,
+  .watchlist-add select {
     flex: 1;
     min-width: 8rem;
     font-family: 'DM Mono', monospace;
@@ -467,7 +468,8 @@
   }
 
   .watchlist-add input::placeholder { color: var(--muted); }
-  .watchlist-add input:focus { outline: none; border-color: var(--accent); }
+  .watchlist-add input:focus,
+  .watchlist-add select:focus { outline: none; border-color: var(--accent); }
 
   /* ── Toast ── */
   .toast {
@@ -1463,7 +1465,7 @@
   document.body.addEventListener('click', e => {
     const stepBtn = e.target.closest('.progress-step');
     if (stepBtn) { bumpProgress(stepBtn.dataset.id, parseInt(stepBtn.dataset.delta, 10)); return; }
-    const finBtn = e.target.closest('.mark-finished-btn');
+    const finBtn = e.target.closest('.mark-finished-btn[data-id]');
     if (finBtn) { markFinished(finBtn.dataset.id); return; }
   });
 
@@ -1568,6 +1570,7 @@
     document.getElementById('note-modal').classList.remove('open');
     noteModalShowId = null;
     noteModalOnSave = null;
+    noteModalKind = 'show';
   }
 
   document.getElementById('note-modal-cancel').addEventListener('click', closeNoteModal);
@@ -1736,6 +1739,10 @@
   document.getElementById('completed-genre').addEventListener('change', e => { setSF('completed', { genre: e.target.value }); loadShows(); });
   document.getElementById('completed-studio').addEventListener('change', e => { setSF('completed', { studio: e.target.value }); loadShows(); });
 
+  document.getElementById('reading-sort').addEventListener('change', e => { setSF('reading', { sort: e.target.value }); loadReading(); });
+  document.getElementById('reading-genre').addEventListener('change', e => { setSF('reading', { genre: e.target.value }); loadReading(); });
+  document.getElementById('reading-category').addEventListener('change', e => { setSF('reading', { category: e.target.value }); loadReading(); });
+
   // Render
   // ── Sort / filter (Watching + Completed) ──
   function getSF(section) {
@@ -1771,6 +1778,30 @@
     }
     // 'pinned' (default) and 'pct' both order by remaining %, least remaining first
     return arr.sort((a, b) => (1 - a.currentEpisode / a.totalEpisodes) - (1 - b.currentEpisode / b.totalEpisodes));
+  }
+
+  // written_media has no `studio` field — `category` (book/manga/manhwa/
+  // webnovel) is its second filter dimension instead.
+  function applyReadingFilter(list, genre, category) {
+    return list.filter(m =>
+      (!genre || (m.genres || []).includes(genre)) &&
+      (!category || m.category === category)
+    );
+  }
+
+  // Sorts non-pinned reading items only — pinned items are handled
+  // separately in loadReading() so they always lead the list. written_media
+  // has no episode progress, so 'pinned' (default) orders by remaining %
+  // via progressPct() (chapter- or page-based) instead of episode counts.
+  function sortReading(list, sortKey) {
+    const arr = [...list];
+    if (sortKey === 'updated') {
+      return arr.sort((a, b) => (b.lastUpdated || '').localeCompare(a.lastUpdated || ''));
+    }
+    if (sortKey === 'alpha') {
+      return arr.sort((a, b) => a.title.localeCompare(b.title));
+    }
+    return arr.sort((a, b) => (1 - progressPct(a) / 100) - (1 - progressPct(b) / 100));
   }
 
   function sortCompleted(list, sortKey) {
@@ -1951,13 +1982,18 @@
     const completed = rows.filter(m => m.listStatus === 'completed');
     const toRead = rows.filter(m => m.listStatus === 'plan_to_read');
     const pinned = reading.filter(m => m.pinned).map(m => m.id);
+    const readingSF = getSF('reading');
 
-    populateFilterSelect(document.getElementById('reading-genre'), reading.flatMap(m => m.genres || []), 'Genre', getSF('reading').genre);
-    populateFilterSelect(document.getElementById('reading-category'), reading.map(m => m.category), 'Type', getSF('reading').category);
-    document.getElementById('reading-sort').value = getSF('reading').sort || 'pinned';
+    populateFilterSelect(document.getElementById('reading-genre'), reading.flatMap(m => m.genres || []), 'Genre', readingSF.genre);
+    populateFilterSelect(document.getElementById('reading-category'), reading.map(m => m.category), 'Type', readingSF.category);
+    document.getElementById('reading-sort').value = readingSF.sort || 'pinned';
 
+    // Pinned items always lead the list and are exempt from genre/category
+    // filters — filters only narrow down the non-pinned remainder.
     const pinnedReading = reading.filter(m => m.pinned);
-    const nonPinnedReading = reading.filter(m => !m.pinned);
+    let nonPinnedReading = reading.filter(m => !m.pinned);
+    nonPinnedReading = applyReadingFilter(nonPinnedReading, readingSF.genre, readingSF.category);
+    nonPinnedReading = sortReading(nonPinnedReading, readingSF.sort || 'pinned');
     const orderedReading = [...pinnedReading, ...nonPinnedReading];
 
     const grid = document.getElementById('reading-grid');
@@ -2112,6 +2148,7 @@
       current_page: m.totalPages ?? m.currentPage,
       current_volume: m.totalVolumes ?? m.currentVolume,
       list_status: 'completed',
+      pinned: false,
       last_updated: new Date().toISOString().slice(0, 10),
     }).eq('id', id);
     if (checkWriteError(error)) return;

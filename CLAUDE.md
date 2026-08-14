@@ -81,6 +81,13 @@ node scripts/supabase-write.mjs written_media '[{
 No `git commit` is needed for this action — nothing changed in the repo,
 only in Supabase.
 
+**Not idempotent:** unlike `shows`, which upserts on a caller-supplied slug
+`id`, `written_media` rows get a generated UUID primary key. Re-running the
+same `supabase-write.mjs written_media` insert command creates a duplicate
+row instead of updating the existing one. If a re-run is a risk (retrying
+after an error, re-pasting a command), query for an existing row by title
+first, or pass an explicit `id` in the payload.
+
 ## Bumping episode progress and marking shows finished
 
 Progress bumps and marking shows finished are handled in-page now (episode stepper / Mark Finished button) — no longer Claude-mediated.

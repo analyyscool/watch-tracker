@@ -1,6 +1,15 @@
--- supabase/migration-written-media-fix-indexes.sql
--- Run once in the Supabase SQL Editor, AFTER supabase/migration-written-media.sql
--- has already been applied live.
+-- supabase/hotfix-live-only-2026-08-14.sql
+--
+-- Only needed for databases migrated before 2026-08-14 with the old
+-- partial-index version of migration-written-media.sql. Fresh installs
+-- should run migration-written-media.sql alone and skip this file entirely
+-- — it already creates full unique constraints directly, not partial
+-- indexes, so replaying this file against a freshly-migrated database will
+-- error (the index names below are constraint-backed there, not plain
+-- indexes).
+--
+-- Run once in the Supabase SQL Editor, AFTER the old partial-index version
+-- of supabase/migration-written-media.sql has already been applied live.
 --
 -- The original migration created ratings_show_user_uniq / ratings_written_media_user_uniq
 -- as PARTIAL unique indexes (with a WHERE clause). Postgres's ON CONFLICT (col1, col2)
