@@ -44,9 +44,9 @@ grant select, insert, update, delete on public.written_media to service_role, au
 -- Extend ratings to point at either a show or a written_media row.
 alter table ratings add column id uuid default gen_random_uuid();
 alter table ratings add column written_media_id uuid references written_media(id) on delete cascade;
-alter table ratings alter column show_id drop not null;
 
 alter table ratings drop constraint ratings_pkey;
+alter table ratings alter column show_id drop not null;
 update ratings set id = gen_random_uuid() where id is null;
 alter table ratings alter column id set not null;
 alter table ratings add primary key (id);

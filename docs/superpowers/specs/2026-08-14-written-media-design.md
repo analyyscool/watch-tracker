@@ -83,13 +83,15 @@ duplicating every UI/query path that touches ratings later:
 ```sql
 alter table ratings
   add column id uuid default gen_random_uuid(),
-  add column written_media_id uuid references written_media(id) on delete cascade,
-  alter column show_id drop not null;
+  add column written_media_id uuid references written_media(id) on delete cascade;
 
--- Drop the old (show_id, user_id) primary key, make id the primary key instead,
--- and replace it with two partial unique indexes so each user has at most one
+-- Drop the old (show_id, user_id) primary key before dropping NOT NULL on
+-- show_id — Postgres won't allow dropping NOT NULL on a column that's still
+-- part of the primary key. Then make id the primary key instead, replacing
+-- the old one with two partial unique indexes so each user has at most one
 -- rating per show OR per written_media item, never both null/both set.
 alter table ratings drop constraint ratings_pkey;
+alter table ratings alter column show_id drop not null;
 alter table ratings add primary key (id);
 
 create unique index ratings_show_user_uniq
