@@ -44,7 +44,7 @@ A standalone static web app for tracking TV shows and anime that are currently i
   - "Season X · Episode Y" label
   - Visual progress bar (filled = % watched)
   - Percentage number (e.g. "39%")
-- **Add Show form:** inline form triggered by the button — user types title, hits confirm
+- **Add Show form:** visual placeholder only — the button can display the form UI, but actual data addition happens by telling Claude in a session (no JS logic needed to wire it up)
 - Cards ordered by insertion order (no sorting/filtering)
 - Reload button or browser refresh picks up latest `data.json`
 
