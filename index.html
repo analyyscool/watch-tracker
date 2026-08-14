@@ -1816,7 +1816,7 @@
     }
 
     document.getElementById('watchlist-add').style.display = canWriteScope(activeScope) ? '' : 'none';
-    const activeTags = [...document.querySelectorAll('.tag-pill.active')].map(btn => btn.dataset.tag);
+    const activeTags = [...document.querySelectorAll('#watchlist-tag-filter .tag-pill.active')].map(btn => btn.dataset.tag);
     renderWatchlistTagFilter(watchlist, activeTags);
     const filteredWatchlist = activeTags.length
       ? watchlist.filter(s => (s.tags || []).some(t => activeTags.includes(t)))
