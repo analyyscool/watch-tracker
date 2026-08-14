@@ -4,6 +4,14 @@ Open tasks queued for a future session. Newest at the top.
 
 ---
 
+## Stats page — Karl wants something added, needs clarifying next session
+
+- Raised 2026-08-15: Karl said "stats page could have something with on there as well" — message came through cut off/truncated, unclear what the missing word/idea was. Ask Karl to restate at the start of next session before doing anything here.
+
+## Mark Finished should prompt for a rating (and optional note)
+
+- Raised 2026-08-15: right now pressing "Mark Finished" on a show/media card just flips `list_status` to completed — no rating capture at all, so shows/books end up finished-but-unrated unless Karl separately visits the Ratings tab and clicks stars. Karl wants the button to prompt for a star rating at that moment, with an optional note field, using the existing star-widget/note-modal components (`renderStars`/`noteButtonHTML`/`setRating`/`setNote` in [index.html](index.html) already support both `show` and `media` kinds) rather than building new ones. Needs a design pass on the prompt UX (inline expansion under the card vs. a modal) and whether rating is required or skippable.
+
 ## Long-term aspiration: minimize Claude-mediated actions
 
 - Raised 2026-08-15: in an ideal world, adding shows/books/manga (and other lookups) would run almost entirely through free public APIs the site calls directly, rather than being Claude-mediated (Karl asks Claude, Claude queries Jikan/TMDB/Open Library, Claude inserts into Supabase). Karl explicitly flagged this as a dream/aspiration, not something to build now — no free API covers judgment calls like remake/sequel disambiguation or webnovel/manhwa-without-MAL metadata, so full self-serve isn't realistic yet. Revisit if/when a broader self-serve add form (see below) gets built — that's the natural point to also wire direct API calls into the client instead of going through Claude each time.
