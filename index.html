@@ -773,7 +773,12 @@
   /* ── Sign-in gate ── */
   .signed-out-screen {
     max-width: 320px;
-    margin: 4rem auto;
+    min-height: 80vh;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
     text-align: center;
   }
 
@@ -1033,7 +1038,7 @@
 </head>
 <body>
 <div class="container">
-  <header>
+  <header id="app-header">
     <p class="header-eyebrow">in progress</p>
     <h1>Currently Watching</h1>
     <p class="header-count" id="show-count"></p>
@@ -1074,7 +1079,6 @@
   <div id="view-watching">
     <div class="sort-filter-bar" id="watching-sf">
       <select class="sf-select" id="watching-sort">
-        <option value="pinned">Sort: Pinned first</option>
         <option value="pct">Sort: % complete</option>
         <option value="updated">Sort: Last updated</option>
         <option value="alpha">Sort: A–Z</option>
@@ -1110,7 +1114,7 @@
   <div id="view-reading" style="display:none">
     <div class="sort-filter-bar" id="reading-active-sf">
       <select class="sf-select" id="reading-sort">
-        <option value="pinned">Sort: Pinned first</option>
+        <option value="pct">Sort: % complete</option>
         <option value="updated">Sort: Last updated</option>
         <option value="alpha">Sort: A–Z</option>
       </select>
@@ -1262,6 +1266,7 @@
     else loadShows();
   }
 
+  const appHeader = document.getElementById('app-header');
   const signedOutScreen = document.getElementById('signed-out-screen');
   const appContent = document.getElementById('app-content');
   const signinForm = document.getElementById('signin-form');
@@ -1291,7 +1296,8 @@
       hasAutoSwitchedScope = false;
       authArea.innerHTML = '';
       document.getElementById('show-count').textContent = '';
-      signedOutScreen.style.display = 'block';
+      appHeader.style.display = 'none';
+      signedOutScreen.style.display = 'flex';
       appContent.style.display = 'none';
       invalidateShowsCache();
       invalidateWrittenMediaCache();
@@ -1299,6 +1305,7 @@
     }
     const { data: profile } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
     currentProfile = profile;
+    appHeader.style.display = '';
     signedOutScreen.style.display = 'none';
     appContent.style.display = '';
     signinForm.reset();
@@ -1776,7 +1783,9 @@
     if (sortKey === 'alpha') {
       return arr.sort((a, b) => a.title.localeCompare(b.title));
     }
-    // 'pinned' (default) and 'pct' both order by remaining %, least remaining first
+    // Default ('pct'): order by remaining %, least remaining first. Also
+    // the fallback for the removed 'pinned' option, which was an exact
+    // duplicate — pinning is unconditional, not a distinct sort mode.
     return arr.sort((a, b) => (1 - a.currentEpisode / a.totalEpisodes) - (1 - b.currentEpisode / b.totalEpisodes));
   }
 
@@ -1790,9 +1799,10 @@
   }
 
   // Sorts non-pinned reading items only — pinned items are handled
-  // separately in loadReading() so they always lead the list. written_media
-  // has no episode progress, so 'pinned' (default) orders by remaining %
-  // via progressPct() (chapter- or page-based) instead of episode counts.
+  // separately in loadReading() so they always lead the list. Default
+  // ('pct', also the fallback for the removed 'pinned' option) orders by
+  // remaining % via progressPct() (chapter- or page-based), since
+  // written_media has no episode progress.
   function sortReading(list, sortKey) {
     const arr = [...list];
     if (sortKey === 'updated') {
@@ -1821,7 +1831,10 @@
     const allActive = watching.filter(s => s.currentEpisode < s.totalEpisodes);
     populateFilterSelect(document.getElementById('watching-genre'), allActive.flatMap(s => s.genres || []), 'Genre', watchingSF.genre);
     populateFilterSelect(document.getElementById('watching-studio'), allActive.map(s => s.studio), 'Studio', watchingSF.studio);
-    document.getElementById('watching-sort').value = watchingSF.sort || 'pinned';
+    // 'pinned' was a since-removed duplicate of 'pct' (pinning itself is
+    // unconditional, not a sort mode) — normalize any old stored value.
+    const watchingSort = watchingSF.sort === 'pinned' ? 'pct' : (watchingSF.sort || 'pct');
+    document.getElementById('watching-sort').value = watchingSort;
     // Pinned shows always lead the list and are exempt from genre/studio
     // filters — filters only narrow down the non-pinned remainder.
     const pinnedActive = allActive
@@ -1829,7 +1842,7 @@
       .sort((a, b) => pinned.indexOf(a.id) - pinned.indexOf(b.id));
     let nonPinnedActive = allActive.filter(s => !pinned.includes(s.id));
     nonPinnedActive = applyFilter(nonPinnedActive, watchingSF.genre, watchingSF.studio);
-    nonPinnedActive = sortActive(nonPinnedActive, watchingSF.sort || 'pinned');
+    nonPinnedActive = sortActive(nonPinnedActive, watchingSort);
     const active = [...pinnedActive, ...nonPinnedActive];
 
     const allCompleted = watching.filter(s => s.currentEpisode >= s.totalEpisodes);
@@ -1986,14 +1999,17 @@
 
     populateFilterSelect(document.getElementById('reading-genre'), reading.flatMap(m => m.genres || []), 'Genre', readingSF.genre);
     populateFilterSelect(document.getElementById('reading-category'), reading.map(m => m.category), 'Type', readingSF.category);
-    document.getElementById('reading-sort').value = readingSF.sort || 'pinned';
+    // 'pinned' was a since-removed duplicate of 'pct' (pinning itself is
+    // unconditional, not a sort mode) — normalize any old stored value.
+    const readingSort = readingSF.sort === 'pinned' ? 'pct' : (readingSF.sort || 'pct');
+    document.getElementById('reading-sort').value = readingSort;
 
     // Pinned items always lead the list and are exempt from genre/category
     // filters — filters only narrow down the non-pinned remainder.
     const pinnedReading = reading.filter(m => m.pinned);
     let nonPinnedReading = reading.filter(m => !m.pinned);
     nonPinnedReading = applyReadingFilter(nonPinnedReading, readingSF.genre, readingSF.category);
-    nonPinnedReading = sortReading(nonPinnedReading, readingSF.sort || 'pinned');
+    nonPinnedReading = sortReading(nonPinnedReading, readingSort);
     const orderedReading = [...pinnedReading, ...nonPinnedReading];
 
     const grid = document.getElementById('reading-grid');
