@@ -1123,6 +1123,7 @@
     <div id="reading-completed"></div>
 
     <div class="section-divider"><span>to read</span></div>
+    <div class="tag-filter-bar" id="to-read-tag-filter"></div>
     <div id="to-read-add" class="watchlist-add" style="display:none">
       <input type="text" id="to-read-add-title" placeholder="Title…">
       <select id="to-read-add-category">
@@ -1674,6 +1675,60 @@
     loadShows();
   });
 
+  // To-read search / tag filter / quick-add
+  let toReadCache = [];
+
+  function renderToRead(items) {
+    const el = document.getElementById('to-read-list');
+    el.innerHTML = '';
+    items.forEach(item => {
+      const row = document.createElement('div');
+      row.className = 'watchlist-item';
+      row.innerHTML = `<span class="watchlist-name">${item.title}</span><span class="watchlist-cta">→ start</span>`;
+      row.addEventListener('click', async () => {
+        if (!canWriteScope(activeScope)) return;
+        const { error } = await supabase.from('written_media').update({ list_status: 'reading' }).eq('id', item.id);
+        if (checkWriteError(error)) return;
+        invalidateWrittenMediaCache();
+        loadReading();
+      });
+      el.appendChild(row);
+    });
+  }
+
+  document.getElementById('to-read-search').addEventListener('input', e => {
+    const q = e.target.value.toLowerCase();
+    renderToRead(toReadCache.filter(i => i.title.toLowerCase().includes(q)));
+  });
+
+  function renderToReadTagFilter(toRead, activeTags) {
+    const allTags = [...new Set(toRead.flatMap(m => m.tags || []))].sort();
+    const bar = document.getElementById('to-read-tag-filter');
+    bar.innerHTML = allTags.map(tag => `<button class="btn tag-pill${activeTags.includes(tag) ? ' active' : ''}" data-tag="${tag}">${tag}</button>`).join('');
+    bar.querySelectorAll('.tag-pill').forEach(btn => {
+      btn.addEventListener('click', () => {
+        btn.classList.toggle('active');
+        loadReading(); // re-render with updated tag filter read fresh from the DOM
+      });
+    });
+  }
+
+  document.getElementById('to-read-add-btn').addEventListener('click', async () => {
+    const title = document.getElementById('to-read-add-title').value.trim();
+    const category = document.getElementById('to-read-add-category').value;
+    const tagsRaw = document.getElementById('to-read-add-tags').value.trim();
+    if (!title) return;
+    const { error } = await supabase.from('written_media').insert({
+      title, category, scope: activeScope, list_status: 'plan_to_read',
+      tags: tagsRaw ? tagsRaw.split(',').map(t => t.trim()).filter(Boolean) : null,
+    });
+    if (checkWriteError(error)) return;
+    document.getElementById('to-read-add-title').value = '';
+    document.getElementById('to-read-add-tags').value = '';
+    invalidateWrittenMediaCache();
+    loadReading();
+  });
+
   document.getElementById('watching-sort').addEventListener('change', e => { setSF('watching', { sort: e.target.value }); loadShows(); });
   document.getElementById('watching-genre').addEventListener('change', e => { setSF('watching', { genre: e.target.value }); loadShows(); });
   document.getElementById('watching-studio').addEventListener('change', e => { setSF('watching', { studio: e.target.value }); loadShows(); });
@@ -1989,9 +2044,14 @@
       });
     }
 
-    document.getElementById('to-read-list').innerHTML = toRead.map(m => `
-      <div class="watchlist-item"><span class="watchlist-name">${m.title}</span><span class="watchlist-cta">→ start</span></div>
-    `).join('');
+    document.getElementById('to-read-add').style.display = canWriteScope(activeScope) ? '' : 'none';
+    const toReadActiveTags = [...document.querySelectorAll('#to-read-tag-filter .tag-pill.active')].map(btn => btn.dataset.tag);
+    renderToReadTagFilter(toRead, toReadActiveTags);
+    const filteredToRead = toReadActiveTags.length
+      ? toRead.filter(m => (m.tags || []).some(t => toReadActiveTags.includes(t)))
+      : toRead;
+    toReadCache = filteredToRead;
+    renderToRead(filteredToRead);
   }
 
   // ── Reading pinning ──
