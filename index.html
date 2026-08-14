@@ -1383,7 +1383,7 @@
     if (!currentProfile) return;
     const { error } = await supabase.from('ratings').upsert({
       show_id: id, user_id: currentProfile.id, rating: value, updated_at: new Date().toISOString(),
-    });
+    }, { onConflict: 'show_id,user_id' });
     if (checkWriteError(error)) return;
     invalidateShowsCache();
   }
@@ -1392,7 +1392,7 @@
     if (!currentProfile) return;
     const { error } = await supabase.from('ratings').upsert({
       show_id: id, user_id: currentProfile.id, note: text || null, updated_at: new Date().toISOString(),
-    });
+    }, { onConflict: 'show_id,user_id' });
     if (checkWriteError(error)) return;
     invalidateShowsCache();
   }
