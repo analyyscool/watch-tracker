@@ -1470,22 +1470,24 @@
   // Written directly to the `ratings` table in Supabase (one row per
   // show/user), scoped to the signed-in user. No local caching beyond the
   // shared shows cache, which is invalidated on every write.
-  async function setRating(id, value) {
+  async function setRating(id, value, kind = 'show') {
     if (!currentProfile) return;
+    const targetCol = kind === 'media' ? 'written_media_id' : 'show_id';
     const { error } = await supabase.from('ratings').upsert({
-      show_id: id, user_id: currentProfile.id, rating: value, updated_at: new Date().toISOString(),
-    }, { onConflict: 'show_id,user_id' });
+      [targetCol]: id, user_id: currentProfile.id, rating: value, updated_at: new Date().toISOString(),
+    }, { onConflict: kind === 'media' ? 'written_media_id,user_id' : 'show_id,user_id' });
     if (checkWriteError(error)) return;
-    invalidateShowsCache();
+    if (kind === 'media') invalidateWrittenMediaCache(); else invalidateShowsCache();
   }
 
-  async function setNote(id, text) {
+  async function setNote(id, text, kind = 'show') {
     if (!currentProfile) return;
+    const targetCol = kind === 'media' ? 'written_media_id' : 'show_id';
     const { error } = await supabase.from('ratings').upsert({
-      show_id: id, user_id: currentProfile.id, note: text || null, updated_at: new Date().toISOString(),
-    }, { onConflict: 'show_id,user_id' });
+      [targetCol]: id, user_id: currentProfile.id, note: text || null, updated_at: new Date().toISOString(),
+    }, { onConflict: kind === 'media' ? 'written_media_id,user_id' : 'show_id,user_id' });
     if (checkWriteError(error)) return;
-    invalidateShowsCache();
+    if (kind === 'media') invalidateWrittenMediaCache(); else invalidateShowsCache();
   }
 
   // Renders a 5-star, half-star-precision rating widget as a self-contained
@@ -1508,8 +1510,8 @@
     return html;
   }
 
-  function renderStars(id, rating) {
-    return `<div class="star-rating" data-id="${id}">${starsInnerHTML(id, rating)}</div>`;
+  function renderStars(id, rating, kind = 'show') {
+    return `<div class="star-rating" data-id="${id}" data-kind="${kind}">${starsInnerHTML(id, rating)}</div>`;
   }
 
   // Event delegation — handles every star widget on the page, including
@@ -1520,12 +1522,13 @@
     e.stopPropagation();
     const widget = btn.closest('.star-rating');
     const id = widget.dataset.id;
+    const kind = widget.dataset.kind || 'show';
     const value = parseFloat(btn.dataset.star);
-    const rows = await fetchShows(activeScope);
+    const rows = kind === 'media' ? await fetchWrittenMedia(activeScope) : await fetchShows(activeScope);
     const current = rows.find(s => s.id === id)?.rating;
     // Clicking the same value again clears the rating.
-    await setRating(id, current === value ? null : value);
-    const updatedRows = await fetchShows(activeScope);
+    await setRating(id, current === value ? null : value, kind);
+    const updatedRows = kind === 'media' ? await fetchWrittenMedia(activeScope) : await fetchShows(activeScope);
     const r = updatedRows.find(s => s.id === id)?.rating;
     widget.innerHTML = starsInnerHTML(id, r);
     const label = widget.parentElement && widget.parentElement.querySelector('.rating-label');
@@ -1534,9 +1537,9 @@
     }
   });
 
-  function noteButtonHTML(id, title, extraClass = '', note = '') {
+  function noteButtonHTML(id, title, extraClass = '', note = '', kind = 'show') {
     const hasNote = !!note;
-    return `<button class="note-btn ${extraClass}${hasNote ? ' has-note' : ''}" data-note-id="${id}" data-note-title="${title.replace(/"/g, '&quot;')}" data-note-text="${(note || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;')}" aria-label="Note" title="Note">
+    return `<button class="note-btn ${extraClass}${hasNote ? ' has-note' : ''}" data-note-id="${id}" data-note-kind="${kind}" data-note-title="${title.replace(/"/g, '&quot;')}" data-note-text="${(note || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;')}" aria-label="Note" title="Note">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
         <path d="M14 2v6h6"></path>
@@ -1548,10 +1551,12 @@
 
   let noteModalShowId = null;
   let noteModalOnSave = null;
+  let noteModalKind = 'show';
 
-  function openNoteModal(id, title, currentText, onSave) {
+  function openNoteModal(id, title, currentText, onSave, kind = 'show') {
     noteModalShowId = id;
     noteModalOnSave = onSave;
+    noteModalKind = kind;
     document.getElementById('note-modal-title').textContent = `Note — ${title}`;
     document.getElementById('note-modal-text').value = currentText || '';
     document.getElementById('note-modal').classList.add('open');
@@ -1571,7 +1576,7 @@
   document.getElementById('note-modal-save').addEventListener('click', async () => {
     if (!noteModalShowId) return;
     const text = document.getElementById('note-modal-text').value.trim();
-    await setNote(noteModalShowId, text);
+    await setNote(noteModalShowId, text, noteModalKind);
     if (noteModalOnSave) noteModalOnSave(!!text);
     showToast(text ? 'Note saved' : 'Note cleared');
     closeNoteModal();
@@ -1584,13 +1589,14 @@
     if (!btn) return;
     e.stopPropagation();
     const id = btn.dataset.noteId;
+    const kind = btn.dataset.noteKind || 'show';
     const title = btn.dataset.noteTitle || id;
     const currentText = btn.dataset.noteText || '';
     openNoteModal(id, title, currentText, hasNote => {
       document.querySelectorAll(`.note-btn[data-note-id="${CSS.escape(id)}"]`).forEach(b => {
         b.classList.toggle('has-note', hasNote);
       });
-    });
+    }, kind);
   });
 
   // Last-updated formatting
@@ -1969,11 +1975,13 @@
             <div class="card-top">
               <div class="card-title">${m.title}</div>
               <div class="card-right">
+                ${noteButtonHTML(m.id, m.title, '', m.note, 'media')}
                 <span class="card-meta">${m.category}</span>
                 <span class="card-pct done">done</span>
               </div>
             </div>
             <div class="card-tags">${m.author || ''}</div>
+            ${renderStars(m.id, m.rating, 'media')}
             <div class="card-stats"><span class="stat">${timeAgo(m.lastUpdated)}</span></div>
           </div>
         `;
