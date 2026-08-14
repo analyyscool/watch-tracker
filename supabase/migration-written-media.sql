@@ -51,10 +51,8 @@ update ratings set id = gen_random_uuid() where id is null;
 alter table ratings alter column id set not null;
 alter table ratings add primary key (id);
 
-create unique index ratings_show_user_uniq
-  on ratings (show_id, user_id) where show_id is not null;
-create unique index ratings_written_media_user_uniq
-  on ratings (written_media_id, user_id) where written_media_id is not null;
+alter table ratings add constraint ratings_show_user_uniq unique (show_id, user_id);
+alter table ratings add constraint ratings_written_media_user_uniq unique (written_media_id, user_id);
 
 alter table ratings add constraint ratings_exactly_one_target
   check ((show_id is not null) <> (written_media_id is not null));
