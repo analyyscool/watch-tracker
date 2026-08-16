@@ -1582,7 +1582,7 @@
       showToast(`Max ${MAX_PINNED} pinned — unpin one first`);
       return;
     }
-    const { error } = await supabase.from('shows').update({ pinned: !current }).eq('id', id);
+    const { error } = await supabase.from('shows').update({ pinned: !current }).eq('id', id).eq('scope', activeScope);
     if (checkWriteError(error)) return;
     invalidateShowsCache();
     loadShows();
@@ -1598,7 +1598,7 @@
       current_episode: newEpisode,
       season_episode: newEpisode, // seasons collapse to a single running total in this simplified control; per-season tracking still works via Task 8's Add Show flow setting initial values
       last_updated: new Date().toISOString().slice(0, 10),
-    }).eq('id', id);
+    }).eq('id', id).eq('scope', activeScope);
     if (checkWriteError(error)) return;
     invalidateShowsCache();
     loadShows();
@@ -1614,7 +1614,7 @@
       current_season: show.totalSeasons,
       in_tier_pool: true,
       last_updated: new Date().toISOString().slice(0, 10),
-    }).eq('id', id);
+    }).eq('id', id).eq('scope', activeScope);
     if (checkWriteError(error)) return;
     invalidateShowsCache();
     loadShows();
@@ -1637,7 +1637,8 @@
     const targetCol = kind === 'media' ? 'written_media_id' : 'show_id';
     const { error } = await supabase.from('ratings').upsert({
       [targetCol]: id, user_id: currentProfile.id, rating: value, updated_at: new Date().toISOString(),
-    }, { onConflict: kind === 'media' ? 'written_media_id,user_id' : 'show_id,user_id' });
+      ...(kind === 'show' ? { scope: activeScope } : {}),
+    }, { onConflict: kind === 'media' ? 'written_media_id,user_id' : 'show_id,scope,user_id' });
     if (checkWriteError(error)) return;
     if (kind === 'media') invalidateWrittenMediaCache(); else invalidateShowsCache();
   }
@@ -1647,7 +1648,8 @@
     const targetCol = kind === 'media' ? 'written_media_id' : 'show_id';
     const { error } = await supabase.from('ratings').upsert({
       [targetCol]: id, user_id: currentProfile.id, note: text || null, updated_at: new Date().toISOString(),
-    }, { onConflict: kind === 'media' ? 'written_media_id,user_id' : 'show_id,user_id' });
+      ...(kind === 'show' ? { scope: activeScope } : {}),
+    }, { onConflict: kind === 'media' ? 'written_media_id,user_id' : 'show_id,scope,user_id' });
     if (checkWriteError(error)) return;
     if (kind === 'media') invalidateWrittenMediaCache(); else invalidateShowsCache();
   }
@@ -1840,7 +1842,7 @@
         e.stopPropagation();
         if (!canWriteScope(activeScope)) return;
         if (!confirm(`Remove "${item.title}" from the watchlist?`)) return;
-        const { error } = await supabase.from('shows').delete().eq('id', item.id);
+        const { error } = await supabase.from('shows').delete().eq('id', item.id).eq('scope', activeScope);
         if (checkWriteError(error)) return;
         invalidateShowsCache();
         loadShows();
@@ -2072,7 +2074,7 @@
     const finishedIds = new Set(allCompleted.map(s => s.id));
     const stalePinnedIds = pinned.filter(id => finishedIds.has(id));
     if (stalePinnedIds.length) {
-      supabase.from('shows').update({ pinned: false }).in('id', stalePinnedIds)
+      supabase.from('shows').update({ pinned: false }).in('id', stalePinnedIds).eq('scope', activeScope)
         .then(({ error }) => { if (!checkWriteError(error)) invalidateShowsCache(); });
     }
 
@@ -2810,7 +2812,7 @@
       const writes = [];
       Object.entries(state).forEach(([tier, ids]) => {
         ids.forEach(id => writes.push(
-          supabase.from('shows').update({ tier: tier === 'pool' ? null : tier }).eq('id', id)
+          supabase.from('shows').update({ tier: tier === 'pool' ? null : tier }).eq('id', id).eq('scope', 'together')
         ));
       });
       const results = await Promise.all(writes);
@@ -2948,7 +2950,7 @@
   async function saveRankOrder() {
     const order = [...document.querySelectorAll('#ranked-zone .rank-row')].map(r => r.dataset.id);
     if (activeScope === 'together') {
-      const results = await Promise.all(order.map((id, i) => supabase.from('shows').update({ rank: i }).eq('id', id)));
+      const results = await Promise.all(order.map((id, i) => supabase.from('shows').update({ rank: i }).eq('id', id).eq('scope', 'together')));
       if (results.some(r => r.error)) { console.error('Rank save failed', results); showToast('Save failed — try again'); return; }
       invalidateShowsCache();
     } else {
