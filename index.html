@@ -90,6 +90,40 @@
       url('https://images.unsplash.com/photo-1753475585321-09f5e62d1bd3?fm=jpg&q=70&w=1920&auto=format&fit=crop');
   }
 
+  /* MLG-style pibble spam — deliberately over the top, Liisa's request.
+     Fixed full-viewport overlay of scattered/rotated puppy images behind
+     the real content (pointer-events:none so nothing is unclickable). */
+  .pibble-spam {
+    position: fixed;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .pibble-spam img {
+    position: absolute;
+    border-radius: 8px;
+    filter: drop-shadow(0 4px 14px rgba(0,0,0,0.45));
+  }
+
+  .pibble-spam img.spin {
+    animation-name: pibble-spin;
+    animation-timing-function: linear;
+    animation-iteration-count: infinite;
+  }
+
+  @keyframes pibble-spin {
+    from { transform: rotate(var(--rot, 0deg)); }
+    to { transform: rotate(calc(var(--rot, 0deg) + 360deg)); }
+  }
+
+  /* #pibble-spam is position:fixed with its own stacking context, which
+     would otherwise paint over normal-flow siblings regardless of DOM
+     order — pull the real content into its own higher stacking context
+     so it always sits above the spam layer. */
+  #app-header, #signed-out-screen, #app-content { position: relative; z-index: 1; }
+
   /* ── Header ── */
   header {
     text-align: center;
@@ -135,6 +169,20 @@
     gap: 0.75rem;
     margin-top: 1.2rem;
     flex-wrap: wrap;
+  }
+
+  .user-cluster {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    border: 1px solid var(--border2);
+    border-radius: 4px;
+    padding: 0.4rem 0.7rem;
+  }
+
+  .user-cluster .btn {
+    border: none;
+    padding: 0;
   }
 
   .user-name {
@@ -1249,6 +1297,7 @@
       <span id="auth-area"></span>
     </div>
   </header>
+  <div id="pibble-spam" class="pibble-spam"></div>
   <button class="btn theme-toggle-fixed" id="btn-theme">dark mode</button>
 
   <div id="signed-out-screen" class="signed-out-screen" style="display:none">
@@ -1649,7 +1698,7 @@
     signedOutScreen.style.display = 'none';
     appContent.style.display = '';
     signinForm.reset();
-    authArea.innerHTML = `<span class="user-name">${profile.display_name}</span> <button class="btn" id="btn-signout">Sign out</button>`;
+    authArea.innerHTML = `<div class="user-cluster"><span class="user-name">${profile.display_name}</span><button class="btn" id="btn-signout">Sign out</button></div>`;
     document.getElementById('btn-signout').addEventListener('click', () => supabase.auth.signOut().then(refreshAuthUI));
     if (!hasAutoSwitchedScope) {
       hasAutoSwitchedScope = true;
@@ -2936,9 +2985,41 @@
 
   // Pibble background: on whenever Liisa is signed in, or whenever the
   // active scope is hers (so Karl sees it too when viewing her list).
+  const PIBBLE_IMG_URL = 'https://images.unsplash.com/photo-1753475585321-09f5e62d1bd3?fm=jpg&q=60&w=400&auto=format&fit=crop';
+
+  // Deliberately over-the-top per Liisa's request — a scattered, rotated,
+  // partly-spinning wall of the same puppy photo across the whole
+  // viewport. Built once and toggled visible/hidden rather than
+  // rebuilt each time, so it doesn't re-randomize on every re-render.
+  function buildPibbleSpam() {
+    const container = document.getElementById('pibble-spam');
+    if (container.childElementCount) return;
+    const COUNT = 18;
+    for (let i = 0; i < COUNT; i++) {
+      const img = document.createElement('img');
+      img.src = PIBBLE_IMG_URL;
+      img.alt = '';
+      const size = 60 + Math.random() * 170;
+      const rot = Math.round(Math.random() * 360 - 180);
+      img.style.width = `${size}px`;
+      img.style.top = `${Math.random() * 92}%`;
+      img.style.left = `${Math.random() * 92}%`;
+      img.style.opacity = (0.45 + Math.random() * 0.45).toFixed(2);
+      img.style.setProperty('--rot', `${rot}deg`);
+      img.style.transform = `rotate(${rot}deg)`;
+      if (i % 3 === 0) {
+        img.classList.add('spin');
+        img.style.animationDuration = `${(2 + Math.random() * 5).toFixed(1)}s`;
+      }
+      container.appendChild(img);
+    }
+  }
+
   function updatePibbleBackground() {
     const isLiisa = (currentProfile && currentProfile.display_name === 'Liisa') || activeScope === 'liisa';
     document.body.classList.toggle('pibble-bg', !!isLiisa);
+    if (isLiisa) buildPibbleSpam();
+    document.getElementById('pibble-spam').style.display = isLiisa ? '' : 'none';
   }
 
   // ── Scope switcher ──

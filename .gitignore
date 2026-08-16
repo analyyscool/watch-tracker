@@ -1,3 +1,5 @@
 .worktrees/
 .supabase-service-key
 .supabase-passwords
+server.log
+.playwright-mcp/
