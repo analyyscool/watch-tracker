@@ -22,11 +22,6 @@ Open tasks queued for a future session. Newest at the top.
 - **Manga/manhwa volume progress (`current_volume`/`total_volumes`) is effectively unreachable** — only rendered in the read-only static stat line, never shown or editable when you actually have write access, and nothing in the UI writes `current_volume` except mark-finished. Consider folding volume progress into the chapter stepper's display.
 - **`pinned` isn't cleared when unpinning would make sense elsewhere** — the pattern of clearing `pinned` on completion exists for `shows` (`loadShows()`'s stale-pinned cleanup) and was added for `written_media`'s mark-finished too, but there's no single shared helper — each table reimplements it. Worth generalizing if a third pinned table ever shows up.
 
-## Self-serve add form (Liisa can't add shows/media without Claude Code)
-
-- Raised when setting up Liisa's account: right now "Add Show" (and the new "Add book/manga") is Claude-mediated only — Karl asks Claude, Claude looks up data and inserts. Liisa has no Claude Code access, so she can't add anything herself; she'd have to message Karl every time.
-- Recommendation at the time (Karl didn't object, but this was never turned into a tracked item): keep Claude-mediated for now since it preserves judgment on remake/sequel disambiguation and manual chapter/page entry, but build a real in-app add form eventually — likely bundled with whichever session tackles the written-media follow-ups above, since both need the same "manual add, no lookup automation" UI shape.
-
 ## Written media (books, manga, manhwa, webnovels) — follow-ups from the 2026-08-14 implementation session
 
 Core feature (schema, Reading tab, progress controls, pinning, ratings/notes) implemented via `docs/superpowers/plans/2026-08-14-written-media.md` — see that plan/ledger for status. These are extra asks Karl raised mid-implementation, deliberately deferred rather than scope-creeped into the running plan:

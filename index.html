@@ -361,6 +361,56 @@
     color: var(--accent);
   }
 
+  .form-hint {
+    font-size: 0.62rem;
+    color: var(--muted);
+    margin-bottom: 1rem;
+    line-height: 1.5;
+  }
+
+  .add-form-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    margin-bottom: 0.85rem;
+    flex: 1;
+  }
+
+  .add-form-field label {
+    font-size: 0.58rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .add-form-field input,
+  .add-form-field select {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.75rem;
+    padding: 0.5rem 0.6rem;
+    border: 1px solid var(--border2);
+    border-radius: 4px;
+    background: var(--surface);
+    color: var(--text);
+  }
+
+  .add-form-field input:focus,
+  .add-form-field select:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  .add-form-row {
+    display: flex;
+    gap: 0.85rem;
+  }
+
+  .form-error {
+    font-size: 0.62rem;
+    color: #ff6b6b;
+    margin-bottom: 0.75rem;
+  }
+
   .new-chapters-banner {
     display: flex;
     justify-content: space-between;
@@ -1150,6 +1200,7 @@
         <option value="together">Together</option>
       </select>
       <button class="btn btn-primary" id="btn-add">+ Add Show</button>
+      <button class="btn btn-primary" id="btn-add-reading">+ Add Reading</button>
       <span id="auth-area"></span>
     </div>
   </header>
@@ -1344,13 +1395,106 @@
 <div class="modal-backdrop" id="modal">
   <div class="modal">
     <h2>Add a Show</h2>
-    <p>
-      Tell Claude what you want to add and which list —<br>
-      e.g. <em>"Add Vinland Saga to my list, I'm on S1E5"</em> or <em>"add Perfect Blue to our watchlist"</em><br><br>
-      Claude will look up the episode count and add it directly. Reload to see it appear.
-    </p>
-    <div class="modal-close">
-      <button class="btn" id="btn-close">Got it</button>
+    <p class="form-hint">Manual entry — no lookup, so you'll need to know the totals yourself. Poster/genre/studio can be filled in later.</p>
+    <div class="add-form-field">
+      <label for="add-show-title">Title</label>
+      <input type="text" id="add-show-title" placeholder="Title">
+    </div>
+    <div class="add-form-row">
+      <div class="add-form-field">
+        <label for="add-show-category">Category</label>
+        <select id="add-show-category">
+          <option value="anime">Anime</option>
+          <option value="western">Western</option>
+          <option value="movie">Movie</option>
+        </select>
+      </div>
+      <div class="add-form-field">
+        <label for="add-show-scope">List</label>
+        <select id="add-show-scope">
+          <option value="karl">Karl</option>
+          <option value="liisa">Liisa</option>
+          <option value="together">Together</option>
+        </select>
+      </div>
+    </div>
+    <div class="add-form-row" id="add-show-episode-fields">
+      <div class="add-form-field">
+        <label for="add-show-total-episodes">Total episodes</label>
+        <input type="number" id="add-show-total-episodes" min="1">
+      </div>
+      <div class="add-form-field">
+        <label for="add-show-current-episode">Current episode</label>
+        <input type="number" id="add-show-current-episode" min="0" value="0">
+      </div>
+    </div>
+    <div class="add-form-field" id="add-show-runtime-field" style="display:none">
+      <label for="add-show-runtime">Runtime (minutes)</label>
+      <input type="number" id="add-show-runtime" min="1">
+    </div>
+    <p id="add-show-error" class="form-error" style="display:none"></p>
+    <div class="modal-actions">
+      <button class="btn" id="btn-close">Cancel</button>
+      <button class="btn btn-primary" id="add-show-submit">Add</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="add-reading-modal">
+  <div class="modal">
+    <h2>Add Reading</h2>
+    <p class="form-hint">Manual entry — no lookup, so you'll need to know the totals yourself. Cover art can be filled in later.</p>
+    <div class="add-form-field">
+      <label for="add-reading-title">Title</label>
+      <input type="text" id="add-reading-title" placeholder="Title">
+    </div>
+    <div class="add-form-row">
+      <div class="add-form-field">
+        <label for="add-reading-category">Category</label>
+        <select id="add-reading-category">
+          <option value="book">Book</option>
+          <option value="manga">Manga</option>
+          <option value="manhwa">Manhwa</option>
+          <option value="webnovel">Webnovel</option>
+        </select>
+      </div>
+      <div class="add-form-field">
+        <label for="add-reading-scope">List</label>
+        <select id="add-reading-scope">
+          <option value="karl">Karl</option>
+          <option value="liisa">Liisa</option>
+          <option value="together">Together</option>
+        </select>
+      </div>
+    </div>
+    <div class="add-form-field">
+      <label for="add-reading-author">Author</label>
+      <input type="text" id="add-reading-author" placeholder="Optional">
+    </div>
+    <div class="add-form-row" id="add-reading-page-fields" style="display:none">
+      <div class="add-form-field">
+        <label for="add-reading-total-pages">Total pages</label>
+        <input type="number" id="add-reading-total-pages" min="1">
+      </div>
+      <div class="add-form-field">
+        <label for="add-reading-current-page">Current page</label>
+        <input type="number" id="add-reading-current-page" min="0" value="0">
+      </div>
+    </div>
+    <div class="add-form-row" id="add-reading-chapter-fields">
+      <div class="add-form-field">
+        <label for="add-reading-total-chapters">Total chapters</label>
+        <input type="number" id="add-reading-total-chapters" min="1">
+      </div>
+      <div class="add-form-field">
+        <label for="add-reading-current-chapter">Current chapter</label>
+        <input type="number" id="add-reading-current-chapter" min="0" value="0">
+      </div>
+    </div>
+    <p id="add-reading-error" class="form-error" style="display:none"></p>
+    <div class="modal-actions">
+      <button class="btn" id="add-reading-cancel">Cancel</button>
+      <button class="btn btn-primary" id="add-reading-submit">Add</button>
     </div>
   </div>
 </div>
@@ -2497,9 +2641,44 @@
   });
 
 
-  document.getElementById('btn-add').addEventListener('click', () => {
+  // ── Add Show (manual entry, self-serve — no lookup) ──
+  function slugify(title) {
+    return title.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  }
+
+  // Restricts a scope <select> to options the signed-in user can actually
+  // write to (their own scope + together) — RLS would reject the rest
+  // server-side anyway, but filtering client-side avoids a confusing
+  // failed-submission round trip.
+  function restrictScopeOptions(select) {
+    [...select.options].forEach(opt => { opt.disabled = !canWriteScope(opt.value); });
+    if (!canWriteScope(select.value)) {
+      const firstWritable = [...select.options].find(opt => !opt.disabled);
+      if (firstWritable) select.value = firstWritable.value;
+    }
+  }
+
+  function openAddShowModal() {
+    document.getElementById('add-show-title').value = '';
+    document.getElementById('add-show-category').value = 'anime';
+    document.getElementById('add-show-scope').value = activeScope === 'together' ? 'together' : activeScope;
+    restrictScopeOptions(document.getElementById('add-show-scope'));
+    document.getElementById('add-show-total-episodes').value = '';
+    document.getElementById('add-show-current-episode').value = '0';
+    document.getElementById('add-show-runtime').value = '';
+    document.getElementById('add-show-error').style.display = 'none';
+    toggleAddShowFields();
     document.getElementById('modal').classList.add('open');
-  });
+  }
+
+  function toggleAddShowFields() {
+    const category = document.getElementById('add-show-category').value;
+    document.getElementById('add-show-episode-fields').style.display = category === 'movie' ? 'none' : '';
+    document.getElementById('add-show-runtime-field').style.display = category === 'movie' || category === 'western' ? '' : 'none';
+  }
+
+  document.getElementById('btn-add').addEventListener('click', openAddShowModal);
+  document.getElementById('add-show-category').addEventListener('change', toggleAddShowFields);
 
   document.getElementById('btn-close').addEventListener('click', () => {
     document.getElementById('modal').classList.remove('open');
@@ -2507,6 +2686,137 @@
 
   document.getElementById('modal').addEventListener('click', e => {
     if (e.target === e.currentTarget) e.currentTarget.classList.remove('open');
+  });
+
+  document.getElementById('add-show-submit').addEventListener('click', async () => {
+    const errorEl = document.getElementById('add-show-error');
+    errorEl.style.display = 'none';
+    const title = document.getElementById('add-show-title').value.trim();
+    const category = document.getElementById('add-show-category').value;
+    const scope = document.getElementById('add-show-scope').value;
+    if (!title) { errorEl.textContent = 'Title is required.'; errorEl.style.display = ''; return; }
+    const id = slugify(title);
+    if (!id) { errorEl.textContent = 'Title must contain at least one letter or number.'; errorEl.style.display = ''; return; }
+
+    const row = {
+      id, title, category, scope,
+      total_episodes: null, current_episode: null, total_seasons: null,
+      current_season: null, season_episode: null, runtime_minutes: null,
+      list_status: null, in_tier_pool: false,
+    };
+    if (category === 'movie') {
+      const runtime = parseInt(document.getElementById('add-show-runtime').value, 10);
+      if (!runtime) { errorEl.textContent = 'Runtime (minutes) is required for movies.'; errorEl.style.display = ''; return; }
+      row.runtime_minutes = runtime;
+      row.in_tier_pool = true;
+    } else {
+      const totalEpisodes = parseInt(document.getElementById('add-show-total-episodes').value, 10);
+      const currentEpisode = parseInt(document.getElementById('add-show-current-episode').value, 10) || 0;
+      if (!totalEpisodes) { errorEl.textContent = 'Total episodes is required.'; errorEl.style.display = ''; return; }
+      row.total_episodes = totalEpisodes;
+      row.total_seasons = 1;
+      row.current_season = 1;
+      row.current_episode = Math.min(currentEpisode, totalEpisodes);
+      row.season_episode = row.current_episode;
+      row.list_status = 'watching';
+      if (category === 'western') {
+        const runtime = parseInt(document.getElementById('add-show-runtime').value, 10);
+        if (runtime) row.runtime_minutes = runtime;
+      }
+    }
+    row.last_updated = new Date().toISOString().slice(0, 10);
+
+    const submitBtn = document.getElementById('add-show-submit');
+    submitBtn.disabled = true;
+    const { error } = await supabase.from('shows').insert(row);
+    submitBtn.disabled = false;
+    if (error) {
+      console.error(error);
+      errorEl.textContent = error.code === '23505' ? 'A show with this title already exists in that list.' : 'Save failed — try again.';
+      errorEl.style.display = '';
+      return;
+    }
+    document.getElementById('modal').classList.remove('open');
+    invalidateShowsCache();
+    showToast('Added');
+    rerenderActiveTab();
+  });
+
+  // ── Add Reading (manual entry, self-serve — no lookup) ──
+  function openAddReadingModal() {
+    document.getElementById('add-reading-title').value = '';
+    document.getElementById('add-reading-category').value = 'manga';
+    document.getElementById('add-reading-scope').value = activeScope === 'together' ? 'together' : activeScope;
+    restrictScopeOptions(document.getElementById('add-reading-scope'));
+    document.getElementById('add-reading-author').value = '';
+    document.getElementById('add-reading-total-pages').value = '';
+    document.getElementById('add-reading-current-page').value = '0';
+    document.getElementById('add-reading-total-chapters').value = '';
+    document.getElementById('add-reading-current-chapter').value = '0';
+    document.getElementById('add-reading-error').style.display = 'none';
+    toggleAddReadingFields();
+    document.getElementById('add-reading-modal').classList.add('open');
+  }
+
+  function toggleAddReadingFields() {
+    const category = document.getElementById('add-reading-category').value;
+    document.getElementById('add-reading-page-fields').style.display = category === 'book' ? '' : 'none';
+    document.getElementById('add-reading-chapter-fields').style.display = category === 'book' ? 'none' : '';
+  }
+
+  document.getElementById('btn-add-reading').addEventListener('click', openAddReadingModal);
+  document.getElementById('add-reading-category').addEventListener('change', toggleAddReadingFields);
+
+  document.getElementById('add-reading-cancel').addEventListener('click', () => {
+    document.getElementById('add-reading-modal').classList.remove('open');
+  });
+
+  document.getElementById('add-reading-modal').addEventListener('click', e => {
+    if (e.target === e.currentTarget) e.currentTarget.classList.remove('open');
+  });
+
+  document.getElementById('add-reading-submit').addEventListener('click', async () => {
+    const errorEl = document.getElementById('add-reading-error');
+    errorEl.style.display = 'none';
+    const title = document.getElementById('add-reading-title').value.trim();
+    const category = document.getElementById('add-reading-category').value;
+    const scope = document.getElementById('add-reading-scope').value;
+    const author = document.getElementById('add-reading-author').value.trim();
+    if (!title) { errorEl.textContent = 'Title is required.'; errorEl.style.display = ''; return; }
+
+    const row = {
+      title, category, scope, author: author || null, list_status: 'reading',
+      total_pages: null, current_page: null, total_chapters: null, current_chapter: null,
+      last_updated: new Date().toISOString().slice(0, 10),
+    };
+    if (category === 'book') {
+      const totalPages = parseInt(document.getElementById('add-reading-total-pages').value, 10);
+      const currentPage = parseInt(document.getElementById('add-reading-current-page').value, 10) || 0;
+      if (!totalPages) { errorEl.textContent = 'Total pages is required.'; errorEl.style.display = ''; return; }
+      row.total_pages = totalPages;
+      row.current_page = Math.min(currentPage, totalPages);
+    } else {
+      const totalChapters = parseInt(document.getElementById('add-reading-total-chapters').value, 10);
+      const currentChapter = parseInt(document.getElementById('add-reading-current-chapter').value, 10) || 0;
+      if (!totalChapters) { errorEl.textContent = 'Total chapters is required.'; errorEl.style.display = ''; return; }
+      row.total_chapters = totalChapters;
+      row.current_chapter = Math.min(currentChapter, totalChapters);
+    }
+
+    const submitBtn = document.getElementById('add-reading-submit');
+    submitBtn.disabled = true;
+    const { error } = await supabase.from('written_media').insert(row);
+    submitBtn.disabled = false;
+    if (error) {
+      console.error(error);
+      errorEl.textContent = 'Save failed — try again.';
+      errorEl.style.display = '';
+      return;
+    }
+    document.getElementById('add-reading-modal').classList.remove('open');
+    invalidateWrittenMediaCache();
+    showToast('Added');
+    rerenderActiveTab();
   });
 
   // ── Tabs (two-level: TV/Movies + Reading each have sub-tabs, Stats doesn't) ──
