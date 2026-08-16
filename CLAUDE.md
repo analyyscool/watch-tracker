@@ -88,6 +88,17 @@ Look up chapter/volume counts before writing the entry:
 `total_chapters`/`current_chapter` (plus `total_volumes`/`current_volume`
 when the source has volumes).
 
+For manga/manhwa, also set `series_status` from AniList's `status` field —
+maps `FINISHED`→`"finished"`, `RELEASING`→`"ongoing"`, `HIATUS`→`"hiatus"`,
+`CANCELLED`→`"cancelled"`. This tracks the *series'* own publication state
+(shown as a small badge next to the category label), separate from
+`list_status` which tracks the user's personal reading progress. Note
+AniList's `HIATUS` value is unreliable for long-dormant series (e.g.
+*Vagabond* has been inactive since 2015 but AniList still reports
+`RELEASING`) — cross-check with a web search if a series is known to be
+stalled and AniList disagrees. Leave `series_status` `null` for books and
+webnovels (no reliable source).
+
 Then insert directly into Supabase:
 
 ```bash
@@ -96,6 +107,7 @@ node scripts/supabase-write.mjs written_media '[{
   "scope": "karl", "author": "...", "cover_url": "...", "genres": ["..."],
   "total_chapters": 100, "current_chapter": 5,
   "total_volumes": 12, "current_volume": 1,
+  "series_status": "ongoing",
   "list_status": "reading",
   "last_updated": "2026-08-14"
 }]'

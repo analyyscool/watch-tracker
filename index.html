@@ -349,6 +349,18 @@
     margin-right: 0.25rem;
   }
 
+  .series-status-badge {
+    font-size: 0.56rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .series-status-badge.status-hiatus,
+  .series-status-badge.status-cancelled {
+    color: var(--accent);
+  }
+
   .anime-sync-badge {
     font-size: 0.56rem;
     letter-spacing: 0.06em;
@@ -1487,7 +1499,7 @@
       totalVolumes: m.total_volumes, currentVolume: m.current_volume,
       totalPages: m.total_pages, currentPage: m.current_page,
       listStatus: m.list_status, pinned: m.pinned, tags: m.tags, lastUpdated: m.last_updated,
-      chapterSyncedFromAnime: m.chapter_synced_from_anime,
+      chapterSyncedFromAnime: m.chapter_synced_from_anime, seriesStatus: m.series_status,
       rating: currentProfile ? m.ratings.find(r => r.user_id === currentProfile.id)?.rating ?? null : null,
       note: currentProfile ? m.ratings.find(r => r.user_id === currentProfile.id)?.note ?? null : null,
     }));
@@ -2169,6 +2181,11 @@
     return m.totalVolumes ? `Vol ${m.currentVolume || 0}/${m.totalVolumes} · ${chapterPart}` : chapterPart;
   }
 
+  function seriesStatusBadge(m) {
+    if (!m.seriesStatus) return '';
+    return `<span class="series-status-badge status-${m.seriesStatus}">${m.seriesStatus}</span>`;
+  }
+
   function progressPct(m) {
     if (m.category === 'book') {
       return m.totalPages ? Math.round((m.currentPage || 0) / m.totalPages * 100) : 0;
@@ -2240,6 +2257,7 @@
                   </svg>
                 </button>
                 <span class="card-meta">${m.category}</span>
+                ${seriesStatusBadge(m)}
                 <span class="card-pct">${progressPct(m)}%</span>
               </div>
             </div>
@@ -2275,6 +2293,7 @@
               <div class="card-right">
                 ${noteButtonHTML(m.id, m.title, '', m.note, 'media')}
                 <span class="card-meta">${m.category}</span>
+                ${seriesStatusBadge(m)}
                 <span class="card-pct done">done</span>
               </div>
             </div>

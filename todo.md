@@ -31,7 +31,6 @@ Open tasks queued for a future session. Newest at the top.
 
 Core feature (schema, Reading tab, progress controls, pinning, ratings/notes) implemented via `docs/superpowers/plans/2026-08-14-written-media.md` — see that plan/ledger for status. These are extra asks Karl raised mid-implementation, deliberately deferred rather than scope-creeped into the running plan:
 
-- **Ongoing/finished/hiatus status marker for manga/manhwa/webnovel** — separate from `list_status` (which tracks Karl's personal reading progress state: reading/completed/plan_to_read). This would track the *series'* own publication status. Needs a new column (e.g. `series_status`) and a design call on how it's sourced (AniList has this for manga) vs. manually entered.
 - **New-chapter release notifications** for manga/manhwa/webnovels Karl is actively reading — bigger idea, needs its own design pass (what counts as "new," how often to check, where notifications surface since this is a browser app with no push infra today).
 - **News-of-new-releases for already-read series** (sequels, new seasons/volumes announced) — bigger idea, same caveat as above, likely needs an external content/news API and its own design pass.
 
