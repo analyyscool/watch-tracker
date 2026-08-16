@@ -361,6 +361,23 @@
     color: var(--accent);
   }
 
+  .new-chapters-banner {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.75rem;
+    background: var(--surface2);
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    padding: 0.65rem 1rem;
+    margin-bottom: 1.25rem;
+    font-size: 0.65rem;
+  }
+
+  .new-chapters-banner button {
+    flex-shrink: 0;
+  }
+
   .anime-sync-badge {
     font-size: 0.56rem;
     letter-spacing: 0.06em;
@@ -1202,6 +1219,7 @@
   </div>
 
   <div id="view-reading" style="display:none">
+    <div id="new-chapters-banner-slot"></div>
     <div class="category-toggle" id="reading-category-toggle">
       <button class="btn reading-category-btn active" data-category="book">Books</button>
       <button class="btn reading-category-btn" data-category="manga">Manga</button>
@@ -2193,7 +2211,84 @@
     return m.totalChapters ? Math.round((m.currentChapter || 0) / m.totalChapters * 100) : 0;
   }
 
+  // ── New-chapter checking ──
+  // Fires whenever the Reading tab renders, but the localStorage timestamp
+  // short-circuits actual work to at most once every 6 hours — no push
+  // infra exists in this static app, so this is the closest approximation:
+  // an on-load poll against AniList's live chapter counts. Bumping
+  // total_chapters to the live value (rather than just showing a banner)
+  // is what prevents re-notifying for the same new chapters on the next
+  // check.
+  async function checkNewChapters() {
+    const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+    const lastCheck = parseInt(localStorage.getItem('lastChapterCheck') || '0', 10);
+    if (Date.now() - lastCheck < CHECK_INTERVAL_MS) return;
+    localStorage.setItem('lastChapterCheck', String(Date.now()));
+
+    const rows = await fetchWrittenMedia(activeScope);
+    const candidates = rows.filter(m =>
+      (m.category === 'manga' || m.category === 'manhwa') &&
+      m.listStatus === 'reading' && m.totalChapters
+    );
+    if (!candidates.length) return;
+
+    // AniList's `chapters` field is only populated once a series is
+    // FINISHED — it's null for anything still RELEASING, which is exactly
+    // the set of titles this check cares about. MangaDex tracks live
+    // per-chapter upload feeds instead, so it's used here despite being a
+    // second external dependency beyond AniList/Jikan.
+    const updates = [];
+    for (const m of candidates) {
+      try {
+        const searchRes = await fetch(`https://api.mangadex.org/manga?title=${encodeURIComponent(m.title)}&limit=5`);
+        const searchJson = await searchRes.json();
+        const candidatesList = searchJson.data || [];
+        if (!candidatesList.length) continue;
+        // MangaDex's raw top relevance hit is often a colorized/spinoff
+        // edition (e.g. "Hunter x Hunter (Official Colored)" outranks the
+        // base "Hunter x Hunter") that lags far behind the real release —
+        // prefer an exact title match over the top hit.
+        const exact = candidatesList.find(c => (c.attributes.title.en || '').toLowerCase() === m.title.toLowerCase());
+        const manga = exact || candidatesList[0];
+        const aggRes = await fetch(`https://api.mangadex.org/manga/${manga.id}/aggregate?translatedLanguage[]=en`);
+        const aggJson = await aggRes.json();
+        let maxChapter = 0;
+        Object.values(aggJson.volumes || {}).forEach(vol => {
+          Object.keys(vol.chapters || {}).forEach(chNum => {
+            const n = parseFloat(chNum);
+            if (!isNaN(n) && n > maxChapter) maxChapter = n;
+          });
+        });
+        if (maxChapter && maxChapter > m.totalChapters) {
+          updates.push({ id: m.id, title: m.title, delta: Math.round(maxChapter - m.totalChapters), newTotal: Math.round(maxChapter) });
+        }
+      } catch (e) { console.error('Chapter check failed for', m.title, e); }
+    }
+    if (!updates.length) return;
+
+    await Promise.all(updates.map(u =>
+      supabase.from('written_media').update({ total_chapters: u.newTotal }).eq('id', u.id)
+    ));
+    invalidateWrittenMediaCache();
+    showNewChaptersBanner(updates);
+    // The grid may have already rendered with the pre-update totals (this
+    // check runs fire-and-forget from the top of loadReading()) — refresh
+    // so percentages reflect the corrected total immediately.
+    loadReading();
+  }
+
+  function showNewChaptersBanner(updates) {
+    const text = updates.map(u => `${u.title} (+${u.delta})`).join(', ');
+    document.getElementById('new-chapters-banner-slot').innerHTML = `
+      <div class="new-chapters-banner">
+        <span>New chapters: ${text}</span>
+        <button class="btn" onclick="this.closest('.new-chapters-banner').remove()">Dismiss</button>
+      </div>
+    `;
+  }
+
   async function loadReading() {
+    checkNewChapters();
     const allRows = await fetchWrittenMedia(activeScope);
     const rows = allRows.filter(m => m.category === activeReadingCategory);
     const reading = rows.filter(m => m.listStatus === 'reading');

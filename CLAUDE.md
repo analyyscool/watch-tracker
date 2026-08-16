@@ -127,6 +127,10 @@ first, or pass an explicit `id` in the payload.
 
 Progress bumps and marking shows finished are handled in-page now (episode stepper / Mark Finished button) — no longer Claude-mediated.
 
+## New-chapter checking (manga/manhwa)
+
+Handled in-page, not Claude-mediated: whenever the Reading tab renders, `checkNewChapters()` polls MangaDex (not AniList — AniList's `chapters` field is only populated once a series is `FINISHED`, so it's useless for the ongoing titles this feature cares about) for each actively-reading manga/manhwa's live chapter count, throttled to once per 6 hours via a `lastChapterCheck` localStorage timestamp. If MangaDex's count exceeds the stored `total_chapters`, it bumps the stored total (so the same new chapters aren't re-announced next check) and shows a dismissible banner. MangaDex's raw top search hit is often a colorized/spinoff edition that lags behind the real release (e.g. "Hunter x Hunter (Official Colored)" outranks the base series) — the code prefers an exact title match over the top hit to avoid pulling a stale count from the wrong edition.
+
 ## Session checkpoints
 
 When the user says "end of session" (or an equivalent closing phrase), run `/capture-workflow` first, then append a new dated entry to `docs/checkpoints.md` summarizing what was done in the session — a few bullet points, newest entry at the bottom. Create the file if it doesn't exist yet.
