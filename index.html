@@ -71,6 +71,25 @@
 
   .container { max-width: 680px; margin: 0 auto; }
 
+  /* Pibble background — Liisa's request. Shows when she's signed in or
+     when anyone views her scope. A scrim matching each theme's --bg keeps
+     card content legible; the photo mainly shows in the container's side
+     margins and the header area. */
+  body.pibble-bg {
+    background-image:
+      linear-gradient(rgba(240,240,245,0.88), rgba(240,240,245,0.88)),
+      url('https://images.unsplash.com/photo-1753475585321-09f5e62d1bd3?fm=jpg&q=70&w=1920&auto=format&fit=crop');
+    background-size: cover;
+    background-position: center top;
+    background-attachment: fixed;
+  }
+
+  html.dark body.pibble-bg {
+    background-image:
+      linear-gradient(rgba(11,11,16,0.88), rgba(11,11,16,0.88)),
+      url('https://images.unsplash.com/photo-1753475585321-09f5e62d1bd3?fm=jpg&q=70&w=1920&auto=format&fit=crop');
+  }
+
   /* ── Header ── */
   header {
     text-align: center;
@@ -1637,6 +1656,7 @@
       setActiveScope(profile.display_name.toLowerCase());
     }
     updateReadOnlyBanner();
+    updatePibbleBackground();
     invalidateShowsCache();
     invalidateWrittenMediaCache();
     rerenderActiveTab();
@@ -2914,6 +2934,13 @@
     btn.addEventListener('click', () => activateSubtab(btn.dataset.tab));
   });
 
+  // Pibble background: on whenever Liisa is signed in, or whenever the
+  // active scope is hers (so Karl sees it too when viewing her list).
+  function updatePibbleBackground() {
+    const isLiisa = (currentProfile && currentProfile.display_name === 'Liisa') || activeScope === 'liisa';
+    document.body.classList.toggle('pibble-bg', !!isLiisa);
+  }
+
   // ── Scope switcher ──
   function updateReadOnlyBanner() {
     const banner = document.getElementById('read-only-banner');
@@ -2933,6 +2960,7 @@
     invalidateShowsCache();
     invalidateWrittenMediaCache();
     updateReadOnlyBanner();
+    updatePibbleBackground();
     rerenderActiveTab();
   }
   document.getElementById('scope-toggle').addEventListener('change', e => setActiveScope(e.target.value));
