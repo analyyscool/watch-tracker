@@ -6,11 +6,15 @@ When adding a new show, first ask (if not already clear from context) which
 scope it belongs to: Karl's list, Liisa's list, or Together.
 
 Look up the exact episode count before writing the entry:
-- Anime: query the Jikan API (`https://api.jikan.moe/v4/anime?q=<title>&limit=1`)
-  — it wraps MyAnimeList and gives `episodes`, `status`, poster
-  (`images.jpg.large_image_url`), `studios[0].name`, and `genres[].name` in
-  one call. Jikan rate-limits aggressively; space out calls (one at a time)
-  if adding several shows.
+- Anime: query AniList's GraphQL API (`https://graphql.anilist.co`, POST,
+  `Media(search:$s,type:ANIME){episodes status studios(isMain:true){nodes{name}}
+  genres coverImage{extraLarge}}`) — first-party API (not a proxy scraping
+  MAL like Jikan is), so it doesn't inherit MAL's frequent outages. Gives
+  episode count, status, main studio, genres, and cover art in one call, no
+  key needed. Jikan (`https://api.jikan.moe/v4/anime?q=<title>&limit=1`) is
+  the fallback if AniList doesn't have a title — check with `curl -s -o
+  /dev/null -w '%{http_code}' 'https://api.jikan.moe/v4/anime?q=test&limit=1'`
+  first (a 504 means MAL itself is down, not just Jikan).
 - Live-action: TMDB (`https://www.themoviedb.org/tv/<id>-<slug>`) for
   episode/season counts, poster, network, and genres.
 
@@ -52,22 +56,32 @@ When adding a written-media entry, first ask (if not already clear from
 context) which scope it belongs to: Karl's list, Liisa's list, or Together.
 
 Look up chapter/volume counts before writing the entry:
-- Manga (and manhwa, when MAL has it): query Jikan
-  (`https://api.jikan.moe/v4/manga?q=<title>&limit=1`) — gives `chapters`,
-  `volumes`, `status`, cover (`images.jpg.large_image_url`), `authors[0].name`,
-  and `genres[].name`. No API key needed, but MAL itself occasionally goes
-  down (Jikan returns a 504 in that case) — if so, retry later rather than
-  treating it as a permanent gap.
-- Books: cover art via Open Library
-  (`https://openlibrary.org/search.json?title=<title>&limit=1` → `cover_i`,
-  then `https://covers.openlibrary.org/b/id/<cover_i>-L.jpg`) — free, no API
+- Manga and manhwa: query AniList's GraphQL API (`https://graphql.anilist.co`,
+  POST, `Media(search:$s,type:MANGA){chapters volumes status genres
+  coverImage{extraLarge}}`) — covers manhwa (Korean `countryOfOrigin: KR`)
+  as well as manga, and doesn't depend on MAL's uptime. When a title has
+  multiple candidates (e.g. a common word like "Leviathan"), run a broader
+  `Page(perPage:8){media(search:$s,type:MANGA){...countryOfOrigin}}` query
+  and pick by `countryOfOrigin`/format rather than trusting the single top
+  match — caught a wrong-series match this way once already. `authors` isn't
+  in this schema; still needs a manual search or the user. Jikan
+  (`https://api.jikan.moe/v4/manga?q=<title>&limit=1`) is the fallback for
+  titles AniList doesn't have.
+- Books, and manhwa/webnovels with an officially published ebook/print
+  edition (many web serials get one later, e.g. via Aethon Books or
+  self-pub): cover art via Open Library
+  (`https://openlibrary.org/search.json?title=<title>&limit=3` → check
+  `author_name` matches the real author before trusting `cover_i`, since
+  common titles collide with unrelated books — then
+  `https://covers.openlibrary.org/b/id/<cover_i>-L.jpg`) — free, no API
   key, no quota wall. (Google Books was tried first and rejected: its
-  anonymous/no-key quota is effectively zero.) Chapter/page counts and
-  author still need to come from the user or a manual search — Open Library
-  is cover-art-only here.
-- Manhwa not on MAL, and webnovels: no reliable free API for either data or
-  cover art — ask the user for author, chapter/page count (or leave null if
-  unknown/ongoing), and cover art URL if they have one.
+  anonymous/no-key quota is effectively zero.) Chapter/page counts still
+  need to come from the user or a manual search — Open Library is
+  cover-art-only here.
+- Manhwa/webnovels with no AniList entry and no published edition on Open
+  Library: no reliable free source for cover art — ask the user for author,
+  chapter/page count (or leave null if unknown/ongoing), and cover art URL
+  if they have one.
 
 `category` is one of `"book"`, `"manga"`, `"manhwa"`, or `"webnovel"`.
 `total_pages`/`current_page` are only meaningful for `"book"`; the rest use

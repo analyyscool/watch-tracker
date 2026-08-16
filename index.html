@@ -118,6 +118,21 @@
     flex-wrap: wrap;
   }
 
+  .user-name {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.65rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text);
+  }
+
+  .theme-toggle-fixed {
+    position: fixed;
+    top: 1.25rem;
+    right: 1.25rem;
+    z-index: 50;
+  }
+
   /* ── Tabs ── */
   .tabs {
     display: flex;
@@ -143,8 +158,43 @@
   .tab-btn:hover { color: var(--text); border-color: var(--accent); }
   .tab-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 
-  #top-tabs { margin-bottom: 0.75rem; }
-  .sub-tabs .tab-btn { font-size: 0.6rem; padding: 0.4rem 0.9rem; }
+  /* Top-level section tabs: underline style, larger, no box — reads as
+     the primary navigation. Sub-tabs (below) are visually subordinate:
+     smaller pill chips grouped in a tinted strip. */
+  #top-tabs {
+    gap: 1.75rem;
+    margin-bottom: 0;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0;
+  }
+  #top-tabs .tab-btn {
+    font-size: 0.78rem;
+    padding: 0 0.1rem 0.75rem;
+    border: none;
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
+    background: transparent;
+  }
+  #top-tabs .tab-btn:hover { color: var(--text); border-bottom-color: var(--border2); }
+  #top-tabs .tab-btn.active { color: var(--accent); background: transparent; border-bottom-color: var(--accent); }
+
+  .sub-tabs {
+    gap: 0.3rem;
+    margin: 1rem auto 2.25rem;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.3rem;
+    width: fit-content;
+  }
+  .sub-tabs .tab-btn {
+    font-size: 0.6rem;
+    padding: 0.4rem 0.9rem;
+    border: none;
+    border-radius: 5px;
+  }
+  .sub-tabs .tab-btn:hover { background: transparent; }
+  .sub-tabs .tab-btn.active { background: var(--accent); color: #fff; }
 
   .btn {
     font-family: 'DM Mono', monospace;
@@ -528,7 +578,7 @@
   .category-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
   .ratings-category-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
   .reading-ratings-category-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
-  .scope-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .stats-category-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 
   .tierlist-controls-right {
     display: flex;
@@ -1053,11 +1103,16 @@
     <h1>Currently Watching</h1>
     <p class="header-count" id="show-count"></p>
     <div class="header-actions">
+      <select class="sf-select" id="scope-toggle">
+        <option value="karl">Karl</option>
+        <option value="liisa">Liisa</option>
+        <option value="together">Together</option>
+      </select>
       <button class="btn btn-primary" id="btn-add">+ Add Show</button>
-      <button class="btn" id="btn-theme">dark mode</button>
       <span id="auth-area"></span>
     </div>
   </header>
+  <button class="btn theme-toggle-fixed" id="btn-theme">dark mode</button>
 
   <div id="signed-out-screen" class="signed-out-screen" style="display:none">
     <h2>Sign in</h2>
@@ -1070,12 +1125,6 @@
   </div>
 
   <div id="app-content" style="display:none">
-  <div class="category-toggle" id="scope-toggle">
-    <button class="btn scope-btn active" data-scope="karl">Karl</button>
-    <button class="btn scope-btn" data-scope="liisa">Liisa</button>
-    <button class="btn scope-btn" data-scope="together">Together</button>
-  </div>
-
   <div class="tabs" id="top-tabs">
     <button class="tab-btn active" data-toptab="tvmovies">TV / Movies</button>
     <button class="tab-btn" data-toptab="reading">Reading</button>
@@ -1270,6 +1319,18 @@
   </div>
 </div>
 
+<div class="modal-backdrop" id="finish-modal">
+  <div class="modal">
+    <h2 id="finish-modal-title">Finished!</h2>
+    <div id="finish-modal-stars"></div>
+    <textarea id="finish-modal-text" placeholder="Optional note…"></textarea>
+    <div class="modal-actions">
+      <button class="btn" id="finish-modal-skip">Skip</button>
+      <button class="btn btn-primary" id="finish-modal-save">Save</button>
+    </div>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
   // Supabase client + auth
@@ -1283,6 +1344,11 @@
 
   let currentProfile = null; // { id, display_name } once signed in
   let activeScope = 'karl';
+  let activeStatsCategory = 'watching';
+  function setStatsCategory(cat) {
+    activeStatsCategory = cat;
+    renderStatsTab();
+  }
   let currentTab = 'watching'; // active sub-tab (watching/tierlist/ratings/stats/reading/reading-ratings)
   let hasAutoSwitchedScope = false; // only auto-switch the scope once per sign-in
 
@@ -1346,11 +1412,11 @@
     signedOutScreen.style.display = 'none';
     appContent.style.display = '';
     signinForm.reset();
-    authArea.innerHTML = `<span>${profile.display_name}</span> <button class="btn" id="btn-signout">Sign out</button>`;
+    authArea.innerHTML = `<span class="user-name">${profile.display_name}</span> <button class="btn" id="btn-signout">Sign out</button>`;
     document.getElementById('btn-signout').addEventListener('click', () => supabase.auth.signOut().then(refreshAuthUI));
     if (!hasAutoSwitchedScope) {
       hasAutoSwitchedScope = true;
-      document.querySelector(`.scope-btn[data-scope="${profile.display_name.toLowerCase()}"]`)?.click();
+      setActiveScope(profile.display_name.toLowerCase());
     }
     invalidateShowsCache();
     invalidateWrittenMediaCache();
@@ -1504,6 +1570,7 @@
     if (checkWriteError(error)) return;
     invalidateShowsCache();
     loadShows();
+    openFinishModal(id, show.title, 'show');
   }
 
   document.body.addEventListener('click', e => {
@@ -1628,6 +1695,41 @@
     if (noteModalOnSave) noteModalOnSave(!!text);
     showToast(text ? 'Note saved' : 'Note cleared');
     closeNoteModal();
+  });
+
+  // ── Mark Finished → rate/note prompt ──
+  // Fires right after markFinished()/markReadingFinished() write the
+  // completion status. The star widget saves on click via the existing
+  // delegated .star-hit listener above — this modal only owns the optional
+  // note and the skip/save affordance, so rating stays skippable.
+  let finishModalId = null;
+  let finishModalKind = 'show';
+
+  function openFinishModal(id, title, kind = 'show') {
+    finishModalId = id;
+    finishModalKind = kind;
+    document.getElementById('finish-modal-title').textContent = `Finished — ${title}`;
+    document.getElementById('finish-modal-stars').innerHTML = renderStars(id, 0, kind);
+    document.getElementById('finish-modal-text').value = '';
+    document.getElementById('finish-modal').classList.add('open');
+  }
+
+  function closeFinishModal() {
+    document.getElementById('finish-modal').classList.remove('open');
+    finishModalId = null;
+    finishModalKind = 'show';
+  }
+
+  document.getElementById('finish-modal-skip').addEventListener('click', closeFinishModal);
+  document.getElementById('finish-modal').addEventListener('click', e => {
+    if (e.target === e.currentTarget) closeFinishModal();
+  });
+  document.getElementById('finish-modal-save').addEventListener('click', async () => {
+    if (!finishModalId) return;
+    const text = document.getElementById('finish-modal-text').value.trim();
+    if (text) await setNote(finishModalId, text, finishModalKind);
+    showToast('Saved');
+    closeFinishModal();
   });
 
   // Event delegation for every .note-btn on the page — cards, chips, movie
@@ -2226,6 +2328,7 @@
     if (checkWriteError(error)) return;
     invalidateWrittenMediaCache();
     loadReading();
+    openFinishModal(id, m.title, 'media');
   }
 
   document.body.addEventListener('click', e => {
@@ -2313,16 +2416,15 @@
   });
 
   // ── Scope switcher ──
-  document.querySelectorAll('.scope-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      if (btn.classList.contains('active')) return;
-      document.querySelectorAll('.scope-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      activeScope = btn.dataset.scope;
-      invalidateShowsCache();
-      rerenderActiveTab();
-    });
-  });
+  function setActiveScope(scope) {
+    if (scope === activeScope) return;
+    activeScope = scope;
+    document.getElementById('scope-toggle').value = scope;
+    invalidateShowsCache();
+    invalidateWrittenMediaCache();
+    rerenderActiveTab();
+  }
+  document.getElementById('scope-toggle').addEventListener('change', e => setActiveScope(e.target.value));
 
   document.querySelectorAll('.mode-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -2943,30 +3045,80 @@
 
     const hours = (minutesWatched / 60).toFixed(1);
 
+    const mediaRows = await fetchWrittenMedia(activeScope);
+    const mediaReading = mediaRows.filter(m => m.listStatus === 'reading');
+    const mediaCompleted = mediaRows.filter(m => m.listStatus === 'completed');
+    const mediaToRead = mediaRows.filter(m => m.listStatus === 'plan_to_read');
+
+    // Chapters/pages: in-progress items count current position, completed
+    // items count the full total (mirrors how episodes/hours treats
+    // activeWatching vs. completedWatching above).
+    let chaptersRead = 0;
+    let pagesRead = 0;
+    mediaReading.forEach(m => {
+      if (m.category === 'book') pagesRead += m.currentPage || 0;
+      else chaptersRead += m.currentChapter || 0;
+    });
+    mediaCompleted.forEach(m => {
+      if (m.category === 'book') pagesRead += m.totalPages || m.currentPage || 0;
+      else chaptersRead += m.totalChapters || m.currentChapter || 0;
+    });
+
+    const mediaCategoryCounts = { book: 0, manga: 0, manhwa: 0, webnovel: 0 };
+    [...mediaReading, ...mediaCompleted].forEach(m => { mediaCategoryCounts[m.category] = (mediaCategoryCounts[m.category] || 0) + 1; });
+
+    const mediaGenreCounts = {};
+    [...mediaReading, ...mediaCompleted].forEach(m => {
+      (m.genres || []).forEach(g => { mediaGenreCounts[g] = (mediaGenreCounts[g] || 0) + 1; });
+    });
+
     document.getElementById('view-stats').innerHTML = `
-      <div class="stats-grid">
-        <div class="stat-tile"><div class="stat-tile-value">${activeWatching.length}</div><div class="stat-tile-label">Watching</div></div>
-        <div class="stat-tile"><div class="stat-tile-value">${allWatched.length}</div><div class="stat-tile-label">Completed</div></div>
-        <div class="stat-tile"><div class="stat-tile-value">${watchlist.length}</div><div class="stat-tile-label">Watchlist</div></div>
-        <div class="stat-tile"><div class="stat-tile-value">${episodesWatched}</div><div class="stat-tile-label">Episodes Watched</div></div>
-        <div class="stat-tile"><div class="stat-tile-value">${hours}</div><div class="stat-tile-label">Hours Watched</div></div>
+      <div class="category-toggle">
+        <button class="btn stats-category-btn${activeStatsCategory === 'watching' ? ' active' : ''}" onclick="setStatsCategory('watching')">Watching</button>
+        <button class="btn stats-category-btn${activeStatsCategory === 'reading' ? ' active' : ''}" onclick="setStatsCategory('reading')">Reading</button>
       </div>
-      <p style="font-size:0.6rem; color:var(--muted); margin-top:-1.25rem; margin-bottom:1.5rem;">
-        Episodes/hours only cover shows tracked with episode counts (everything that passed through "Watching") plus movies — older watched-only entries added before that count toward "Completed" but not toward the episode/hour totals.
-      </p>
 
-      <div class="stats-section-title">Category split</div>
-      ${barRows({ Anime: categoryCounts.anime, Western: categoryCounts.western, Movies: categoryCounts.movie })}
+      <div id="stats-watching-panel" style="display:${activeStatsCategory === 'watching' ? '' : 'none'}">
+        <div class="stats-grid">
+          <div class="stat-tile"><div class="stat-tile-value">${activeWatching.length}</div><div class="stat-tile-label">Watching</div></div>
+          <div class="stat-tile"><div class="stat-tile-value">${allWatched.length}</div><div class="stat-tile-label">Completed</div></div>
+          <div class="stat-tile"><div class="stat-tile-value">${watchlist.length}</div><div class="stat-tile-label">Watchlist</div></div>
+          <div class="stat-tile"><div class="stat-tile-value">${episodesWatched}</div><div class="stat-tile-label">Episodes Watched</div></div>
+          <div class="stat-tile"><div class="stat-tile-value">${hours}</div><div class="stat-tile-label">Hours Watched</div></div>
+        </div>
+        <p style="font-size:0.6rem; color:var(--muted); margin-top:-1.25rem; margin-bottom:1.5rem;">
+          Episodes/hours only cover shows tracked with episode counts (everything that passed through "Watching") plus movies — older watched-only entries added before that count toward "Completed" but not toward the episode/hour totals.
+        </p>
 
-      <div class="stats-section-title">Top genres</div>
-      ${Object.keys(genreCounts).length ? barRows(genreCounts) : '<p style="font-size:0.65rem; color:var(--muted)">No genre data yet.</p>'}
+        <div class="stats-section-title">Category split</div>
+        ${barRows({ Anime: categoryCounts.anime, Western: categoryCounts.western, Movies: categoryCounts.movie })}
 
-      <div class="stats-section-title">Top studios</div>
-      ${Object.keys(studioCounts).length ? barRows(studioCounts) : '<p style="font-size:0.65rem; color:var(--muted)">No studio data yet.</p>'}
+        <div class="stats-section-title">Top genres</div>
+        ${Object.keys(genreCounts).length ? barRows(genreCounts) : '<p style="font-size:0.65rem; color:var(--muted)">No genre data yet.</p>'}
 
-      <p style="font-size:0.6rem; color:var(--muted); margin-top:1rem;">
-        Genre/studio breakdown is based on the ${activeWatching.length + completedWatching.length} shows tracked with full metadata (currently watching or finished-from-watching) — most of the older watched history predates genre/studio tracking.
-      </p>
+        <div class="stats-section-title">Top studios</div>
+        ${Object.keys(studioCounts).length ? barRows(studioCounts) : '<p style="font-size:0.65rem; color:var(--muted)">No studio data yet.</p>'}
+
+        <p style="font-size:0.6rem; color:var(--muted); margin-top:1rem;">
+          Genre/studio breakdown is based on the ${activeWatching.length + completedWatching.length} shows tracked with full metadata (currently watching or finished-from-watching) — most of the older watched history predates genre/studio tracking.
+        </p>
+      </div>
+
+      <div id="stats-reading-panel" style="display:${activeStatsCategory === 'reading' ? '' : 'none'}">
+        <div class="stats-grid">
+          <div class="stat-tile"><div class="stat-tile-value">${mediaReading.length}</div><div class="stat-tile-label">Reading</div></div>
+          <div class="stat-tile"><div class="stat-tile-value">${mediaCompleted.length}</div><div class="stat-tile-label">Completed</div></div>
+          <div class="stat-tile"><div class="stat-tile-value">${mediaToRead.length}</div><div class="stat-tile-label">To Read</div></div>
+          <div class="stat-tile"><div class="stat-tile-value">${chaptersRead}</div><div class="stat-tile-label">Chapters Read</div></div>
+          <div class="stat-tile"><div class="stat-tile-value">${pagesRead}</div><div class="stat-tile-label">Pages Read</div></div>
+        </div>
+
+        <div class="stats-section-title">Category split</div>
+        ${barRows({ Book: mediaCategoryCounts.book, Manga: mediaCategoryCounts.manga, Manhwa: mediaCategoryCounts.manhwa, Webnovel: mediaCategoryCounts.webnovel })}
+
+        <div class="stats-section-title">Top genres</div>
+        ${Object.keys(mediaGenreCounts).length ? barRows(mediaGenreCounts) : '<p style="font-size:0.65rem; color:var(--muted)">No genre data yet.</p>'}
+      </div>
     `;
   }
 
