@@ -288,10 +288,13 @@
   }
 
   .card-meta {
-    font-size: 0.6rem;
-    letter-spacing: 0.1em;
+    font-size: 0.58rem;
+    letter-spacing: 0.08em;
     color: var(--muted);
     text-transform: uppercase;
+    border: 1px solid var(--border2);
+    border-radius: 3px;
+    padding: 0.1rem 0.4rem;
   }
 
   .card-pct {
@@ -301,6 +304,16 @@
     min-width: 2.2rem;
     text-align: right;
     font-variant-numeric: tabular-nums;
+  }
+
+  .card-pct.done {
+    border: 1px solid var(--border2);
+    border-radius: 3px;
+    padding: 0.1rem 0.4rem;
+    text-align: center;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 0.58rem;
   }
 
   .pin-btn {
@@ -409,6 +422,19 @@
     font-size: 0.62rem;
     color: #ff6b6b;
     margin-bottom: 0.75rem;
+  }
+
+  .read-only-banner {
+    text-align: center;
+    font-size: 0.62rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.5rem 1rem;
+    margin-bottom: 1.5rem;
   }
 
   .new-chapters-banner {
@@ -668,7 +694,6 @@
   .category-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
   .ratings-category-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
   .reading-ratings-category-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
-  .stats-category-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
   .reading-category-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 
   .tierlist-controls-right {
@@ -970,6 +995,7 @@
   .star-rating {
     display: inline-flex;
     gap: 1px;
+    margin-left: 0.2rem;
   }
 
   .star-slot {
@@ -1217,6 +1243,7 @@
   </div>
 
   <div id="app-content" style="display:none">
+  <div id="read-only-banner" class="read-only-banner" style="display:none"></div>
   <div class="tabs" id="top-tabs">
     <button class="tab-btn active" data-toptab="tvmovies">TV / Movies</button>
     <button class="tab-btn" data-toptab="reading">Reading</button>
@@ -1609,6 +1636,7 @@
       hasAutoSwitchedScope = true;
       setActiveScope(profile.display_name.toLowerCase());
     }
+    updateReadOnlyBanner();
     invalidateShowsCache();
     invalidateWrittenMediaCache();
     rerenderActiveTab();
@@ -2887,12 +2915,24 @@
   });
 
   // ── Scope switcher ──
+  function updateReadOnlyBanner() {
+    const banner = document.getElementById('read-only-banner');
+    if (!canWriteScope(activeScope) && currentProfile) {
+      const label = activeScope.charAt(0).toUpperCase() + activeScope.slice(1);
+      banner.textContent = `Viewing ${label}'s list — read-only`;
+      banner.style.display = '';
+    } else {
+      banner.style.display = 'none';
+    }
+  }
+
   function setActiveScope(scope) {
     if (scope === activeScope) return;
     activeScope = scope;
     document.getElementById('scope-toggle').value = scope;
     invalidateShowsCache();
     invalidateWrittenMediaCache();
+    updateReadOnlyBanner();
     rerenderActiveTab();
   }
   document.getElementById('scope-toggle').addEventListener('change', e => setActiveScope(e.target.value));
@@ -3576,9 +3616,9 @@
     });
 
     document.getElementById('view-stats').innerHTML = `
-      <div class="category-toggle">
-        <button class="btn stats-category-btn${activeStatsCategory === 'watching' ? ' active' : ''}" onclick="setStatsCategory('watching')">Watching</button>
-        <button class="btn stats-category-btn${activeStatsCategory === 'reading' ? ' active' : ''}" onclick="setStatsCategory('reading')">Reading</button>
+      <div class="tabs sub-tabs">
+        <button class="tab-btn sub-tab-btn${activeStatsCategory === 'watching' ? ' active' : ''}" onclick="setStatsCategory('watching')">Watching</button>
+        <button class="tab-btn sub-tab-btn${activeStatsCategory === 'reading' ? ' active' : ''}" onclick="setStatsCategory('reading')">Reading</button>
       </div>
 
       <div id="stats-watching-panel" style="display:${activeStatsCategory === 'watching' ? '' : 'none'}">
