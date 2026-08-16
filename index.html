@@ -590,6 +590,7 @@
   .ratings-category-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
   .reading-ratings-category-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
   .stats-category-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .reading-category-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 
   .tierlist-controls-right {
     display: flex;
@@ -1189,6 +1190,12 @@
   </div>
 
   <div id="view-reading" style="display:none">
+    <div class="category-toggle" id="reading-category-toggle">
+      <button class="btn reading-category-btn active" data-category="book">Books</button>
+      <button class="btn reading-category-btn" data-category="manga">Manga</button>
+      <button class="btn reading-category-btn" data-category="manhwa">Manhwa</button>
+      <button class="btn reading-category-btn" data-category="webnovel">Webnovels</button>
+    </div>
     <div class="sort-filter-bar" id="reading-active-sf">
       <select class="sf-select" id="reading-sort">
         <option value="pct">Sort: % complete</option>
@@ -1196,7 +1203,6 @@
         <option value="alpha">Sort: A–Z</option>
       </select>
       <select class="sf-select" id="reading-genre"><option value="">Genre: All</option></select>
-      <select class="sf-select" id="reading-category"><option value="">Type: All</option></select>
     </div>
 
     <div id="reading-grid"></div>
@@ -1918,7 +1924,18 @@
 
   document.getElementById('reading-sort').addEventListener('change', e => { setSF('reading', { sort: e.target.value }); loadReading(); });
   document.getElementById('reading-genre').addEventListener('change', e => { setSF('reading', { genre: e.target.value }); loadReading(); });
-  document.getElementById('reading-category').addEventListener('change', e => { setSF('reading', { category: e.target.value }); loadReading(); });
+
+  let activeReadingCategory = 'book';
+  document.querySelectorAll('.reading-category-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (btn.classList.contains('active')) return;
+      document.querySelectorAll('.reading-category-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      activeReadingCategory = btn.dataset.category;
+      document.getElementById('to-read-add-category').value = activeReadingCategory;
+      loadReading();
+    });
+  });
 
   // Render
   // ── Sort / filter (Watching + Completed) ──
@@ -2160,7 +2177,8 @@
   }
 
   async function loadReading() {
-    const rows = await fetchWrittenMedia(activeScope);
+    const allRows = await fetchWrittenMedia(activeScope);
+    const rows = allRows.filter(m => m.category === activeReadingCategory);
     const reading = rows.filter(m => m.listStatus === 'reading');
     const completed = rows.filter(m => m.listStatus === 'completed');
     const toRead = rows.filter(m => m.listStatus === 'plan_to_read');
@@ -2168,17 +2186,16 @@
     const readingSF = getSF('reading');
 
     populateFilterSelect(document.getElementById('reading-genre'), reading.flatMap(m => m.genres || []), 'Genre', readingSF.genre);
-    populateFilterSelect(document.getElementById('reading-category'), reading.map(m => m.category), 'Type', readingSF.category);
     // 'pinned' was a since-removed duplicate of 'pct' (pinning itself is
     // unconditional, not a sort mode) — normalize any old stored value.
     const readingSort = readingSF.sort === 'pinned' ? 'pct' : (readingSF.sort || 'pct');
     document.getElementById('reading-sort').value = readingSort;
 
-    // Pinned items always lead the list and are exempt from genre/category
-    // filters — filters only narrow down the non-pinned remainder.
+    // Pinned items always lead the list and are exempt from the genre
+    // filter — the filter only narrows down the non-pinned remainder.
     const pinnedReading = reading.filter(m => m.pinned);
     let nonPinnedReading = reading.filter(m => !m.pinned);
-    nonPinnedReading = applyReadingFilter(nonPinnedReading, readingSF.genre, readingSF.category);
+    nonPinnedReading = applyReadingFilter(nonPinnedReading, readingSF.genre, null);
     nonPinnedReading = sortReading(nonPinnedReading, readingSort);
     const orderedReading = [...pinnedReading, ...nonPinnedReading];
 
