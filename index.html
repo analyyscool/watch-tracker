@@ -1847,7 +1847,7 @@
 
   function noteButtonHTML(id, title, extraClass = '', note = '', kind = 'show') {
     const hasNote = !!note;
-    return `<button class="note-btn ${extraClass}${hasNote ? ' has-note' : ''}" data-note-id="${id}" data-note-kind="${kind}" data-note-title="${title.replace(/"/g, '&quot;')}" data-note-text="${(note || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;')}" aria-label="Note" title="Note">
+    return `<button class="note-btn ${extraClass}${hasNote ? ' has-note' : ''}" data-note-id="${id}" data-note-kind="${kind}" data-note-title="${escapeHTML(title)}" data-note-text="${escapeHTML(note || '')}" aria-label="Note" title="Note">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
         <path d="M14 2v6h6"></path>
@@ -1972,7 +1972,7 @@
       const el = document.createElement('div');
       el.className = 'watchlist-item';
       el.innerHTML = `
-        <span class="watchlist-name">${item.title}</span>
+        <span class="watchlist-name">${escapeHTML(item.title)}</span>
         <span class="watchlist-cta">→ start</span>
         <span class="watchlist-remove" title="Remove from watchlist">✕</span>
       `;
@@ -2003,7 +2003,7 @@
   function renderWatchlistTagFilter(watchlist, activeTags) {
     const allTags = [...new Set(watchlist.flatMap(s => s.tags || []))].sort();
     const bar = document.getElementById('watchlist-tag-filter');
-    bar.innerHTML = allTags.map(tag => `<button class="btn tag-pill${activeTags.includes(tag) ? ' active' : ''}" data-tag="${tag}">${tag}</button>`).join('');
+    bar.innerHTML = allTags.map(tag => `<button class="btn tag-pill${activeTags.includes(tag) ? ' active' : ''}" data-tag="${escapeHTML(tag)}">${escapeHTML(tag)}</button>`).join('');
     bar.querySelectorAll('.tag-pill').forEach(btn => {
       btn.addEventListener('click', () => {
         btn.classList.toggle('active');
@@ -2037,7 +2037,7 @@
     items.forEach(item => {
       const row = document.createElement('div');
       row.className = 'watchlist-item';
-      row.innerHTML = `<span class="watchlist-name">${item.title}</span><span class="watchlist-cta">→ start</span><span class="watchlist-remove" title="Remove from to-read">✕</span>`;
+      row.innerHTML = `<span class="watchlist-name">${escapeHTML(item.title)}</span><span class="watchlist-cta">→ start</span><span class="watchlist-remove" title="Remove from to-read">✕</span>`;
       row.addEventListener('click', async () => {
         if (!canWriteScope(activeScope)) return;
         const { error } = await supabase.from('written_media').update({ list_status: 'reading' }).eq('id', item.id);
@@ -2066,7 +2066,7 @@
   function renderToReadTagFilter(toRead, activeTags) {
     const allTags = [...new Set(toRead.flatMap(m => m.tags || []))].sort();
     const bar = document.getElementById('to-read-tag-filter');
-    bar.innerHTML = allTags.map(tag => `<button class="btn tag-pill${activeTags.includes(tag) ? ' active' : ''}" data-tag="${tag}">${tag}</button>`).join('');
+    bar.innerHTML = allTags.map(tag => `<button class="btn tag-pill${activeTags.includes(tag) ? ' active' : ''}" data-tag="${escapeHTML(tag)}">${escapeHTML(tag)}</button>`).join('');
     bar.querySelectorAll('.tag-pill').forEach(btn => {
       btn.addEventListener('click', () => {
         btn.classList.toggle('active');
@@ -2266,9 +2266,9 @@
           ${show.posterUrl ? `<img class="card-poster" src="${show.posterUrl}" alt="" onerror="this.remove()">` : ''}
           <div class="card-body">
             <div class="card-top">
-              <div class="card-title">${show.title}</div>
+              <div class="card-title">${escapeHTML(show.title)}</div>
               <div class="card-right">
-                <button class="pin-btn${isPinned ? ' pinned' : ''}" ${canWriteScope(activeScope) ? '' : 'disabled'} onclick="togglePin('${show.id}')" aria-label="${isPinned ? 'Unpin' : 'Pin'} ${show.title}">
+                <button class="pin-btn${isPinned ? ' pinned' : ''}" ${canWriteScope(activeScope) ? '' : 'disabled'} onclick="togglePin('${show.id}')" aria-label="${isPinned ? 'Unpin' : 'Pin'} ${escapeHTML(show.title)}">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="${isPinned ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
                     <circle cx="12" cy="10" r="3"></circle>
@@ -2312,7 +2312,7 @@
           ${show.posterUrl ? `<img class="card-poster" src="${show.posterUrl}" alt="" onerror="this.remove()">` : ''}
           <div class="card-body">
             <div class="card-top">
-              <div class="card-title">${show.title}</div>
+              <div class="card-title">${escapeHTML(show.title)}</div>
               <div class="card-right">
                 ${noteButtonHTML(show.id, show.title, '', show.note)}
                 <span class="card-meta">${epLabel}</span>
@@ -2343,6 +2343,16 @@
     }
     const chapterPart = m.totalChapters ? `Ch ${m.currentChapter || 0}/${m.totalChapters}` : `Ch ${m.currentChapter || 0}`;
     return m.totalVolumes ? `Vol ${m.currentVolume || 0}/${m.totalVolumes} · ${chapterPart}` : chapterPart;
+  }
+
+  // User-entered text (titles, authors, tags) gets interpolated into
+  // innerHTML across card renderers — escape before every such use so a
+  // title containing HTML-significant characters can't break the markup
+  // or inject a tag/attribute.
+  function escapeHTML(str) {
+    return String(str ?? '').replace(/[&<>"']/g, c => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    }[c]));
   }
 
   function seriesStatusBadge(m) {
@@ -2424,7 +2434,7 @@
   }
 
   function showNewChaptersBanner(updates) {
-    const text = updates.map(u => `${u.title} (+${u.delta})`).join(', ');
+    const text = updates.map(u => `${escapeHTML(u.title)} (+${u.delta})`).join(', ');
     document.getElementById('new-chapters-banner-slot').innerHTML = `
       <div class="new-chapters-banner">
         <span>New chapters: ${text}</span>
@@ -2477,7 +2487,7 @@
                  </div>`
               : `<div class="progress-controls">
                    <button class="btn chapter-step" data-id="${m.id}" data-delta="-1">−</button>
-                   <span class="progress-value">Ch ${m.currentChapter || 0}${m.totalChapters ? '/' + m.totalChapters : ''}</span>
+                   <span class="progress-value">${m.totalVolumes ? `Vol ${m.currentVolume || 0}/${m.totalVolumes} · ` : ''}Ch ${m.currentChapter || 0}${m.totalChapters ? '/' + m.totalChapters : ''}</span>
                    <button class="btn chapter-step" data-id="${m.id}" data-delta="1">+</button>
                    <button class="btn mark-finished-btn" data-media-id="${m.id}">Mark Finished</button>
                  </div>`)
@@ -2489,9 +2499,9 @@
           ${m.coverUrl ? `<img class="card-poster" src="${m.coverUrl}" alt="" onerror="this.remove()">` : ''}
           <div class="card-body">
             <div class="card-top">
-              <div class="card-title">${m.title}</div>
+              <div class="card-title">${escapeHTML(m.title)}</div>
               <div class="card-right">
-                <button class="pin-btn${isPinned ? ' pinned' : ''}" ${canWriteScope(activeScope) ? '' : 'disabled'} onclick="toggleReadingPin('${m.id}')" aria-label="${isPinned ? 'Unpin' : 'Pin'} ${m.title}">
+                <button class="pin-btn${isPinned ? ' pinned' : ''}" ${canWriteScope(activeScope) ? '' : 'disabled'} onclick="toggleReadingPin('${m.id}')" aria-label="${isPinned ? 'Unpin' : 'Pin'} ${escapeHTML(m.title)}">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="${isPinned ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
                     <circle cx="12" cy="10" r="3"></circle>
@@ -2502,7 +2512,7 @@
                 <span class="card-pct">${progressPct(m)}%</span>
               </div>
             </div>
-            <div class="card-tags">${m.author || ''}</div>
+            <div class="card-tags">${escapeHTML(m.author || '')}</div>
             <div class="card-stats">
               ${canWriteScope(activeScope) ? '' : `<span class="stat">${progressLabel(m)}</span>`}
               <span class="stat">${timeAgo(m.lastUpdated)}</span>
@@ -2530,7 +2540,7 @@
           ${m.coverUrl ? `<img class="card-poster" src="${m.coverUrl}" alt="" onerror="this.remove()">` : ''}
           <div class="card-body">
             <div class="card-top">
-              <div class="card-title">${m.title}</div>
+              <div class="card-title">${escapeHTML(m.title)}</div>
               <div class="card-right">
                 ${noteButtonHTML(m.id, m.title, '', m.note, 'media')}
                 <span class="card-meta">${m.category}</span>
@@ -2538,7 +2548,7 @@
                 <span class="card-pct done">done</span>
               </div>
             </div>
-            <div class="card-tags">${m.author || ''}</div>
+            <div class="card-tags">${escapeHTML(m.author || '')}</div>
             ${renderStars(m.id, m.rating, 'media')}
             <div class="card-stats"><span class="stat">${timeAgo(m.lastUpdated)}</span></div>
           </div>
@@ -2952,7 +2962,7 @@
     el.dataset.id = show.id;
     el.title = show.title;
     const rating = show.rating;
-    el.innerHTML = `${show.posterUrl ? `<img src="${show.posterUrl}" alt="" onerror="this.remove()">` : ''}<span>${show.title}</span>${rating ? `<span class="chip-rating">★${rating}</span>` : ''}`;
+    el.innerHTML = `${show.posterUrl ? `<img src="${show.posterUrl}" alt="" onerror="this.remove()">` : ''}<span>${escapeHTML(show.title)}</span>${rating ? `<span class="chip-rating">★${rating}</span>` : ''}`;
     el.addEventListener('pointerdown', onChipPointerDown);
     return el;
   }
@@ -3178,10 +3188,10 @@
     el.innerHTML = `
       <span class="rank-num">${index + 1}</span>
       ${show.posterUrl ? `<img src="${show.posterUrl}" alt="" onerror="this.remove()">` : ''}
-      <span class="rank-title">${show.title}</span>
+      <span class="rank-title">${escapeHTML(show.title)}</span>
       <div class="rank-arrows">
-        <button class="rank-arrow" data-dir="up" aria-label="Move ${show.title} up">▲</button>
-        <button class="rank-arrow" data-dir="down" aria-label="Move ${show.title} down">▼</button>
+        <button class="rank-arrow" data-dir="up" aria-label="Move ${escapeHTML(show.title)} up">▲</button>
+        <button class="rank-arrow" data-dir="down" aria-label="Move ${escapeHTML(show.title)} down">▼</button>
       </div>
     `;
     el.addEventListener('pointerdown', onRankPointerDown);
@@ -3398,7 +3408,7 @@
       card.innerHTML = `
         ${show.posterUrl ? `<img src="${show.posterUrl}" alt="" onerror="this.remove()">` : ''}
         <div class="movie-card-body">
-          <div class="movie-card-title">${show.title}</div>
+          <div class="movie-card-title">${escapeHTML(show.title)}</div>
           <div class="movie-card-rating">
             ${renderStars(show.id, r)}
             <span class="rating-label">${r || '—'}</span>
@@ -3461,7 +3471,7 @@
       card.innerHTML = `
         ${m.coverUrl ? `<img src="${m.coverUrl}" alt="" onerror="this.remove()">` : ''}
         <div class="movie-card-body">
-          <div class="movie-card-title">${m.title}</div>
+          <div class="movie-card-title">${escapeHTML(m.title)}</div>
           <div class="movie-card-rating">
             ${renderStars(m.id, r, 'media')}
             <span class="rating-label">${r || '—'}</span>
