@@ -349,6 +349,17 @@
     margin-right: 0.25rem;
   }
 
+  .anime-sync-badge {
+    font-size: 0.56rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 3px;
+    padding: 0.1rem 0.4rem;
+    cursor: help;
+  }
+
   /* Progress bar bleeds edge-to-edge */
   .progress-bar {
     height: 3px;
@@ -1470,6 +1481,7 @@
       totalVolumes: m.total_volumes, currentVolume: m.current_volume,
       totalPages: m.total_pages, currentPage: m.current_page,
       listStatus: m.list_status, pinned: m.pinned, tags: m.tags, lastUpdated: m.last_updated,
+      chapterSyncedFromAnime: m.chapter_synced_from_anime,
       rating: currentProfile ? m.ratings.find(r => r.user_id === currentProfile.id)?.rating ?? null : null,
       note: currentProfile ? m.ratings.find(r => r.user_id === currentProfile.id)?.note ?? null : null,
     }));
@@ -2195,6 +2207,9 @@
                    <button class="btn mark-finished-btn" data-media-id="${m.id}">Mark Finished</button>
                  </div>`)
           : '';
+        const animeSyncBadge = m.chapterSyncedFromAnime
+          ? `<span class="anime-sync-badge" title="Chapter set to where the anime adaptation currently ends — not confirmed as chapters you've actually read. Clears once you bump progress.">from anime</span>`
+          : '';
         card.innerHTML = `
           ${m.coverUrl ? `<img class="card-poster" src="${m.coverUrl}" alt="" onerror="this.remove()">` : ''}
           <div class="card-body">
@@ -2215,6 +2230,7 @@
             <div class="card-stats">
               ${canWriteScope(activeScope) ? '' : `<span class="stat">${progressLabel(m)}</span>`}
               <span class="stat">${timeAgo(m.lastUpdated)}</span>
+              ${animeSyncBadge}
             </div>
             <div class="progress-bar"><div class="progress-fill" style="width:${progressPct(m)}%"></div></div>
             ${progressControls}
@@ -2291,6 +2307,7 @@
     const newChapter = Math.max(0, Math.min(max, (m.currentChapter || 0) + delta));
     const { error } = await supabase.from('written_media').update({
       current_chapter: newChapter,
+      chapter_synced_from_anime: false,
       last_updated: new Date().toISOString().slice(0, 10),
     }).eq('id', id);
     if (checkWriteError(error)) return;
@@ -2321,6 +2338,7 @@
       current_chapter: m.totalChapters ?? m.currentChapter,
       current_page: m.totalPages ?? m.currentPage,
       current_volume: m.totalVolumes ?? m.currentVolume,
+      chapter_synced_from_anime: false,
       list_status: 'completed',
       pinned: false,
       last_updated: new Date().toISOString().slice(0, 10),
