@@ -1490,7 +1490,7 @@
       currentEpisode: s.current_episode, seasonEpisode: s.season_episode,
       currentSeason: s.current_season, runtimeMinutes: s.runtime_minutes,
       listStatus: s.list_status, inTierPool: s.in_tier_pool, pinned: s.pinned,
-      tags: s.tags, lastUpdated: s.last_updated,
+      tags: s.tags, lastUpdated: s.last_updated, tier: s.tier, rank: s.rank,
       rating: currentProfile ? s.ratings.find(r => r.user_id === currentProfile.id)?.rating ?? null : null,
       note: currentProfile ? s.ratings.find(r => r.user_id === currentProfile.id)?.note ?? null : null,
     }));
@@ -2798,12 +2798,27 @@
     }
   }
 
-  function saveTierState() {
+  // Together-scope placement is shared via Supabase (one tier per show,
+  // both people see/edit the same placement) — Karl's and Liisa's personal
+  // scopes stay localStorage-only, per-browser, unchanged.
+  async function saveTierState() {
     const state = {};
     document.querySelectorAll('#view-tierlist .tier-zone').forEach(z => {
       state[z.dataset.tier] = [...z.querySelectorAll('.show-chip')].map(c => c.dataset.id);
     });
-    localStorage.setItem(`watchTierState:${activeCategory}`, JSON.stringify(state));
+    if (activeScope === 'together') {
+      const writes = [];
+      Object.entries(state).forEach(([tier, ids]) => {
+        ids.forEach(id => writes.push(
+          supabase.from('shows').update({ tier: tier === 'pool' ? null : tier }).eq('id', id)
+        ));
+      });
+      const results = await Promise.all(writes);
+      if (results.some(r => r.error)) { console.error('Tier save failed', results); showToast('Save failed — try again'); return; }
+      invalidateShowsCache();
+    } else {
+      localStorage.setItem(`watchTierState:${activeCategory}`, JSON.stringify(state));
+    }
   }
 
   async function renderTierList() {
@@ -2813,7 +2828,14 @@
     document.querySelectorAll('#view-tierlist .tier-zone').forEach(z => { z.innerHTML = ''; });
 
     let state = {};
-    try { state = JSON.parse(localStorage.getItem(`watchTierState:${activeCategory}`) || '{}'); } catch {}
+    if (activeScope === 'together') {
+      shows.forEach(s => {
+        const t = s.tier || 'pool';
+        (state[t] = state[t] || []).push(s.id);
+      });
+    } else {
+      try { state = JSON.parse(localStorage.getItem(`watchTierState:${activeCategory}`) || '{}'); } catch {}
+    }
 
     const placed = new Set();
     TIERS.forEach(tier => {
@@ -2923,18 +2945,28 @@
     });
   }
 
-  function saveRankOrder() {
+  async function saveRankOrder() {
     const order = [...document.querySelectorAll('#ranked-zone .rank-row')].map(r => r.dataset.id);
-    localStorage.setItem(`watchRankOrder:${activeCategory}`, JSON.stringify(order));
+    if (activeScope === 'together') {
+      const results = await Promise.all(order.map((id, i) => supabase.from('shows').update({ rank: i }).eq('id', id)));
+      if (results.some(r => r.error)) { console.error('Rank save failed', results); showToast('Save failed — try again'); return; }
+      invalidateShowsCache();
+    } else {
+      localStorage.setItem(`watchRankOrder:${activeCategory}`, JSON.stringify(order));
+    }
   }
 
   async function renderRankedList() {
     const shows = await getWatchedShows();
     const byId = Object.fromEntries(shows.map(s => [s.id, s]));
     let order = [];
-    try { order = JSON.parse(localStorage.getItem(`watchRankOrder:${activeCategory}`) || '[]'); } catch {}
-    order = order.filter(id => byId[id]);
-    shows.forEach(s => { if (!order.includes(s.id)) order.push(s.id); });
+    if (activeScope === 'together') {
+      order = [...shows].sort((a, b) => (a.rank ?? Infinity) - (b.rank ?? Infinity)).map(s => s.id);
+    } else {
+      try { order = JSON.parse(localStorage.getItem(`watchRankOrder:${activeCategory}`) || '[]'); } catch {}
+      order = order.filter(id => byId[id]);
+      shows.forEach(s => { if (!order.includes(s.id)) order.push(s.id); });
+    }
 
     const zone = document.getElementById('ranked-zone');
     zone.innerHTML = '';
