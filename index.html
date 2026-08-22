@@ -566,7 +566,7 @@
     font-variant-numeric: tabular-nums;
   }
 
-  .mark-finished-btn { margin-left: auto; }
+  .mark-finished-btn, .movie-watchlist-remove-btn { margin-left: auto; }
 
   .page-input {
     width: 4.5rem;
@@ -1322,9 +1322,9 @@
 
   <div class="tabs sub-tabs" id="tvmovies-subtabs">
     <button class="tab-btn sub-tab-btn active" data-tab="watching">In Progress</button>
+    <button class="tab-btn sub-tab-btn" data-tab="movie-watchlist">Movie Watchlist</button>
     <button class="tab-btn sub-tab-btn" data-tab="tierlist">Tier List</button>
     <button class="tab-btn sub-tab-btn" data-tab="ratings">Ratings</button>
-    <button class="tab-btn sub-tab-btn" data-tab="movie-watchlist">Movie Watchlist</button>
   </div>
 
   <div class="tabs sub-tabs" id="reading-subtabs" style="display:none">
@@ -1927,7 +1927,7 @@
     if (finBtn) { markFinished(finBtn.dataset.id); return; }
     const movieWatchedBtn = e.target.closest('.movie-watched-btn[data-id]');
     if (movieWatchedBtn) { markMovieWatched(movieWatchedBtn.dataset.id); return; }
-    const movieRemoveBtn = e.target.closest('.movie-watchlist-remove[data-id]');
+    const movieRemoveBtn = e.target.closest('.movie-watchlist-remove-btn[data-id]');
     if (movieRemoveBtn) {
       if (!canWriteScope(activeScope)) return;
       if (!confirm(`Remove "${movieRemoveBtn.dataset.title}" from the watchlist?`)) return;
@@ -2525,15 +2525,16 @@
         <div class="card-body">
           <div class="card-top">
             <div class="card-title">${escapeHTML(movie.title)}</div>
-            <div class="card-right">
-              ${canWrite ? `<span class="watchlist-remove movie-watchlist-remove" data-id="${movie.id}" data-title="${escapeHTML(movie.title)}" title="Remove from watchlist">✕</span>` : ''}
-            </div>
           </div>
           ${showTags(movie) ? `<div class="card-tags">${showTags(movie)}</div>` : ''}
           <div class="card-stats">
             <span class="stat">${movie.runtimeMinutes ? `<strong>${movie.runtimeMinutes}</strong> min` : 'runtime unknown'}</span>
           </div>
-          ${canWrite ? `<div class="progress-controls"><button class="btn btn-primary movie-watched-btn" data-id="${movie.id}" style="width:100%">Watched</button></div>` : ''}
+          ${canWrite ? `
+          <div class="progress-controls">
+            <button class="btn btn-primary movie-watched-btn" data-id="${movie.id}">Watched</button>
+            <button class="btn movie-watchlist-remove-btn" data-id="${movie.id}" data-title="${escapeHTML(movie.title)}">Remove</button>
+          </div>` : ''}
         </div>
       `;
       grid.appendChild(card);
@@ -3185,7 +3186,7 @@
 
   // ── Tabs (two-level: TV/Movies + Reading each have sub-tabs, Stats doesn't) ──
   const TOPTAB_GROUPS = {
-    tvmovies: ['watching', 'tierlist', 'ratings', 'movie-watchlist'],
+    tvmovies: ['watching', 'movie-watchlist', 'tierlist', 'ratings'],
     reading: ['reading', 'reading-ratings'],
     stats: ['stats'],
   };
