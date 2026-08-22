@@ -282,7 +282,7 @@
   .btn-primary:hover { background: rgba(10,132,255,0.08); color: var(--text); }
 
   /* ── Card list ── */
-  #grid {
+  #grid, #movie-watchlist-grid {
     display: flex;
     flex-direction: column;
     gap: 0.625rem;
@@ -580,7 +580,7 @@
   }
 
   /* ── Empty state ── */
-  #empty {
+  #empty, #movie-watchlist-empty {
     display: none;
     text-align: center;
     padding: 3.5rem 1rem;
@@ -1321,9 +1321,10 @@
   </div>
 
   <div class="tabs sub-tabs" id="tvmovies-subtabs">
-    <button class="tab-btn sub-tab-btn active" data-tab="watching">Watching</button>
+    <button class="tab-btn sub-tab-btn active" data-tab="watching">In Progress</button>
     <button class="tab-btn sub-tab-btn" data-tab="tierlist">Tier List</button>
     <button class="tab-btn sub-tab-btn" data-tab="ratings">Ratings</button>
+    <button class="tab-btn sub-tab-btn" data-tab="movie-watchlist">Movie Watchlist</button>
   </div>
 
   <div class="tabs sub-tabs" id="reading-subtabs" style="display:none">
@@ -1364,6 +1365,11 @@
       <select class="sf-select" id="completed-studio"><option value="">Studio: All</option></select>
     </div>
     <div id="completed"></div>
+  </div>
+
+  <div id="view-movie-watchlist" style="display:none">
+    <div id="movie-watchlist-grid"></div>
+    <div id="movie-watchlist-empty">No movies on the watchlist — add one from + Add Movie.</div>
   </div>
 
   <div id="view-reading" style="display:none">
@@ -1491,19 +1497,18 @@
 
 <div class="modal-backdrop" id="modal">
   <div class="modal">
-    <h2>Add a Show</h2>
+    <h2 id="add-show-modal-title">Add a Show</h2>
     <p class="form-hint">Manual entry — no lookup, so you'll need to know the totals yourself. Poster/genre/studio can be filled in later.</p>
     <div class="add-form-field">
       <label for="add-show-title">Title</label>
       <input type="text" id="add-show-title" placeholder="Title">
     </div>
     <div class="add-form-row">
-      <div class="add-form-field">
+      <div class="add-form-field" id="add-show-category-field">
         <label for="add-show-category">Category</label>
         <select id="add-show-category">
           <option value="anime">Anime</option>
           <option value="western">Western</option>
-          <option value="movie">Movie</option>
         </select>
       </div>
       <div class="add-form-field">
@@ -1683,6 +1688,7 @@
   function rerenderActiveTab() {
     if (currentTab === 'tierlist') initTierlistView();
     else if (currentTab === 'ratings') renderRatingsTab();
+    else if (currentTab === 'movie-watchlist') renderMovieWatchlistTab();
     else if (currentTab === 'stats') renderStatsTab();
     else if (currentTab === 'reading') loadReading();
     else if (currentTab === 'reading-ratings') renderReadingRatingsTab();
@@ -1896,11 +1902,39 @@
     openFinishModal(id, show.title, 'show');
   }
 
+  // Movie-watchlist equivalent of markFinished() — no episode fields to
+  // advance, just flips the row to watched and opens the same rate/note
+  // prompt used when finishing a show.
+  async function markMovieWatched(id) {
+    const rows = await fetchShows(activeScope);
+    const movie = rows.find(s => s.id === id);
+    if (!movie || !canWriteScope(activeScope)) return;
+    const { error } = await supabase.from('shows').update({
+      list_status: null,
+      in_tier_pool: true,
+      last_updated: new Date().toISOString().slice(0, 10),
+    }).eq('id', id).eq('scope', activeScope);
+    if (checkWriteError(error)) return;
+    invalidateShowsCache();
+    renderMovieWatchlistTab();
+    openFinishModal(id, movie.title, 'show');
+  }
+
   document.body.addEventListener('click', e => {
     const stepBtn = e.target.closest('.progress-step');
     if (stepBtn) { bumpProgress(stepBtn.dataset.id, parseInt(stepBtn.dataset.delta, 10)); return; }
     const finBtn = e.target.closest('.mark-finished-btn[data-id]');
     if (finBtn) { markFinished(finBtn.dataset.id); return; }
+    const movieWatchedBtn = e.target.closest('.movie-watched-btn[data-id]');
+    if (movieWatchedBtn) { markMovieWatched(movieWatchedBtn.dataset.id); return; }
+    const movieRemoveBtn = e.target.closest('.movie-watchlist-remove[data-id]');
+    if (movieRemoveBtn) {
+      if (!canWriteScope(activeScope)) return;
+      if (!confirm(`Remove "${movieRemoveBtn.dataset.title}" from the watchlist?`)) return;
+      supabase.from('shows').delete().eq('id', movieRemoveBtn.dataset.id).eq('scope', activeScope)
+        .then(({ error }) => { if (checkWriteError(error)) return; invalidateShowsCache(); renderMovieWatchlistTab(); });
+      return;
+    }
   });
 
   // ── Ratings & Notes ──
@@ -2096,30 +2130,21 @@
   // Watchlist search
   let watchlistCache = [];
 
+  // Anime/western only — movie watchlist entries live in their own
+  // "Movie Watchlist" sub-tab (renderMovieWatchlistTab) since the "→ start"
+  // clipboard-copy flow below is episode-based and doesn't apply to movies.
   function renderWatchlist(items) {
     const watchlistEl = document.getElementById('watchlist');
     watchlistEl.innerHTML = '';
     items.forEach(item => {
-      const isMovie = item.category === 'movie';
       const el = document.createElement('div');
       el.className = 'watchlist-item';
       el.innerHTML = `
         <span class="watchlist-name">${escapeHTML(item.title)}</span>
-        <span class="watchlist-cta">${isMovie ? '✓ watched' : '→ start'}</span>
+        <span class="watchlist-cta">→ start</span>
         <span class="watchlist-remove" title="Remove from watchlist">✕</span>
       `;
-      el.addEventListener('click', async () => {
-        if (isMovie) {
-          if (!canWriteScope(activeScope)) return;
-          const { error } = await supabase.from('shows')
-            .update({ list_status: null, in_tier_pool: true, last_updated: new Date().toISOString().slice(0, 10) })
-            .eq('id', item.id).eq('scope', activeScope);
-          if (checkWriteError(error)) return;
-          invalidateShowsCache();
-          showToast('Marked watched');
-          loadShows();
-          return;
-        }
+      el.addEventListener('click', () => {
         const cmd = `Start ${item.title} from S1E1`;
         navigator.clipboard.writeText(cmd)
           .then(() => showToast('Copied — paste to Claude'))
@@ -2329,7 +2354,9 @@
   async function loadShows() {
     const rows = await fetchShows(activeScope);
     const watching = rows.filter(s => s.listStatus === 'watching');
-    const watchlist = rows.filter(s => s.listStatus === 'watchlist');
+    // Movies on the watchlist render in their own "Movie Watchlist" sub-tab
+    // instead, since the anime/western watchlist row assumes episode 1 exists.
+    const watchlist = rows.filter(s => s.listStatus === 'watchlist' && s.category !== 'movie');
     const pinned = getPinnedIds(rows);
     const watchingSF = getSF('watching');
     const completedSF = getSF('completed');
@@ -2477,6 +2504,40 @@
     }
 
     renderWatchlist(filteredWatchlist);
+  }
+
+  // ── Movie Watchlist (its own sub-tab, card-style like Watching) ──
+  async function renderMovieWatchlistTab() {
+    const rows = await fetchShows(activeScope);
+    const movies = rows.filter(s => s.category === 'movie' && s.listStatus === 'watchlist')
+      .sort((a, b) => a.title.localeCompare(b.title));
+    const grid = document.getElementById('movie-watchlist-grid');
+    const empty = document.getElementById('movie-watchlist-empty');
+    grid.innerHTML = '';
+    if (!movies.length) { empty.style.display = 'block'; return; }
+    empty.style.display = 'none';
+    const canWrite = canWriteScope(activeScope);
+    movies.forEach(movie => {
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.innerHTML = `
+        ${movie.posterUrl ? `<img class="card-poster" src="${movie.posterUrl}" alt="" onerror="this.remove()">` : ''}
+        <div class="card-body">
+          <div class="card-top">
+            <div class="card-title">${escapeHTML(movie.title)}</div>
+            <div class="card-right">
+              ${canWrite ? `<span class="watchlist-remove movie-watchlist-remove" data-id="${movie.id}" data-title="${escapeHTML(movie.title)}" title="Remove from watchlist">✕</span>` : ''}
+            </div>
+          </div>
+          ${showTags(movie) ? `<div class="card-tags">${showTags(movie)}</div>` : ''}
+          <div class="card-stats">
+            <span class="stat">${movie.runtimeMinutes ? `<strong>${movie.runtimeMinutes}</strong> min` : 'runtime unknown'}</span>
+          </div>
+          ${canWrite ? `<div class="progress-controls"><button class="btn btn-primary movie-watched-btn" data-id="${movie.id}" style="width:100%">Watched</button></div>` : ''}
+        </div>
+      `;
+      grid.appendChild(card);
+    });
   }
 
   // ── Reading tab (written media) ──
@@ -2811,9 +2872,22 @@
     }
   }
 
-  function openAddShowModal(defaultCategory = 'anime') {
+  // Add Show and Add Movie share one modal, distinguished by this mode flag
+  // rather than a "Movie" entry in the Category dropdown — mixing movie in
+  // with anime/western there was confusing once a dedicated Add Movie
+  // button existed to reach it.
+  let addShowMode = 'show'; // 'show' | 'movie'
+
+  function getAddShowCategory() {
+    return addShowMode === 'movie' ? 'movie' : document.getElementById('add-show-category').value;
+  }
+
+  function openAddShowModal(mode = 'show') {
+    addShowMode = mode;
+    document.getElementById('add-show-modal-title').textContent = mode === 'movie' ? 'Add a Movie' : 'Add a Show';
+    document.getElementById('add-show-category-field').style.display = mode === 'movie' ? 'none' : '';
     document.getElementById('add-show-title').value = '';
-    document.getElementById('add-show-category').value = defaultCategory;
+    document.getElementById('add-show-category').value = 'anime';
     document.getElementById('add-show-scope').value = activeScope === 'together' ? 'together' : activeScope;
     restrictScopeOptions(document.getElementById('add-show-scope'));
     document.getElementById('add-show-total-episodes').value = '';
@@ -2826,14 +2900,14 @@
   }
 
   function toggleAddShowFields() {
-    const category = document.getElementById('add-show-category').value;
+    const category = getAddShowCategory();
     const isMovie = category === 'movie';
     document.getElementById('add-show-episode-fields').style.display = isMovie ? 'none' : '';
     document.getElementById('add-show-movie-status-field').style.display = isMovie ? '' : 'none';
     document.getElementById('add-show-runtime-field').style.display = isMovie || category === 'western' ? '' : 'none';
   }
 
-  document.getElementById('btn-add').addEventListener('click', () => openAddShowModal());
+  document.getElementById('btn-add').addEventListener('click', () => openAddShowModal('show'));
   document.getElementById('btn-add-movie').addEventListener('click', () => openAddShowModal('movie'));
   document.getElementById('add-show-category').addEventListener('change', toggleAddShowFields);
 
@@ -2849,7 +2923,7 @@
     const errorEl = document.getElementById('add-show-error');
     errorEl.style.display = 'none';
     const title = document.getElementById('add-show-title').value.trim();
-    const category = document.getElementById('add-show-category').value;
+    const category = getAddShowCategory();
     const scope = document.getElementById('add-show-scope').value;
     if (!title) { errorEl.textContent = 'Title is required.'; errorEl.style.display = ''; return; }
     const id = slugify(title);
@@ -3111,7 +3185,7 @@
 
   // ── Tabs (two-level: TV/Movies + Reading each have sub-tabs, Stats doesn't) ──
   const TOPTAB_GROUPS = {
-    tvmovies: ['watching', 'tierlist', 'ratings'],
+    tvmovies: ['watching', 'tierlist', 'ratings', 'movie-watchlist'],
     reading: ['reading', 'reading-ratings'],
     stats: ['stats'],
   };
@@ -3125,6 +3199,7 @@
     document.getElementById('view-watching').style.display = tab === 'watching' ? '' : 'none';
     document.getElementById('view-tierlist').style.display = tab === 'tierlist' ? '' : 'none';
     document.getElementById('view-ratings').style.display = tab === 'ratings' ? '' : 'none';
+    document.getElementById('view-movie-watchlist').style.display = tab === 'movie-watchlist' ? '' : 'none';
     document.getElementById('view-stats').style.display = tab === 'stats' ? '' : 'none';
     document.getElementById('view-reading').style.display = tab === 'reading' ? '' : 'none';
     document.getElementById('view-reading-ratings').style.display = tab === 'reading-ratings' ? '' : 'none';
@@ -3135,6 +3210,9 @@
     if (tab === 'ratings') {
       watchedShowsCache = null;
       renderRatingsTab();
+    }
+    if (tab === 'movie-watchlist') {
+      renderMovieWatchlistTab();
     }
     if (tab === 'stats') {
       renderStatsTab();
