@@ -1173,8 +1173,14 @@
 
   .movie-card-rating {
     display: flex;
+    flex-wrap: wrap;
+    row-gap: 0.2rem;
     align-items: center;
     justify-content: space-between;
+  }
+
+  .movie-card-rating .note-btn {
+    flex-shrink: 0;
   }
 
   .movie-card-rating + .movie-card-rating {
