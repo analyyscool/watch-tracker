@@ -2056,9 +2056,13 @@
     }
   });
 
-  function noteButtonHTML(id, title, extraClass = '', note = '', kind = 'show') {
+  // readOnly is for viewing someone else's note (e.g. Together scope) —
+  // disabled if there's nothing to view, and opens the modal in view-only
+  // mode instead of letting you overwrite their note.
+  function noteButtonHTML(id, title, extraClass = '', note = '', kind = 'show', readOnly = false) {
     const hasNote = !!note;
-    return `<button class="note-btn ${extraClass}${hasNote ? ' has-note' : ''}" data-note-id="${id}" data-note-kind="${kind}" data-note-title="${escapeHTML(title)}" data-note-text="${escapeHTML(note || '')}" aria-label="Note" title="Note">
+    const disabledAttr = readOnly && !hasNote ? 'disabled' : '';
+    return `<button class="note-btn ${extraClass}${hasNote ? ' has-note' : ''}" data-note-id="${id}" data-note-kind="${kind}" data-note-title="${escapeHTML(title)}" data-note-text="${escapeHTML(note || '')}" data-note-readonly="${readOnly}" aria-label="Note" title="Note" ${disabledAttr}>
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
         <path d="M14 2v6h6"></path>
@@ -2072,18 +2076,24 @@
   let noteModalOnSave = null;
   let noteModalKind = 'show';
 
-  function openNoteModal(id, title, currentText, onSave, kind = 'show') {
-    noteModalShowId = id;
+  function openNoteModal(id, title, currentText, onSave, kind = 'show', readOnly = false) {
+    noteModalShowId = readOnly ? null : id; // null blocks Save from doing anything in read-only mode
     noteModalOnSave = onSave;
     noteModalKind = kind;
     document.getElementById('note-modal-title').textContent = `Note — ${title}`;
     document.getElementById('note-modal-text').value = currentText || '';
+    document.getElementById('note-modal-text').disabled = readOnly;
+    document.getElementById('note-modal-save').style.display = readOnly ? 'none' : '';
+    document.getElementById('note-modal-cancel').textContent = readOnly ? 'Close' : 'Cancel';
     document.getElementById('note-modal').classList.add('open');
-    document.getElementById('note-modal-text').focus();
+    if (!readOnly) document.getElementById('note-modal-text').focus();
   }
 
   function closeNoteModal() {
     document.getElementById('note-modal').classList.remove('open');
+    document.getElementById('note-modal-text').disabled = false;
+    document.getElementById('note-modal-save').style.display = '';
+    document.getElementById('note-modal-cancel').textContent = 'Cancel';
     noteModalShowId = null;
     noteModalOnSave = null;
     noteModalKind = 'show';
@@ -2141,17 +2151,20 @@
   // grid — so new ones (re-rendered often) don't need individual listeners.
   document.body.addEventListener('click', e => {
     const btn = e.target.closest('.note-btn');
-    if (!btn) return;
+    if (!btn || btn.disabled) return;
     e.stopPropagation();
     const id = btn.dataset.noteId;
     const kind = btn.dataset.noteKind || 'show';
     const title = btn.dataset.noteTitle || id;
     const currentText = btn.dataset.noteText || '';
+    const readOnly = btn.dataset.noteReadonly === 'true';
+    // Update just this button on save, not every button sharing the same
+    // note-id — Together scope can render two note buttons (yours + theirs)
+    // for the same show, and they must not affect each other's has-note state.
     openNoteModal(id, title, currentText, hasNote => {
-      document.querySelectorAll(`.note-btn[data-note-id="${CSS.escape(id)}"]`).forEach(b => {
-        b.classList.toggle('has-note', hasNote);
-      });
-    }, kind);
+      btn.classList.toggle('has-note', hasNote);
+      btn.dataset.noteText = document.getElementById('note-modal-text').value.trim();
+    }, kind, readOnly);
   });
 
   // Last-updated formatting
@@ -3874,26 +3887,28 @@
       card.className = 'movie-card';
       const ratingBlock = profiles
         ? profiles.map(p => {
-            const val = (show.allRatings || []).find(rt => rt.user_id === p.id)?.rating ?? null;
+            const entry = (show.allRatings || []).find(rt => rt.user_id === p.id);
+            const val = entry?.rating ?? null;
             const isMine = currentProfile && p.id === currentProfile.id;
             return `
               <div class="movie-card-rating">
                 <span class="rating-person">${escapeHTML(p.display_name)}</span>
                 ${isMine ? renderStars(show.id, val) : staticStarsHTML(val)}
                 <span class="rating-label">${val || '—'}</span>
+                ${noteButtonHTML(show.id, show.title, '', entry?.note, 'show', !isMine)}
               </div>`;
           }).join('')
         : `
           <div class="movie-card-rating">
             ${renderStars(show.id, r)}
             <span class="rating-label">${r || '—'}</span>
+            ${noteButtonHTML(show.id, show.title, '', show.note)}
           </div>`;
       card.innerHTML = `
         ${show.posterUrl ? `<img src="${show.posterUrl}" alt="" onerror="this.remove()">` : ''}
         <div class="movie-card-body">
           <div class="movie-card-title">${escapeHTML(show.title)}</div>
           ${ratingBlock}
-          ${noteButtonHTML(show.id, show.title, '', show.note)}
         </div>
       `;
       grid.appendChild(card);
