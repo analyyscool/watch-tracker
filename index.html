@@ -1177,6 +1177,17 @@
     justify-content: space-between;
   }
 
+  .movie-card-rating + .movie-card-rating {
+    margin-top: 0.3rem;
+  }
+
+  .rating-person {
+    font-size: 0.62rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
   /* ── Sort / filter bar ── */
   .sort-filter-bar {
     display: flex;
@@ -1782,6 +1793,7 @@
       tags: s.tags, lastUpdated: s.last_updated, tier: s.tier, rank: s.rank,
       rating: currentProfile ? s.ratings.find(r => r.user_id === currentProfile.id)?.rating ?? null : null,
       note: currentProfile ? s.ratings.find(r => r.user_id === currentProfile.id)?.note ?? null : null,
+      allRatings: s.ratings,
     }));
     showsCache = { key, rows };
     return rows;
@@ -1993,6 +2005,32 @@
 
   function renderStars(id, rating, kind = 'show') {
     return `<div class="star-rating" data-id="${id}" data-kind="${kind}">${starsInnerHTML(id, rating)}</div>`;
+  }
+
+  // Read-only stars for showing someone else's rating (e.g. Together scope,
+  // where both people's ratings are visible but only your own is editable) —
+  // same visual fill as renderStars, no .star-hit buttons so it can't be clicked.
+  function staticStarsHTML(rating) {
+    const r = rating || 0;
+    let html = '';
+    for (let i = 1; i <= 5; i++) {
+      const fillPct = Math.max(0, Math.min(1, r - (i - 1))) * 100;
+      html += `
+        <span class="star-slot">
+          <span class="star-empty">★</span>
+          <span class="star-filled" style="width:${fillPct}%">★</span>
+        </span>`;
+    }
+    return `<div class="star-rating static">${html}</div>`;
+  }
+
+  let profilesCache = null;
+  async function getAllProfiles() {
+    if (profilesCache) return profilesCache;
+    const { data, error } = await supabase.from('profiles').select('id, display_name');
+    if (error) { console.error(error); return []; }
+    profilesCache = data;
+    return profilesCache;
   }
 
   // Event delegation — handles every star widget on the page, including
@@ -3808,6 +3846,7 @@
 
   async function renderRatingsTab() {
     const shows = await getAllWatchedShows();
+    const profiles = activeScope === 'together' ? await getAllProfiles() : null;
     const inCategory = shows.filter(s => (s.category ?? 'anime') === activeRatingsCategory);
     const sortKey = document.getElementById('ratings-sort').value;
     const sorted = [...inCategory];
@@ -3833,14 +3872,27 @@
       const r = show.rating;
       const card = document.createElement('div');
       card.className = 'movie-card';
+      const ratingBlock = profiles
+        ? profiles.map(p => {
+            const val = (show.allRatings || []).find(rt => rt.user_id === p.id)?.rating ?? null;
+            const isMine = currentProfile && p.id === currentProfile.id;
+            return `
+              <div class="movie-card-rating">
+                <span class="rating-person">${escapeHTML(p.display_name)}</span>
+                ${isMine ? renderStars(show.id, val) : staticStarsHTML(val)}
+                <span class="rating-label">${val || '—'}</span>
+              </div>`;
+          }).join('')
+        : `
+          <div class="movie-card-rating">
+            ${renderStars(show.id, r)}
+            <span class="rating-label">${r || '—'}</span>
+          </div>`;
       card.innerHTML = `
         ${show.posterUrl ? `<img src="${show.posterUrl}" alt="" onerror="this.remove()">` : ''}
         <div class="movie-card-body">
           <div class="movie-card-title">${escapeHTML(show.title)}</div>
-          <div class="movie-card-rating">
-            ${renderStars(show.id, r)}
-            <span class="rating-label">${r || '—'}</span>
-          </div>
+          ${ratingBlock}
           ${noteButtonHTML(show.id, show.title, '', show.note)}
         </div>
       `;
