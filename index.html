@@ -1525,6 +1525,13 @@
         <input type="number" id="add-show-current-episode" min="0" value="0">
       </div>
     </div>
+    <div class="add-form-field" id="add-show-movie-status-field" style="display:none">
+      <label for="add-show-movie-status">Status</label>
+      <select id="add-show-movie-status">
+        <option value="watched">Watched</option>
+        <option value="watchlist">Want to watch</option>
+      </select>
+    </div>
     <div class="add-form-field" id="add-show-runtime-field" style="display:none">
       <label for="add-show-runtime">Runtime (minutes)</label>
       <input type="number" id="add-show-runtime" min="1">
@@ -2093,14 +2100,26 @@
     const watchlistEl = document.getElementById('watchlist');
     watchlistEl.innerHTML = '';
     items.forEach(item => {
+      const isMovie = item.category === 'movie';
       const el = document.createElement('div');
       el.className = 'watchlist-item';
       el.innerHTML = `
         <span class="watchlist-name">${escapeHTML(item.title)}</span>
-        <span class="watchlist-cta">→ start</span>
+        <span class="watchlist-cta">${isMovie ? '✓ watched' : '→ start'}</span>
         <span class="watchlist-remove" title="Remove from watchlist">✕</span>
       `;
-      el.addEventListener('click', () => {
+      el.addEventListener('click', async () => {
+        if (isMovie) {
+          if (!canWriteScope(activeScope)) return;
+          const { error } = await supabase.from('shows')
+            .update({ list_status: null, in_tier_pool: true, last_updated: new Date().toISOString().slice(0, 10) })
+            .eq('id', item.id).eq('scope', activeScope);
+          if (checkWriteError(error)) return;
+          invalidateShowsCache();
+          showToast('Marked watched');
+          loadShows();
+          return;
+        }
         const cmd = `Start ${item.title} from S1E1`;
         navigator.clipboard.writeText(cmd)
           .then(() => showToast('Copied — paste to Claude'))
@@ -2799,6 +2818,7 @@
     restrictScopeOptions(document.getElementById('add-show-scope'));
     document.getElementById('add-show-total-episodes').value = '';
     document.getElementById('add-show-current-episode').value = '0';
+    document.getElementById('add-show-movie-status').value = 'watched';
     document.getElementById('add-show-runtime').value = '';
     document.getElementById('add-show-error').style.display = 'none';
     toggleAddShowFields();
@@ -2807,8 +2827,10 @@
 
   function toggleAddShowFields() {
     const category = document.getElementById('add-show-category').value;
-    document.getElementById('add-show-episode-fields').style.display = category === 'movie' ? 'none' : '';
-    document.getElementById('add-show-runtime-field').style.display = category === 'movie' || category === 'western' ? '' : 'none';
+    const isMovie = category === 'movie';
+    document.getElementById('add-show-episode-fields').style.display = isMovie ? 'none' : '';
+    document.getElementById('add-show-movie-status-field').style.display = isMovie ? '' : 'none';
+    document.getElementById('add-show-runtime-field').style.display = isMovie || category === 'western' ? '' : 'none';
   }
 
   document.getElementById('btn-add').addEventListener('click', () => openAddShowModal());
@@ -2840,10 +2862,15 @@
       list_status: null, in_tier_pool: false,
     };
     if (category === 'movie') {
+      const wantToWatch = document.getElementById('add-show-movie-status').value === 'watchlist';
       const runtime = parseInt(document.getElementById('add-show-runtime').value, 10);
-      if (!runtime) { errorEl.textContent = 'Runtime (minutes) is required for movies.'; errorEl.style.display = ''; return; }
-      row.runtime_minutes = runtime;
-      row.in_tier_pool = true;
+      if (!runtime && !wantToWatch) { errorEl.textContent = 'Runtime (minutes) is required for movies you\'ve already watched.'; errorEl.style.display = ''; return; }
+      if (runtime) row.runtime_minutes = runtime;
+      if (wantToWatch) {
+        row.list_status = 'watchlist';
+      } else {
+        row.in_tier_pool = true;
+      }
     } else {
       const totalEpisodes = parseInt(document.getElementById('add-show-total-episodes').value, 10);
       const currentEpisode = parseInt(document.getElementById('add-show-current-episode').value, 10) || 0;
