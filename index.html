@@ -3857,14 +3857,64 @@
   let activeRatingsCategory = 'anime';
   const RATINGS_EMPTY_LABEL = { anime: 'No anime in your watched list yet.', western: 'No western shows in your watched list yet.', movie: 'No movies in your watched list yet.' };
 
+  // Together has two raters, so it gets comparison-oriented sorts the solo
+  // scopes don't need — rebuilds the <select>'s options only when switching
+  // between "together" and solo mode, so an in-progress selection survives
+  // the re-renders that happen on every rating click.
+  function ensureRatingsSortOptions(profiles) {
+    const select = document.getElementById('ratings-sort');
+    const mode = profiles ? 'together' : 'solo';
+    if (select.dataset.sortMode === mode) return;
+    select.dataset.sortMode = mode;
+    if (mode === 'together') {
+      const other = profiles.find(p => !currentProfile || p.id !== currentProfile.id);
+      const otherName = escapeHTML(other ? other.display_name : 'Partner');
+      select.innerHTML = `
+        <option value="avg">Sort: Average rating</option>
+        <option value="gap">Sort: Biggest rating gap</option>
+        <option value="mine">Sort: My rating</option>
+        <option value="theirs">Sort: ${otherName} rating</option>
+        <option value="alpha">Sort: A–Z</option>
+        <option value="added">Sort: Recently added</option>
+      `;
+    } else {
+      select.innerHTML = `
+        <option value="rating">Sort: Rating</option>
+        <option value="alpha">Sort: A–Z</option>
+        <option value="added">Sort: Recently added</option>
+      `;
+    }
+  }
+
+  function theirRatingOf(show, profiles) {
+    const other = profiles.find(p => !currentProfile || p.id !== currentProfile.id);
+    if (!other) return null;
+    return (show.allRatings || []).find(r => r.user_id === other.id)?.rating ?? null;
+  }
+
   async function renderRatingsTab() {
     const shows = await getAllWatchedShows();
     const profiles = activeScope === 'together' ? await getAllProfiles() : null;
+    ensureRatingsSortOptions(profiles);
     const inCategory = shows.filter(s => (s.category ?? 'anime') === activeRatingsCategory);
     const sortKey = document.getElementById('ratings-sort').value;
     const sorted = [...inCategory];
     if (sortKey === 'alpha') sorted.sort((a, b) => a.title.localeCompare(b.title));
-    else if (sortKey === 'rating') sorted.sort((a, b) => (b.rating || 0) - (a.rating || 0));
+    else if (sortKey === 'rating' || sortKey === 'mine') sorted.sort((a, b) => (b.rating || 0) - (a.rating || 0));
+    else if (sortKey === 'theirs') sorted.sort((a, b) => (theirRatingOf(b, profiles) || 0) - (theirRatingOf(a, profiles) || 0));
+    else if (sortKey === 'avg') {
+      const avg = s => {
+        const vals = [s.rating, theirRatingOf(s, profiles)].filter(v => v != null);
+        return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
+      };
+      sorted.sort((a, b) => avg(b) - avg(a));
+    } else if (sortKey === 'gap') {
+      const gap = s => {
+        const mine = s.rating, theirs = theirRatingOf(s, profiles);
+        return (mine == null || theirs == null) ? -1 : Math.abs(mine - theirs);
+      };
+      sorted.sort((a, b) => gap(b) - gap(a));
+    }
     // 'added' — leave in original order
 
     const q = (document.getElementById('ratings-search').value || '').toLowerCase();
