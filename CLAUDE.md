@@ -131,6 +131,36 @@ Progress bumps and marking shows finished are handled in-page now (episode stepp
 
 Handled in-page, not Claude-mediated: whenever the Reading tab renders, `checkNewChapters()` polls MangaDex (not AniList — AniList's `chapters` field is only populated once a series is `FINISHED`, so it's useless for the ongoing titles this feature cares about) for each actively-reading manga/manhwa's live chapter count, throttled to once per 6 hours via a `lastChapterCheck` localStorage timestamp. If MangaDex's count exceeds the stored `total_chapters`, it bumps the stored total (so the same new chapters aren't re-announced next check) and shows a dismissible banner. MangaDex's raw top search hit is often a colorized/spinoff edition that lags behind the real release (e.g. "Hunter x Hunter (Official Colored)" outranks the base series) — the code prefers an exact title match over the top hit to avoid pulling a stale count from the wrong edition.
 
+## Auditing self-added entries for missing metadata
+
+The website's own "+ Add Show", "+ Add Movie", and "+ Add Reading" modals
+are explicitly no-lookup manual entry (the modal hint says as much) — they
+only save what the user typed, so anything added that way is missing
+whatever the user didn't fill in themselves: usually poster/cover art,
+genres, studio, and sometimes runtime.
+
+When asked to check for missing metadata (e.g. "check for items added on
+the website", "anything missing images/genres?"), query both tables for
+gaps rather than guessing which entries were self-added:
+
+```bash
+KEY=$(cat .supabase-service-key)
+curl -s "https://ppelaixzzgfhqximihpr.supabase.co/rest/v1/shows?select=id,title,category,poster_url,genres,studio,runtime_minutes&or=(poster_url.is.null,genres.is.null)" \
+  -H "apikey: $KEY" -H "Authorization: Bearer $KEY"
+curl -s "https://ppelaixzzgfhqximihpr.supabase.co/rest/v1/written_media?select=id,title,category,cover_url,genres&cover_url=is.null" \
+  -H "apikey: $KEY" -H "Authorization: Bearer $KEY"
+```
+
+For each gap found, backfill using the same lookup sources and caveats as
+the "Adding a new show" / "Adding a book, manga, manhwa, or webnovel"
+sections above (AniList → Jikan fallback for anime/manga, TMDB for
+live-action, Open Library for books) — including checking AniList/Jikan
+uptime first, since both have been flaky. Report anything that couldn't be
+confidently matched (ambiguous title, no source found) instead of guessing
+— a wrong cover/genre is worse than a missing one. Write confirmed results
+directly to Supabase per the usual `supabase-write.mjs` commands; no `git
+commit` needed since nothing in the repo changes.
+
 ## Session checkpoints
 
 When the user says "end of session" (or an equivalent closing phrase), run `/capture-workflow` first, then append a new dated entry to `docs/checkpoints.md` summarizing what was done in the session — a few bullet points, newest entry at the bottom. Create the file if it doesn't exist yet.
