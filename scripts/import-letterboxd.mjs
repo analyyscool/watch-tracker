@@ -46,7 +46,10 @@ if (type === 'ratings' && !userId) {
 
 // Letterboxd CSV columns: Date,Name,Year,Letterboxd URI[,Rating]
 function parseCsv(text) {
-  const [header, ...lines] = text.trim().split('\n');
+  // Letterboxd exports CRLF line endings — normalize first, or a stray \r
+  // glues onto the last column's header name and every row's last value
+  // (e.g. "Rating" becomes "Rating\r", silently breaking row.Rating lookups).
+  const [header, ...lines] = text.replace(/\r\n/g, '\n').trim().split('\n');
   const cols = header.split(',');
   return lines.filter(l => l.trim()).map(line => {
     // naive split is fine here — Letterboxd quotes titles containing commas
