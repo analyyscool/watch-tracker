@@ -1,37 +1,70 @@
 // scripts/import-letterboxd.mjs
-// Usage: node scripts/import-letterboxd.mjs <path-to-ratings.csv> <liisa-user-id>
+// Usage: node scripts/import-letterboxd.mjs <path-to-csv> --scope=karl|liisa [--user-id=<uuid>]
+//
+// Letterboxd exports three CSVs (ratings.csv, watched.csv, watchlist.csv);
+// the file type is inferred from the filename since that's what Letterboxd's
+// own export always names them. Letterboxd only tracks movies, not TV shows,
+// so every row here becomes a category:'movie' show row.
+// --user-id is only needed for ratings.csv (to attribute rows in `ratings`).
 import { readFileSync } from 'node:fs';
+import { basename } from 'node:path';
 
 const SUPABASE_URL = 'https://ppelaixzzgfhqximihpr.supabase.co';
 const serviceKey = readFileSync(new URL('../.supabase-service-key', import.meta.url), 'utf8').trim();
 
-const [, , csvPath, userId] = process.argv;
-if (!csvPath || !userId) {
-  console.error('Usage: node scripts/import-letterboxd.mjs <path-to-ratings.csv> <liisa-user-id>');
+const args = process.argv.slice(2);
+const csvPath = args.find(a => !a.startsWith('--'));
+const scope = args.find(a => a.startsWith('--scope='))?.slice('--scope='.length);
+const userId = args.find(a => a.startsWith('--user-id='))?.slice('--user-id='.length);
+
+if (!csvPath || !scope) {
+  console.error('Usage: node scripts/import-letterboxd.mjs <path-to-csv> --scope=karl|liisa [--user-id=<uuid>]');
+  process.exit(1);
+}
+if (scope !== 'karl' && scope !== 'liisa' && scope !== 'together') {
+  console.error(`Invalid --scope: ${scope} (expected karl, liisa, or together)`);
   process.exit(1);
 }
 
-// Letterboxd ratings.csv columns: Date,Name,Year,Letterboxd URI,Rating
+function fileType(path) {
+  const name = basename(path).toLowerCase();
+  if (name.includes('ratings')) return 'ratings';
+  if (name.includes('watchlist')) return 'watchlist';
+  if (name.includes('watched')) return 'watched';
+  return null;
+}
+
+const type = fileType(csvPath);
+if (!type) {
+  console.error(`Could not tell file type from name "${basename(csvPath)}" — expected it to contain "ratings", "watched", or "watchlist".`);
+  process.exit(1);
+}
+if (type === 'ratings' && !userId) {
+  console.error('ratings.csv requires --user-id=<uuid> so ratings can be attributed to a profile.');
+  process.exit(1);
+}
+
+// Letterboxd CSV columns: Date,Name,Year,Letterboxd URI[,Rating]
 function parseCsv(text) {
   const [header, ...lines] = text.trim().split('\n');
   const cols = header.split(',');
-  return lines.map(line => {
+  return lines.filter(l => l.trim()).map(line => {
     // naive split is fine here — Letterboxd quotes titles containing commas
     const matches = [...line.matchAll(/"([^"]*)"|([^,]+)/g)].map(m => m[1] ?? m[2] ?? '');
     return Object.fromEntries(cols.map((c, i) => [c, matches[i] ?? '']));
   });
 }
 
-// This script only ever imports Liisa's Letterboxd data, so title-matching
-// against existing rows must be scoped to scope='liisa'. Matching against
-// ALL shows would let Liisa's rating attach to a same-titled row Karl
-// already has under scope='karl', invisible in her own view.
-async function fetchLiisaShows() {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/shows?select=id,title&scope=eq.liisa`, {
+// Title-matching against existing rows must be scoped to the target scope —
+// matching against ALL shows would let an imported rating/entry attach to a
+// same-titled row that belongs to a different scope, invisible in that
+// scope's own view.
+async function fetchScopedShows() {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/shows?select=id,title&scope=eq.${scope}`, {
     headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
   });
   if (!res.ok) {
-    console.error(`Failed to fetch existing shows (scope=liisa): ${res.status} ${res.statusText}`);
+    console.error(`Failed to fetch existing shows (scope=${scope}): ${res.status} ${res.statusText}`);
     console.error(await res.text());
     process.exit(1);
   }
@@ -57,23 +90,26 @@ function slugify(title) {
 }
 
 const rows = parseCsv(readFileSync(csvPath, 'utf8'));
-const existingLiisaShows = await fetchLiisaShows();
+const existingScopedShows = await fetchScopedShows();
 const unmatched = [];
 const toInsertShows = [];
 const toInsertRatings = [];
 
+const listStatus = type === 'watchlist' ? 'watchlist' : null;
+const inTierPool = type === 'watchlist' ? false : true;
+
 for (const row of rows) {
   const title = row.Name;
-  const rating = parseFloat(row.Rating);
-  let match = existingLiisaShows.find(s => s.title.toLowerCase() === title.toLowerCase());
+  let match = existingScopedShows.find(s => s.title.toLowerCase() === title.toLowerCase());
   if (!match) {
     const id = slugify(`${title}-${row.Year || ''}`);
     match = { id, title };
-    toInsertShows.push({ id, title, category: 'movie', scope: 'liisa', list_status: null, in_tier_pool: true });
+    toInsertShows.push({ id, title, category: 'movie', scope, list_status: listStatus, in_tier_pool: inTierPool });
     unmatched.push(title);
   }
-  if (!isNaN(rating)) {
-    toInsertRatings.push({ show_id: match.id, user_id: userId, rating });
+  if (type === 'ratings') {
+    const rating = parseFloat(row.Rating);
+    if (!isNaN(rating)) toInsertRatings.push({ show_id: match.id, scope, user_id: userId, rating });
   }
 }
 
@@ -81,9 +117,9 @@ for (const row of rows) {
 // id (e.g. two movies that reduce to the same id after stripping
 // punctuation). Because the insert below uses merge-duplicates, an
 // undetected collision would silently overwrite an existing row's
-// scope/category/list_status — including rows belonging to Karl or
-// 'together'. Check against the FULL (unscoped) id list, not just
-// scope=liisa, and refuse to insert any colliding slug.
+// scope/category/list_status — including rows belonging to a different scope.
+// Check against the FULL (unscoped) id list, not just the target scope, and
+// refuse to insert any colliding slug.
 if (toInsertShows.length) {
   const allShows = await fetchAllShowIds();
   const allById = new Map(allShows.map(s => [s.id, s.title]));
@@ -140,7 +176,7 @@ if (toInsertRatings.length) {
   }
 }
 
-console.log(`Imported ${toInsertRatings.length} ratings, created ${toInsertShows.length} new show rows.`);
+console.log(`Imported ${toInsertRatings.length} ratings, created ${toInsertShows.length} new show rows (type: ${type}, scope: ${scope}).`);
 if (unmatched.length) {
   console.log('\nCreated as new (no existing title match — review these for accuracy):');
   unmatched.forEach(t => console.log(`  - ${t}`));

@@ -1293,7 +1293,9 @@
         <option value="together">Together</option>
       </select>
       <button class="btn btn-primary" id="btn-add">+ Add Show</button>
+      <button class="btn btn-primary" id="btn-add-movie">+ Add Movie</button>
       <button class="btn btn-primary" id="btn-add-reading">+ Add Reading</button>
+      <button class="btn" id="btn-import-letterboxd">Import Letterboxd</button>
       <span id="auth-area"></span>
     </div>
   </header>
@@ -1613,6 +1615,31 @@
     <div class="modal-actions">
       <button class="btn" id="finish-modal-skip">Skip</button>
       <button class="btn btn-primary" id="finish-modal-save">Save</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="import-letterboxd-modal">
+  <div class="modal">
+    <h2>Import from Letterboxd</h2>
+    <p class="form-hint">Unzip your Letterboxd export first, then pick any of ratings.csv, watched.csv, or watchlist.csv below. Letterboxd only tracks movies, not TV shows.</p>
+    <div class="add-form-field">
+      <label for="import-letterboxd-scope">List</label>
+      <select id="import-letterboxd-scope">
+        <option value="karl">Karl</option>
+        <option value="liisa">Liisa</option>
+        <option value="together">Together</option>
+      </select>
+    </div>
+    <div class="add-form-field">
+      <label for="import-letterboxd-files">CSV files</label>
+      <input type="file" id="import-letterboxd-files" accept=".csv" multiple>
+    </div>
+    <p id="import-letterboxd-error" class="form-error" style="display:none"></p>
+    <p id="import-letterboxd-summary" class="form-hint" style="display:none"></p>
+    <div class="modal-actions">
+      <button class="btn" id="import-letterboxd-close">Close</button>
+      <button class="btn btn-primary" id="import-letterboxd-submit">Import</button>
     </div>
   </div>
 </div>
@@ -2765,9 +2792,9 @@
     }
   }
 
-  function openAddShowModal() {
+  function openAddShowModal(defaultCategory = 'anime') {
     document.getElementById('add-show-title').value = '';
-    document.getElementById('add-show-category').value = 'anime';
+    document.getElementById('add-show-category').value = defaultCategory;
     document.getElementById('add-show-scope').value = activeScope === 'together' ? 'together' : activeScope;
     restrictScopeOptions(document.getElementById('add-show-scope'));
     document.getElementById('add-show-total-episodes').value = '';
@@ -2784,7 +2811,8 @@
     document.getElementById('add-show-runtime-field').style.display = category === 'movie' || category === 'western' ? '' : 'none';
   }
 
-  document.getElementById('btn-add').addEventListener('click', openAddShowModal);
+  document.getElementById('btn-add').addEventListener('click', () => openAddShowModal());
+  document.getElementById('btn-add-movie').addEventListener('click', () => openAddShowModal('movie'));
   document.getElementById('add-show-category').addEventListener('change', toggleAddShowFields);
 
   document.getElementById('btn-close').addEventListener('click', () => {
@@ -2924,6 +2952,134 @@
     invalidateWrittenMediaCache();
     showToast('Added');
     rerenderActiveTab();
+  });
+
+  // ── Letterboxd import ──
+  // Letterboxd only tracks movies (no TV shows), so every imported row
+  // becomes a category:'movie' show row. File type is inferred from the
+  // filename since Letterboxd's own export always names them exactly
+  // ratings.csv / watched.csv / watchlist.csv.
+  function parseLetterboxdCsv(text) {
+    const [header, ...lines] = text.trim().split('\n');
+    const cols = header.split(',');
+    return lines.filter(l => l.trim()).map(line => {
+      const matches = [...line.matchAll(/"([^"]*)"|([^,]+)/g)].map(m => m[1] ?? m[2] ?? '');
+      return Object.fromEntries(cols.map((c, i) => [c, matches[i] ?? '']));
+    });
+  }
+
+  function letterboxdFileType(filename) {
+    const lower = filename.toLowerCase();
+    if (lower.includes('ratings')) return 'ratings';
+    if (lower.includes('watchlist')) return 'watchlist';
+    if (lower.includes('watched')) return 'watched';
+    return null;
+  }
+
+  async function upsertLetterboxdRating(showId, rating, scope) {
+    return supabase.from('ratings').upsert({
+      show_id: showId, user_id: currentProfile.id, rating, updated_at: new Date().toISOString(), scope,
+    }, { onConflict: 'show_id,scope,user_id' });
+  }
+
+  function openImportLetterboxdModal() {
+    document.getElementById('import-letterboxd-files').value = '';
+    document.getElementById('import-letterboxd-scope').value = activeScope === 'together' ? 'together' : activeScope;
+    restrictScopeOptions(document.getElementById('import-letterboxd-scope'));
+    document.getElementById('import-letterboxd-error').style.display = 'none';
+    document.getElementById('import-letterboxd-summary').style.display = 'none';
+    document.getElementById('import-letterboxd-modal').classList.add('open');
+  }
+
+  document.getElementById('btn-import-letterboxd').addEventListener('click', openImportLetterboxdModal);
+  document.getElementById('import-letterboxd-close').addEventListener('click', () => {
+    document.getElementById('import-letterboxd-modal').classList.remove('open');
+  });
+  document.getElementById('import-letterboxd-modal').addEventListener('click', e => {
+    if (e.target === e.currentTarget) e.currentTarget.classList.remove('open');
+  });
+
+  document.getElementById('import-letterboxd-submit').addEventListener('click', async () => {
+    const errorEl = document.getElementById('import-letterboxd-error');
+    const summaryEl = document.getElementById('import-letterboxd-summary');
+    errorEl.style.display = 'none';
+    summaryEl.style.display = 'none';
+    const scope = document.getElementById('import-letterboxd-scope').value;
+    const files = [...document.getElementById('import-letterboxd-files').files];
+    if (!files.length) { errorEl.textContent = 'Choose at least one CSV file.'; errorEl.style.display = ''; return; }
+
+    const submitBtn = document.getElementById('import-letterboxd-submit');
+    submitBtn.disabled = true;
+    try {
+      const unrecognized = [];
+      const rowsByType = { ratings: [], watched: [], watchlist: [] };
+      for (const file of files) {
+        const type = letterboxdFileType(file.name);
+        if (!type) { unrecognized.push(file.name); continue; }
+        rowsByType[type].push(...parseLetterboxdCsv(await file.text()));
+      }
+
+      const scopedShows = await fetchShows(scope);
+      const allShows = await fetchShows();
+      const allShowsById = new Map(allShows.map(s => [s.id, s.title]));
+      const scopedByTitle = new Map(scopedShows.map(s => [s.title.toLowerCase(), s.id]));
+
+      const newShows = [];
+      const newShowIds = new Map(); // title.toLowerCase() -> id, for rows in this same import batch
+      const blocked = [];
+      const pendingRatings = [];
+
+      function resolveShowId(title, year, listStatus, inTierPool) {
+        const key = title.toLowerCase();
+        if (scopedByTitle.has(key)) return scopedByTitle.get(key);
+        if (newShowIds.has(key)) return newShowIds.get(key);
+        const id = slugify(`${title}-${year || ''}`);
+        const existingTitle = allShowsById.get(id);
+        if (existingTitle !== undefined && existingTitle.toLowerCase() !== key) {
+          blocked.push({ id, title, existingTitle });
+          return null;
+        }
+        newShows.push({ id, title, category: 'movie', scope, list_status: listStatus, in_tier_pool: inTierPool, last_updated: new Date().toISOString().slice(0, 10) });
+        newShowIds.set(key, id);
+        return id;
+      }
+
+      for (const row of rowsByType.watched) {
+        resolveShowId(row.Name, row.Year, null, true);
+      }
+      for (const row of rowsByType.watchlist) {
+        resolveShowId(row.Name, row.Year, 'watchlist', false);
+      }
+      for (const row of rowsByType.ratings) {
+        const showId = resolveShowId(row.Name, row.Year, null, true);
+        const rating = parseFloat(row.Rating);
+        if (showId && !isNaN(rating)) pendingRatings.push({ showId, rating });
+      }
+
+      if (newShows.length) {
+        const { error } = await supabase.from('shows').insert(newShows);
+        if (error) throw error;
+      }
+      for (const { showId, rating } of pendingRatings) {
+        const { error } = await upsertLetterboxdRating(showId, rating, scope);
+        if (error) throw error;
+      }
+
+      invalidateShowsCache();
+      rerenderActiveTab();
+
+      const parts = [`Added ${newShows.length} new movie(s)`, `recorded ${pendingRatings.length} rating(s)`];
+      if (blocked.length) parts.push(`skipped ${blocked.length} due to id collision (${blocked.map(b => b.title).join(', ')})`);
+      if (unrecognized.length) parts.push(`ignored unrecognized file(s): ${unrecognized.join(', ')}`);
+      summaryEl.textContent = parts.join('; ') + '.';
+      summaryEl.style.display = '';
+    } catch (error) {
+      console.error(error);
+      errorEl.textContent = 'Import failed — try again.';
+      errorEl.style.display = '';
+    } finally {
+      submitBtn.disabled = false;
+    }
   });
 
   // ── Tabs (two-level: TV/Movies + Reading each have sub-tabs, Stats doesn't) ──
