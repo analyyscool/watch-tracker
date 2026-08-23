@@ -4058,19 +4058,25 @@
     const seen = new Set(completedWatching.map(s => s.id));
     const allWatched = [...completedWatching, ...watchedOnly.filter(s => !seen.has(s.id))];
 
-    // Episodes/hours can only be computed for shows that carry episode counts
-    // (i.e. everything that passed through `watching`) plus movies (a movie
-    // is a single "watch" of its own runtime). Older `watched`-only anime/
-    // western entries were added before episode counts were tracked there,
-    // so they're counted toward "shows completed" but not toward episodes/hours.
+    // Episodes/hours are computed for everything that passed through
+    // `watching`, plus movies (a movie is a single "watch" of its own
+    // runtime), plus watched-only anime/western entries that carry a
+    // backfilled `totalEpisodes`. Watched-only entries still missing
+    // episode counts are counted toward "shows completed" but not
+    // toward episodes/hours (no count to add).
     let episodesWatched = 0;
     let minutesWatched = 0;
     const runtimeFor = s => s.runtimeMinutes || (s.category === 'anime' || !s.category ? 20 : 20);
     activeWatching.forEach(s => { episodesWatched += s.currentEpisode; minutesWatched += s.currentEpisode * runtimeFor(s); });
     completedWatching.forEach(s => { episodesWatched += s.totalEpisodes; minutesWatched += s.totalEpisodes * runtimeFor(s); });
-    watchedOnly.filter(s => !seen.has(s.id) && s.category === 'movie').forEach(s => {
-      episodesWatched += 1;
-      minutesWatched += s.runtimeMinutes || 100;
+    watchedOnly.filter(s => !seen.has(s.id)).forEach(s => {
+      if (s.category === 'movie') {
+        episodesWatched += 1;
+        minutesWatched += s.runtimeMinutes || 100;
+      } else if (s.totalEpisodes) {
+        episodesWatched += s.totalEpisodes;
+        minutesWatched += s.totalEpisodes * runtimeFor(s);
+      }
     });
 
     const categoryCounts = { anime: 0, western: 0, movie: 0 };
@@ -4141,7 +4147,7 @@
           <div class="stat-tile"><div class="stat-tile-value">${hours}</div><div class="stat-tile-label">Hours Watched</div></div>
         </div>
         <p style="font-size:0.6rem; color:var(--muted); margin-top:-1.25rem; margin-bottom:1.5rem;">
-          Episodes/hours only cover shows tracked with episode counts (everything that passed through "Watching") plus movies — older watched-only entries added before that count toward "Completed" but not toward the episode/hour totals.
+          Episodes/hours cover shows with an episode count on file (everything that passed through "Watching", plus movies, plus watched-only entries with a backfilled episode count) — any watched-only entry still missing an episode count counts toward "Completed" but not toward the episode/hour totals.
         </p>
 
         <div class="stats-section-title">Category split</div>

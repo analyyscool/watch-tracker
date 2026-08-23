@@ -123,6 +123,22 @@ row instead of updating the existing one. If a re-run is a risk (retrying
 after an error, re-pasting a command), query for an existing row by title
 first, or pass an explicit `id` in the payload.
 
+## Updating existing rows with supabase-write.mjs
+
+To patch just a few fields on an existing row (e.g. backfilling
+`total_episodes` or `genres`), pass `id` plus only the changed fields —
+`Prefer: resolution=merge-duplicates` means columns you omit are left alone,
+so this is safe for nullable columns.
+
+However, the row's `NOT NULL` columns (`title`, `category`, `scope` on both
+`shows` and `written_media`) must be included in *every* payload, even when
+you're not changing them. PostgREST's upsert validates the INSERT branch's
+required columns before `ON CONFLICT DO UPDATE` kicks in, so a payload of
+just `{"id": "...", "total_episodes": 24}` fails with a `23502` NOT NULL
+violation rather than silently updating just that field. Always send
+`{"id": "...", "title": "...", "category": "...", "scope": "...", <changed
+fields>}`.
+
 ## Bumping episode progress and marking shows finished
 
 Progress bumps and marking shows finished are handled in-page now (episode stepper / Mark Finished button) — no longer Claude-mediated.
