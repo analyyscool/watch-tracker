@@ -4082,11 +4082,12 @@
     const categoryCounts = { anime: 0, western: 0, movie: 0 };
     allWatched.forEach(s => { categoryCounts[s.category ?? 'anime']++; });
 
-    // Genre/studio breakdown only draws from `watching` (active + completed
-    // from it) — genres/studio aren't stored on older watched-only entries.
+    // Genre/studio breakdown draws from every show carrying that data —
+    // `watching` plus any watched-only entry with a backfilled genres/studio.
     const genreCounts = {};
     const studioCounts = {};
-    [...activeWatching, ...completedWatching].forEach(s => {
+    const genreStudioPool = [...activeWatching, ...completedWatching, ...watchedOnly.filter(s => !seen.has(s.id))];
+    genreStudioPool.forEach(s => {
       (s.genres || []).forEach(g => { genreCounts[g] = (genreCounts[g] || 0) + 1; });
       if (s.studio) studioCounts[s.studio] = (studioCounts[s.studio] || 0) + 1;
     });
@@ -4128,7 +4129,7 @@
     [...mediaReading, ...mediaCompleted].forEach(m => { mediaCategoryCounts[m.category] = (mediaCategoryCounts[m.category] || 0) + 1; });
 
     const mediaGenreCounts = {};
-    [...mediaReading, ...mediaCompleted].forEach(m => {
+    [...mediaReading, ...mediaCompleted, ...mediaToRead].forEach(m => {
       (m.genres || []).forEach(g => { mediaGenreCounts[g] = (mediaGenreCounts[g] || 0) + 1; });
     });
 
@@ -4160,7 +4161,7 @@
         ${Object.keys(studioCounts).length ? barRows(studioCounts) : '<p style="font-size:0.65rem; color:var(--muted)">No studio data yet.</p>'}
 
         <p style="font-size:0.6rem; color:var(--muted); margin-top:1rem;">
-          Genre/studio breakdown is based on the ${activeWatching.length + completedWatching.length} shows tracked with full metadata (currently watching or finished-from-watching) — most of the older watched history predates genre/studio tracking.
+          Genre/studio breakdown is based on the ${genreStudioPool.filter(s => (s.genres && s.genres.length) || s.studio).length} shows tracked with genre/studio metadata — any entry still missing that data isn't counted here.
         </p>
       </div>
 
