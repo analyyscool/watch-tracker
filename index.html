@@ -1983,6 +1983,7 @@
     }, { onConflict: kind === 'media' ? 'written_media_id,user_id' : 'show_id,scope,user_id' });
     if (checkWriteError(error)) return;
     if (kind === 'media') invalidateWrittenMediaCache(); else invalidateShowsCache();
+    if (kind === 'show') await syncRatingToSiblingScope(id, { rating: value });
   }
 
   async function setNote(id, text, kind = 'show') {
@@ -1994,6 +1995,28 @@
     }, { onConflict: kind === 'media' ? 'written_media_id,user_id' : 'show_id,scope,user_id' });
     if (checkWriteError(error)) return;
     if (kind === 'media') invalidateWrittenMediaCache(); else invalidateShowsCache();
+    if (kind === 'show') await syncRatingToSiblingScope(id, { note: text || null });
+  }
+
+  // A show logged under your personal scope (karl/liisa) and also under
+  // together shares the same `id` slug (see migration-shows-composite-key.sql).
+  // When you rate/note one, mirror the same value onto your own rating for
+  // the sibling row — never the other person's — so the two stay identical
+  // without a manual re-rate. No-ops if the sibling row doesn't exist.
+  async function syncRatingToSiblingScope(id, patch) {
+    if (!currentProfile) return;
+    const personalScope = currentProfile.display_name.toLowerCase();
+    let sibling = null;
+    if (activeScope === personalScope) sibling = 'together';
+    else if (activeScope === 'together') sibling = personalScope;
+    if (!sibling) return;
+    const { data: siblingShow } = await supabase.from('shows').select('id').eq('id', id).eq('scope', sibling).maybeSingle();
+    if (!siblingShow) return;
+    const { error } = await supabase.from('ratings').upsert({
+      show_id: id, scope: sibling, user_id: currentProfile.id, updated_at: new Date().toISOString(), ...patch,
+    }, { onConflict: 'show_id,scope,user_id' });
+    if (checkWriteError(error)) return;
+    invalidateShowsCache();
   }
 
   // Renders a 5-star, half-star-precision rating widget as a self-contained
@@ -3905,7 +3928,69 @@
     return (show.allRatings || []).find(r => r.user_id === other.id)?.rating ?? null;
   }
 
+  // If Karl and Liisa have each independently rated the same title on their
+  // own personal scope, this makes sure it shows up in Together instead of
+  // needing a manual re-add. Creates the `together` row if missing (copying
+  // show data from Karl's row, per convention) and backfills *your own*
+  // rating/note onto it. Exact `id` (slug) match only, shows only.
+  //
+  // Only ever writes ratings.user_id = currentProfile.id — "ratings writable
+  // by owner" RLS forbids writing the other person's rating row, so the pair
+  // completes once each of you has opened the Together tab at least once;
+  // syncRatingToSiblingScope then keeps both sides in sync on future edits.
+  async function syncTogetherFromPersonalRatings() {
+    if (!currentProfile) return;
+    const myScope = currentProfile.display_name.toLowerCase();
+    if (myScope !== 'karl' && myScope !== 'liisa') return;
+    const profiles = await getAllProfiles();
+    const otherProfile = profiles.find(p => p.id !== currentProfile.id);
+    if (!otherProfile) return;
+    const otherScope = otherProfile.display_name.toLowerCase();
+
+    const allRows = await fetchShows(null);
+    const myRows = allRows.filter(s => s.scope === myScope);
+    const otherRows = allRows.filter(s => s.scope === otherScope);
+    const togetherById = new Map(allRows.filter(s => s.scope === 'together').map(s => [s.id, s]));
+
+    let changed = false;
+    for (const myShow of myRows) {
+      const myRating = (myShow.allRatings || []).find(r => r.user_id === currentProfile.id);
+      if (!myRating?.rating) continue;
+      const otherShow = otherRows.find(s => s.id === myShow.id);
+      if (!otherShow) continue;
+      const otherRating = (otherShow.allRatings || []).find(r => r.user_id === otherProfile.id);
+      if (!otherRating?.rating) continue;
+
+      let togetherShow = togetherById.get(myShow.id);
+      if (!togetherShow) {
+        const karlShow = myScope === 'karl' ? myShow : otherShow;
+        const { error: showErr } = await supabase.from('shows').insert({
+          id: karlShow.id, title: karlShow.title, category: karlShow.category, scope: 'together',
+          poster_url: karlShow.posterUrl, studio: karlShow.studio, genres: karlShow.genres,
+          total_episodes: karlShow.totalEpisodes, total_seasons: karlShow.totalSeasons,
+          current_episode: karlShow.totalEpisodes, season_episode: karlShow.totalEpisodes,
+          current_season: karlShow.totalSeasons, runtime_minutes: karlShow.runtimeMinutes,
+          list_status: null, in_tier_pool: true,
+          last_updated: new Date().toISOString().slice(0, 10),
+        });
+        if (showErr) { console.error(showErr); continue; }
+        togetherShow = { id: karlShow.id, allRatings: [] };
+        togetherById.set(myShow.id, togetherShow);
+        changed = true;
+      }
+      if ((togetherShow.allRatings || []).some(r => r.user_id === currentProfile.id)) continue;
+      const { error: ratingErr } = await supabase.from('ratings').upsert({
+        show_id: myShow.id, scope: 'together', user_id: currentProfile.id,
+        rating: myRating.rating, note: myRating.note ?? null, updated_at: new Date().toISOString(),
+      }, { onConflict: 'show_id,scope,user_id' });
+      if (ratingErr) { console.error(ratingErr); continue; }
+      changed = true;
+    }
+    if (changed) invalidateShowsCache();
+  }
+
   async function renderRatingsTab() {
+    if (activeScope === 'together') await syncTogetherFromPersonalRatings();
     const shows = await getAllWatchedShows();
     const profiles = activeScope === 'together' ? await getAllProfiles() : null;
     ensureRatingsSortOptions(profiles);
