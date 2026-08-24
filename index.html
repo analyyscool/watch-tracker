@@ -1901,14 +1901,21 @@
     const show = rows.find(s => s.id === id);
     if (!show || !canWriteScope(activeScope)) return;
     const newEpisode = Math.max(0, Math.min(show.totalEpisodes, show.currentEpisode + delta));
+    // The "completed" section is derived from currentEpisode >= totalEpisodes
+    // (see loadShows), so stepping the last episode via + finishes the show
+    // just like the Mark Finished button — fire the same in_tier_pool flip
+    // and rate/note prompt instead of leaving it stranded.
+    const justFinished = show.currentEpisode < show.totalEpisodes && newEpisode >= show.totalEpisodes;
     const { error } = await supabase.from('shows').update({
       current_episode: newEpisode,
       season_episode: newEpisode, // seasons collapse to a single running total in this simplified control; per-season tracking still works via Task 8's Add Show flow setting initial values
+      ...(justFinished ? { in_tier_pool: true } : {}),
       last_updated: new Date().toISOString().slice(0, 10),
     }).eq('id', id).eq('scope', activeScope);
     if (checkWriteError(error)) return;
     invalidateShowsCache();
     loadShows();
+    if (justFinished) openFinishModal(id, show.title, 'show');
   }
 
   async function markFinished(id) {
