@@ -3095,13 +3095,13 @@
   let confettiRaf = null;
   function fireConfetti() {
     const canvas = document.getElementById('confetti-canvas');
+    canvas.style.display = 'block';
     const ctx = canvas.getContext('2d');
     const dpr = window.devicePixelRatio || 1;
-    const W = canvas.clientWidth, H = canvas.clientHeight;
+    const W = window.innerWidth, H = window.innerHeight;
     canvas.width = W * dpr;
     canvas.height = H * dpr;
-    ctx.scale(dpr, dpr);
-    canvas.style.display = 'block';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     const colors = ['#ff5964', '#ffd166', '#06d6a0', '#4d96ff', '#c77dff', '#ff9f1c'];
     const parts = [];
