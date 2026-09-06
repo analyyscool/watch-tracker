@@ -2982,25 +2982,34 @@
 
     const ITEM_H = 96;
     const STRIP = 32;
-    // Logic is driven by timers, not `transitionend` — headless/backgrounded
-    // browsers throttle transitions and the event can never arrive.
+    // Uses the Web Animations API rather than CSS-transition juggling: no
+    // reflow/re-arm dance, and the settle is driven by a timer since
+    // `finished`/`transitionend` can be dropped by a throttled tab.
     let maxDur = 0;
     spinReels().forEach((reel, idx) => {
       const items = [];
       for (let i = 0; i < STRIP; i++) items.push(spinEntries[Math.floor(Math.random() * spinEntries.length)].title);
       items.push(targets[idx].title);
+      const dur = 2.0 + idx * 0.5;
+      maxDur = Math.max(maxDur, dur);
+      const dist = -(items.length - 1) * ITEM_H;
+
       reel.style.transition = 'none';
       reel.style.transform = 'translateY(0)';
       reel.innerHTML = items.map(t => `<div class="slot-item"><span>${escapeHTML(t)}</span></div>`).join('');
-      reel.offsetHeight; // reflow
-      const dur = 2.0 + idx * 0.5;
-      maxDur = Math.max(maxDur, dur);
-      reel.style.transition = `transform ${dur}s cubic-bezier(0.12, 0.8, 0.15, 1)`;
-      reel.style.transform = `translateY(${-(items.length - 1) * ITEM_H}px)`;
-      setTimeout(() => { setReel(reel, targets[idx].title); sfxThunk(); }, dur * 1000);
+
+      if (reel.animate) {
+        reel.animate(
+          [{ transform: 'translateY(0)' }, { transform: `translateY(${dist}px)` }],
+          { duration: dur * 1000, easing: 'cubic-bezier(0.12, 0.8, 0.15, 1)' }
+        );
+      }
+      reel.style.transform = `translateY(${dist}px)`;
+
+      setTimeout(() => { setReel(reel, targets[idx].title); sfxThunk(); }, dur * 1000 + 40);
     });
     sfxTicks();
-    setTimeout(() => finishSpin(isMatch, targets[0]), maxDur * 1000 + 120);
+    setTimeout(() => finishSpin(isMatch, targets[0]), maxDur * 1000 + 200);
   }
 
   function finishSpin(isMatch, winner) {
