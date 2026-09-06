@@ -1020,6 +1020,121 @@
   .modal-actions { display: flex; gap: 0.6rem; }
   .modal-actions .btn { flex: 1; }
 
+  /* ── Spin the Wheel ── */
+  .spinwheel-bar {
+    display: flex; align-items: flex-start; gap: 0.6rem;
+    margin-bottom: 1.25rem;
+  }
+  .spinwheel-selector { display: flex; flex-wrap: wrap; gap: 0.4rem; flex: 1; }
+  .wheel-pill {
+    padding: 0.35rem 0.75rem;
+    font-size: 0.72rem;
+    font-family: 'Syne', sans-serif;
+    font-weight: 600;
+    border: 1px solid var(--border2);
+    border-radius: 999px;
+    background: var(--surface);
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .wheel-pill:hover { color: var(--text); border-color: var(--accent); }
+  .wheel-pill.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .spinwheel-sound { flex: 0 0 auto; padding: 0.35rem 0.6rem; }
+  .spinwheel-sound.muted { opacity: 0.4; }
+  #spinwheel-stage { text-align: center; padding: 1rem 0; }
+  .slot-machine {
+    display: flex; gap: 0.5rem;
+    justify-content: center;
+    max-width: 560px;
+    margin: 0 auto 1.25rem;
+  }
+  .slot-machine.shake { animation: slot-shake 0.4s; }
+  @keyframes slot-shake {
+    0%,100% { transform: translateX(0); }
+    20% { transform: translateX(-6px); }
+    40% { transform: translateX(6px); }
+    60% { transform: translateX(-4px); }
+    80% { transform: translateX(4px); }
+  }
+  .slot-window {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+    height: 96px;
+    overflow: hidden;
+    border: 2px solid var(--accent);
+    border-radius: 10px;
+    background: var(--surface);
+    box-shadow: var(--card-shadow-hv);
+  }
+  .slot-window::before, .slot-window::after {
+    content: '';
+    position: absolute;
+    left: 0; right: 0;
+    height: 28px;
+    z-index: 2;
+    pointer-events: none;
+  }
+  .slot-window::before { top: 0; background: linear-gradient(var(--surface), transparent); }
+  .slot-window::after { bottom: 0; background: linear-gradient(transparent, var(--surface)); }
+  .slot-reel { position: absolute; left: 0; right: 0; top: 0; }
+  .slot-item {
+    height: 96px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 0.5rem;
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 0.8rem;
+    line-height: 1.2;
+    text-align: center;
+    color: var(--text);
+  }
+  .slot-item span {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .slot-hint { font-size: 0.72rem; color: var(--muted); margin-top: 0.9rem; }
+  #spin-btn { min-width: 160px; font-size: 0.9rem; letter-spacing: 0.08em; }
+  #spin-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .wheel-editor-row {
+    display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center;
+    margin: 0.6rem 0;
+  }
+  .wheel-editor-row input[type="text"], .wheel-editor-row input[type="number"] {
+    padding: 0.4rem 0.6rem;
+    border: 1px solid var(--border2);
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 0.78rem;
+  }
+  .wheel-editor-row input[type="number"] { width: 5rem; }
+  .wheel-editor-row input[type="text"] { flex: 1; min-width: 8rem; }
+  .wheel-entry {
+    display: flex; align-items: center; gap: 0.5rem;
+    padding: 0.35rem 0.2rem;
+    font-size: 0.8rem; color: var(--text);
+    border-bottom: 1px solid var(--border2);
+  }
+  .wheel-entry .we-title { flex: 1; }
+  .wheel-entry .we-tag {
+    font-size: 0.62rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em;
+  }
+  .wheel-entry-remove {
+    border: none; background: none; color: var(--muted);
+    cursor: pointer; font-size: 0.95rem; line-height: 1; padding: 0 0.3rem;
+  }
+  .wheel-entry-remove:hover { color: var(--accent); }
+  #spin-result-body { text-align: center; margin-bottom: 1.25rem; }
+  #spin-result-body img { max-height: 200px; border-radius: 6px; margin-bottom: 0.75rem; }
+  #spin-result-body .spin-winner-title {
+    font-family: 'Syne', sans-serif; font-weight: 700; font-size: 1rem; color: var(--text);
+  }
+
   /* ── Sign-in gate ── */
   .signed-out-screen {
     max-width: 320px;
@@ -1340,6 +1455,7 @@
   <div class="tabs sub-tabs" id="tvmovies-subtabs">
     <button class="tab-btn sub-tab-btn active" data-tab="watching">In Progress</button>
     <button class="tab-btn sub-tab-btn" data-tab="movie-watchlist">Movie Watchlist</button>
+    <button class="tab-btn sub-tab-btn" data-tab="spinwheel">Spin the Wheel</button>
     <button class="tab-btn sub-tab-btn" data-tab="tierlist">Tier List</button>
     <button class="tab-btn sub-tab-btn" data-tab="ratings">Ratings</button>
   </div>
@@ -1387,6 +1503,53 @@
   <div id="view-movie-watchlist" style="display:none">
     <div id="movie-watchlist-grid"></div>
     <div id="movie-watchlist-empty">No movies on the watchlist — add one from + Add Movie.</div>
+  </div>
+
+  <div id="view-spinwheel" style="display:none">
+    <div class="spinwheel-bar">
+      <div class="spinwheel-selector" id="spinwheel-selector"></div>
+      <button class="btn spinwheel-sound" id="spinwheel-sound" title="Toggle sound">&#128266;</button>
+    </div>
+    <div id="spinwheel-empty" style="display:none"></div>
+    <div id="spinwheel-stage" style="display:none">
+      <div class="slot-machine" id="slot-machine">
+        <div class="slot-window"><div class="slot-reel" data-reel="0"></div></div>
+        <div class="slot-window"><div class="slot-reel" data-reel="1"></div></div>
+        <div class="slot-window"><div class="slot-reel" data-reel="2"></div></div>
+      </div>
+      <button class="btn btn-primary" id="spin-btn">SPIN</button>
+      <div class="slot-hint" id="spinwheel-count"></div>
+    </div>
+    <div id="spinwheel-editor" style="display:none">
+      <div class="section-divider"><span>edit wheel</span></div>
+      <div class="wheel-editor-row">
+        <input type="text" id="wheel-rename" placeholder="Wheel name">
+        <button class="btn" id="wheel-rename-btn">Rename</button>
+        <button class="btn" id="wheel-delete-btn">Delete wheel</button>
+      </div>
+      <div id="wheel-entries"></div>
+      <div class="wheel-editor-row">
+        <select class="sf-select" id="wheel-add-watchlist"><option value="">Add from watchlist&hellip;</option></select>
+      </div>
+      <div class="wheel-editor-row">
+        <input type="text" id="wheel-add-custom-title" placeholder="Custom movie title&hellip;">
+        <input type="number" id="wheel-add-custom-runtime" placeholder="min" min="1">
+        <button class="btn" id="wheel-add-custom-btn">+ Add</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="spin-result-modal">
+    <div class="modal">
+      <h2>The wheel picked&hellip;</h2>
+      <div id="spin-result-body"></div>
+      <div class="modal-actions" style="flex-wrap:wrap">
+        <button class="btn btn-primary" id="spin-result-watch">Watch this one</button>
+        <button class="btn" id="spin-result-again">Spin again</button>
+        <button class="btn" id="spin-result-remove">Remove from wheel</button>
+        <button class="btn" id="spin-result-watched">Mark watched</button>
+      </div>
+    </div>
   </div>
 
   <div id="view-reading" style="display:none">
@@ -1714,6 +1877,7 @@
     if (currentTab === 'tierlist') initTierlistView();
     else if (currentTab === 'ratings') renderRatingsTab();
     else if (currentTab === 'movie-watchlist') renderMovieWatchlistTab();
+    else if (currentTab === 'spinwheel') renderSpinWheelTab();
     else if (currentTab === 'stats') renderStatsTab();
     else if (currentTab === 'reading') loadReading();
     else if (currentTab === 'reading-ratings') renderReadingRatingsTab();
@@ -2636,6 +2800,385 @@
     });
   }
 
+  // ── Spin the Wheel (movie decider) ──
+  // A 3-reel slot machine that picks a movie to watch. The built-in
+  // "__watchlist__" wheel is synthesized each render from the active
+  // scope's watchlist movies; named wheels are user-built, global (not
+  // per scope), and stored — with their own watchlist + custom entries —
+  // under the single localStorage key `spinwheel:v1`. Each spin has a
+  // 50% chance of landing all three reels on one movie (→ result popup)
+  // and a 50% chance of a deliberate no-match (→ shake, spin again).
+  // Only "Mark watched" touches Supabase (via markMovieWatched).
+  const SPIN_KEY = 'spinwheel:v1';
+  const WATCHLIST_WHEEL = '__watchlist__';
+
+  function loadSpinState() {
+    try {
+      const s = JSON.parse(localStorage.getItem(SPIN_KEY));
+      if (s && Array.isArray(s.wheels)) {
+        return {
+          wheels: s.wheels,
+          lastWheelId: s.lastWheelId || WATCHLIST_WHEEL,
+          soundOn: s.soundOn !== false,
+        };
+      }
+    } catch {}
+    return { wheels: [], lastWheelId: WATCHLIST_WHEEL, soundOn: true };
+  }
+  function saveSpinState() {
+    try { localStorage.setItem(SPIN_KEY, JSON.stringify(spinState)); } catch {}
+  }
+
+  let spinState = loadSpinState();
+  let spinWheelId = spinState.lastWheelId;
+  let spinWatchlistMovies = [];   // active scope's watchlist movies (for the auto wheel + editor picker)
+  let spinEntries = [];           // resolved entries for the current wheel: {key,type,title,runtimeMinutes,showId?,posterUrl?,entryIndex?}
+  let spinWinner = null;          // resolved entry the last match landed on
+  let spinning = false;
+  let audioCtx = null;
+
+  function currentWheel() {
+    return spinState.wheels.find(w => w.id === spinWheelId) || null;
+  }
+
+  async function resolveEntries() {
+    const rows = await fetchShows(activeScope);
+    spinWatchlistMovies = rows
+      .filter(s => s.category === 'movie' && s.listStatus === 'watchlist')
+      .sort((a, b) => a.title.localeCompare(b.title));
+
+    if (spinWheelId === WATCHLIST_WHEEL) {
+      return spinWatchlistMovies.map(m => ({
+        key: 'w:' + m.id, type: 'watchlist', showId: m.id, title: m.title,
+        runtimeMinutes: m.runtimeMinutes, posterUrl: m.posterUrl,
+      }));
+    }
+    const wheel = currentWheel();
+    if (!wheel) return [];
+    const byId = new Map(spinWatchlistMovies.map(m => [m.id, m]));
+    const out = [];
+    wheel.entries.forEach((e, i) => {
+      if (e.type === 'watchlist') {
+        const m = byId.get(e.showId);
+        if (m) out.push({
+          key: 'e:' + i, type: 'watchlist', showId: m.id, title: m.title,
+          runtimeMinutes: m.runtimeMinutes, posterUrl: m.posterUrl, entryIndex: i,
+        });
+      } else {
+        out.push({
+          key: 'e:' + i, type: 'custom', title: e.title,
+          runtimeMinutes: e.runtimeMinutes || null, entryIndex: i,
+        });
+      }
+    });
+    return out;
+  }
+
+  async function renderSpinWheelTab() {
+    if (spinWheelId !== WATCHLIST_WHEEL && !currentWheel()) spinWheelId = WATCHLIST_WHEEL;
+    renderWheelSelector();
+    updateSoundButton();
+    spinEntries = await resolveEntries();
+    renderWheelEditor();
+    refreshSpinStage();
+  }
+
+  function renderWheelSelector() {
+    const el = document.getElementById('spinwheel-selector');
+    el.innerHTML = '';
+    const pill = (id, label) => {
+      const b = document.createElement('button');
+      b.className = 'wheel-pill' + (id === spinWheelId ? ' active' : '');
+      b.textContent = label;
+      b.dataset.wheelId = id;
+      return b;
+    };
+    el.appendChild(pill(WATCHLIST_WHEEL, 'Movie Watchlist'));
+    spinState.wheels.forEach(w => el.appendChild(pill(w.id, w.name)));
+    const nw = document.createElement('button');
+    nw.className = 'wheel-pill';
+    nw.id = 'wheel-new-btn';
+    nw.textContent = '+ New wheel';
+    el.appendChild(nw);
+  }
+
+  function renderWheelEditor() {
+    const ed = document.getElementById('spinwheel-editor');
+    const wheel = currentWheel();
+    if (spinWheelId === WATCHLIST_WHEEL || !wheel) { ed.style.display = 'none'; return; }
+    ed.style.display = '';
+    document.getElementById('wheel-rename').value = wheel.name;
+
+    const list = document.getElementById('wheel-entries');
+    list.innerHTML = '';
+    if (!wheel.entries.length) {
+      list.innerHTML = '<p style="font-size:0.75rem;color:var(--muted);padding:0.5rem 0">No movies on this wheel yet — add some below.</p>';
+    }
+    wheel.entries.forEach((e, i) => {
+      const label = e.type === 'watchlist'
+        ? (spinEntries.find(se => se.entryIndex === i)?.title || '(removed from watchlist)')
+        : e.title;
+      const row = document.createElement('div');
+      row.className = 'wheel-entry';
+      row.innerHTML = `<span class="we-title">${escapeHTML(label)}</span>
+        <span class="we-tag">${e.type}</span>
+        <button class="wheel-entry-remove" data-idx="${i}" title="Remove">&times;</button>`;
+      list.appendChild(row);
+    });
+
+    const onWheel = new Set(wheel.entries.filter(e => e.type === 'watchlist').map(e => e.showId));
+    document.getElementById('wheel-add-watchlist').innerHTML =
+      '<option value="">Add from watchlist…</option>' +
+      spinWatchlistMovies.filter(m => !onWheel.has(m.id))
+        .map(m => `<option value="${m.id}">${escapeHTML(m.title)}</option>`).join('');
+  }
+
+  function refreshSpinStage() {
+    const stage = document.getElementById('spinwheel-stage');
+    const empty = document.getElementById('spinwheel-empty');
+    const count = document.getElementById('spinwheel-count');
+    const btn = document.getElementById('spin-btn');
+    if (spinEntries.length < 2) {
+      stage.style.display = 'none';
+      empty.style.cssText = 'display:block;font-size:0.78rem;color:var(--muted);padding:1.5rem 0;text-align:center';
+      empty.textContent = spinWheelId === WATCHLIST_WHEEL
+        ? 'Add at least 2 movies to the watchlist to spin.'
+        : 'Add at least 2 movies to this wheel to spin.';
+      return;
+    }
+    empty.style.display = 'none';
+    stage.style.display = '';
+    count.textContent = `${spinEntries.length} movies on the wheel`;
+    btn.disabled = false;
+    if (!spinning) spinReels().forEach((r, i) => setReel(r, spinEntries[i % spinEntries.length].title));
+  }
+
+  function spinReels() {
+    return [...document.querySelectorAll('#slot-machine .slot-reel')];
+  }
+
+  function setReel(reel, title) {
+    reel.style.transition = 'none';
+    reel.style.transform = 'translateY(0)';
+    reel.innerHTML = `<div class="slot-item"><span>${escapeHTML(title)}</span></div>`;
+  }
+
+  function doSpin() {
+    if (spinning || spinEntries.length < 2) return;
+    spinning = true;
+    document.getElementById('spin-btn').disabled = true;
+    initAudio();
+
+    const isMatch = Math.random() < 0.5;
+    let targets;
+    if (isMatch) {
+      const w = spinEntries[Math.floor(Math.random() * spinEntries.length)];
+      targets = [w, w, w];
+    } else {
+      do {
+        targets = [0, 1, 2].map(() => spinEntries[Math.floor(Math.random() * spinEntries.length)]);
+      } while (targets[0] === targets[1] && targets[1] === targets[2]);
+    }
+
+    const ITEM_H = 96;
+    const STRIP = 32;
+    // Logic is driven by timers, not `transitionend` — headless/backgrounded
+    // browsers throttle transitions and the event can never arrive.
+    let maxDur = 0;
+    spinReels().forEach((reel, idx) => {
+      const items = [];
+      for (let i = 0; i < STRIP; i++) items.push(spinEntries[Math.floor(Math.random() * spinEntries.length)].title);
+      items.push(targets[idx].title);
+      reel.style.transition = 'none';
+      reel.style.transform = 'translateY(0)';
+      reel.innerHTML = items.map(t => `<div class="slot-item"><span>${escapeHTML(t)}</span></div>`).join('');
+      reel.offsetHeight; // reflow
+      const dur = 2.0 + idx * 0.5;
+      maxDur = Math.max(maxDur, dur);
+      reel.style.transition = `transform ${dur}s cubic-bezier(0.12, 0.8, 0.15, 1)`;
+      reel.style.transform = `translateY(${-(items.length - 1) * ITEM_H}px)`;
+      setTimeout(() => { setReel(reel, targets[idx].title); sfxThunk(); }, dur * 1000);
+    });
+    sfxTicks();
+    setTimeout(() => finishSpin(isMatch, targets[0]), maxDur * 1000 + 120);
+  }
+
+  function finishSpin(isMatch, winner) {
+    spinning = false;
+    if (isMatch) {
+      sfxWin();
+      spinWinner = winner;
+      openSpinResult(winner);
+    } else {
+      sfxWomp();
+      const m = document.getElementById('slot-machine');
+      m.classList.add('shake');
+      setTimeout(() => m.classList.remove('shake'), 450);
+      document.getElementById('spin-btn').disabled = false;
+      document.getElementById('spinwheel-count').textContent = 'No match — spin again!';
+      setTimeout(() => { if (!spinning) refreshSpinStage(); }, 2200);
+    }
+  }
+
+  function openSpinResult(entry) {
+    document.getElementById('spin-result-body').innerHTML = `
+      ${entry.type === 'watchlist' && entry.posterUrl ? `<img src="${entry.posterUrl}" alt="" onerror="this.remove()">` : ''}
+      <div class="spin-winner-title">${escapeHTML(entry.title)}</div>
+      ${entry.runtimeMinutes ? `<div style="font-size:0.72rem;color:var(--muted);margin-top:0.3rem">${entry.runtimeMinutes} min</div>` : ''}
+    `;
+    const canWrite = canWriteScope(activeScope);
+    document.getElementById('spin-result-watched').style.display = (entry.type === 'watchlist' && canWrite) ? '' : 'none';
+    document.getElementById('spin-result-remove').style.display = (spinWheelId === WATCHLIST_WHEEL) ? 'none' : '';
+    document.getElementById('spin-result-modal').classList.add('open');
+  }
+
+  function closeSpinResult() {
+    document.getElementById('spin-result-modal').classList.remove('open');
+    if (currentTab === 'spinwheel') refreshSpinStage();
+  }
+
+  function removeWinnerFromWheel() {
+    const wheel = currentWheel();
+    if (spinWheelId === WATCHLIST_WHEEL || !wheel || !spinWinner || typeof spinWinner.entryIndex !== 'number') return;
+    wheel.entries.splice(spinWinner.entryIndex, 1);
+    saveSpinState();
+    renderSpinWheelTab();
+  }
+
+  // ── Sound: synthesized with Web Audio, no asset files ──
+  function initAudio() {
+    if (!spinState.soundOn) return;
+    if (!audioCtx) {
+      try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+      catch { audioCtx = null; }
+    }
+    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+  }
+  function tone(freq, dur, type = 'sine', vol = 0.15, when = 0) {
+    if (!spinState.soundOn || !audioCtx) return;
+    const t = audioCtx.currentTime + when;
+    const osc = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    osc.type = type;
+    osc.frequency.value = freq;
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    osc.connect(g); g.connect(audioCtx.destination);
+    osc.start(t); osc.stop(t + dur);
+  }
+  function sfxTicks() {
+    if (!spinState.soundOn || !audioCtx) return;
+    let d = 0, gap = 0.045;
+    while (d < 3.2) { tone(820, 0.025, 'square', 0.04, d); d += gap; gap *= 1.05; }
+  }
+  function sfxThunk() { tone(150, 0.16, 'triangle', 0.22); }
+  function sfxWin() { [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.28, 'sine', 0.18, i * 0.11)); }
+  function sfxWomp() { tone(300, 0.18, 'sawtooth', 0.16, 0); tone(170, 0.3, 'sawtooth', 0.16, 0.14); }
+
+  function updateSoundButton() {
+    const b = document.getElementById('spinwheel-sound');
+    b.classList.toggle('muted', !spinState.soundOn);
+    b.textContent = spinState.soundOn ? '\u{1F50A}' : '\u{1F507}';
+  }
+
+  // ── Wiring ──
+  document.getElementById('spinwheel-selector').addEventListener('click', e => {
+    if (spinning) return;
+    if (e.target.closest('#wheel-new-btn')) {
+      const name = (prompt('Name this wheel:') || '').trim();
+      if (!name) return;
+      const id = 'w_' + Math.random().toString(36).slice(2, 9);
+      spinState.wheels.push({ id, name, entries: [] });
+      spinWheelId = id;
+      spinState.lastWheelId = id;
+      saveSpinState();
+      renderSpinWheelTab();
+      return;
+    }
+    const pill = e.target.closest('[data-wheel-id]');
+    if (!pill) return;
+    spinWheelId = pill.dataset.wheelId;
+    spinState.lastWheelId = spinWheelId;
+    saveSpinState();
+    renderSpinWheelTab();
+  });
+
+  document.getElementById('spinwheel-sound').addEventListener('click', () => {
+    spinState.soundOn = !spinState.soundOn;
+    saveSpinState();
+    updateSoundButton();
+    if (spinState.soundOn) initAudio();
+  });
+
+  document.getElementById('wheel-rename-btn').addEventListener('click', () => {
+    const wheel = currentWheel();
+    if (!wheel) return;
+    const name = document.getElementById('wheel-rename').value.trim();
+    if (!name) return;
+    wheel.name = name;
+    saveSpinState();
+    renderSpinWheelTab();
+  });
+
+  document.getElementById('wheel-delete-btn').addEventListener('click', () => {
+    const wheel = currentWheel();
+    if (!wheel) return;
+    if (!confirm(`Delete the "${wheel.name}" wheel?`)) return;
+    spinState.wheels = spinState.wheels.filter(w => w.id !== wheel.id);
+    spinWheelId = WATCHLIST_WHEEL;
+    spinState.lastWheelId = WATCHLIST_WHEEL;
+    saveSpinState();
+    renderSpinWheelTab();
+  });
+
+  document.getElementById('wheel-entries').addEventListener('click', e => {
+    const btn = e.target.closest('.wheel-entry-remove[data-idx]');
+    if (!btn) return;
+    const wheel = currentWheel();
+    if (!wheel) return;
+    wheel.entries.splice(parseInt(btn.dataset.idx, 10), 1);
+    saveSpinState();
+    renderSpinWheelTab();
+  });
+
+  document.getElementById('wheel-add-watchlist').addEventListener('change', e => {
+    const showId = e.target.value;
+    const wheel = currentWheel();
+    if (!showId || !wheel) return;
+    wheel.entries.push({ type: 'watchlist', showId });
+    saveSpinState();
+    renderSpinWheelTab();
+  });
+
+  document.getElementById('wheel-add-custom-btn').addEventListener('click', () => {
+    const wheel = currentWheel();
+    if (!wheel) return;
+    const titleEl = document.getElementById('wheel-add-custom-title');
+    const runtimeEl = document.getElementById('wheel-add-custom-runtime');
+    const title = titleEl.value.trim();
+    if (!title) return;
+    const runtime = parseInt(runtimeEl.value, 10);
+    wheel.entries.push({ type: 'custom', title, runtimeMinutes: Number.isFinite(runtime) ? runtime : null });
+    titleEl.value = '';
+    runtimeEl.value = '';
+    saveSpinState();
+    renderSpinWheelTab();
+  });
+
+  document.getElementById('spin-btn').addEventListener('click', doSpin);
+  document.getElementById('spin-result-again').addEventListener('click', () => { closeSpinResult(); doSpin(); });
+  document.getElementById('spin-result-watch').addEventListener('click', closeSpinResult);
+  document.getElementById('spin-result-remove').addEventListener('click', () => { closeSpinResult(); removeWinnerFromWheel(); });
+  document.getElementById('spin-result-watched').addEventListener('click', async () => {
+    const id = spinWinner && spinWinner.showId;
+    closeSpinResult();
+    if (id) await markMovieWatched(id);
+    renderSpinWheelTab();
+  });
+  document.getElementById('spin-result-modal').addEventListener('click', e => {
+    if (e.target.id === 'spin-result-modal') closeSpinResult();
+  });
+
   // ── Reading tab (written media) ──
   function progressLabel(m) {
     if (m.category === 'book') {
@@ -3290,7 +3833,7 @@
 
   // ── Tabs (two-level: TV/Movies + Reading each have sub-tabs, Stats doesn't) ──
   const TOPTAB_GROUPS = {
-    tvmovies: ['watching', 'movie-watchlist', 'tierlist', 'ratings'],
+    tvmovies: ['watching', 'movie-watchlist', 'spinwheel', 'tierlist', 'ratings'],
     reading: ['reading', 'reading-ratings'],
     stats: ['stats'],
   };
@@ -3305,6 +3848,7 @@
     document.getElementById('view-tierlist').style.display = tab === 'tierlist' ? '' : 'none';
     document.getElementById('view-ratings').style.display = tab === 'ratings' ? '' : 'none';
     document.getElementById('view-movie-watchlist').style.display = tab === 'movie-watchlist' ? '' : 'none';
+    document.getElementById('view-spinwheel').style.display = tab === 'spinwheel' ? '' : 'none';
     document.getElementById('view-stats').style.display = tab === 'stats' ? '' : 'none';
     document.getElementById('view-reading').style.display = tab === 'reading' ? '' : 'none';
     document.getElementById('view-reading-ratings').style.display = tab === 'reading-ratings' ? '' : 'none';
@@ -3318,6 +3862,9 @@
     }
     if (tab === 'movie-watchlist') {
       renderMovieWatchlistTab();
+    }
+    if (tab === 'spinwheel') {
+      renderSpinWheelTab();
     }
     if (tab === 'stats') {
       renderStatsTab();
