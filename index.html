@@ -171,33 +171,58 @@
     flex-wrap: wrap;
   }
 
-  .user-cluster {
-    display: flex;
-    align-items: center;
-    gap: 0.7rem;
-    border: 1px solid var(--border2);
-    border-radius: 4px;
-    padding: 0.4rem 0.7rem;
-  }
-
-  .user-cluster .btn {
-    border: none;
-    padding: 0;
-  }
-
-  .user-name {
-    font-family: 'DM Mono', monospace;
-    font-size: 0.65rem;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--text);
-  }
-
-  .theme-toggle-fixed {
+  .profile-widget {
     position: fixed;
     top: 1.25rem;
     right: 1.25rem;
     z-index: 50;
+  }
+
+  .profile-avatar {
+    width: 2.2rem;
+    height: 2.2rem;
+    border-radius: 50%;
+    border: 1px solid var(--border2);
+    background: var(--surface2);
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+  }
+
+  .profile-dropdown {
+    position: absolute;
+    top: calc(100% + 0.5rem);
+    right: 0;
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    border-radius: 6px;
+    padding: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    min-width: 140px;
+  }
+
+  .profile-dropdown-name {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.65rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text);
+    padding: 0.3rem 0.5rem 0.5rem;
+    border-bottom: 1px solid var(--border2);
+    margin-bottom: 0.2rem;
+  }
+
+  .profile-dropdown-item {
+    text-align: left;
+    width: 100%;
   }
 
   /* ── Tabs ── */
@@ -1432,11 +1457,17 @@
       <button class="btn btn-primary" id="btn-add-movie">+ Add Movie</button>
       <button class="btn btn-primary" id="btn-add-reading">+ Add Reading</button>
       <button class="btn" id="btn-import-letterboxd">Import Letterboxd</button>
-      <span id="auth-area"></span>
     </div>
   </header>
   <div id="pibble-spam" class="pibble-spam"></div>
-  <button class="btn theme-toggle-fixed" id="btn-theme">dark mode</button>
+  <div class="profile-widget" id="profile-widget" style="display:none">
+    <button class="profile-avatar" id="profile-avatar-btn"></button>
+    <div class="profile-dropdown" id="profile-dropdown" style="display:none">
+      <div class="profile-dropdown-name" id="profile-dropdown-name"></div>
+      <button class="btn profile-dropdown-item" id="btn-theme">Dark Mode</button>
+      <button class="btn profile-dropdown-item" id="btn-signout">Sign Out</button>
+    </div>
+  </div>
 
   <div id="signed-out-screen" class="signed-out-screen" style="display:none">
     <h2>Sign in</h2>
@@ -1915,13 +1946,15 @@
 
   async function refreshAuthUI() {
     const { data: { session } } = await supabase.auth.getSession();
-    const authArea = document.getElementById('auth-area');
+    const profileWidget = document.getElementById('profile-widget');
+    const profileDropdown = document.getElementById('profile-dropdown');
     if (!session) {
       currentProfile = null;
       hasAutoSwitchedScope = false;
-      authArea.innerHTML = '';
       document.getElementById('show-count').textContent = '';
       appHeader.style.display = 'none';
+      profileWidget.style.display = 'none';
+      profileDropdown.style.display = 'none';
       signedOutScreen.style.display = 'flex';
       appContent.style.display = 'none';
       invalidateShowsCache();
@@ -1934,8 +1967,9 @@
     signedOutScreen.style.display = 'none';
     appContent.style.display = '';
     signinForm.reset();
-    authArea.innerHTML = `<div class="user-cluster"><span class="user-name">${profile.display_name}</span><button class="btn" id="btn-signout">Sign out</button></div>`;
-    document.getElementById('btn-signout').addEventListener('click', () => supabase.auth.signOut().then(refreshAuthUI));
+    profileWidget.style.display = '';
+    document.getElementById('profile-avatar-btn').textContent = profile.display_name.charAt(0).toUpperCase();
+    document.getElementById('profile-dropdown-name').textContent = profile.display_name;
     if (!hasAutoSwitchedScope) {
       hasAutoSwitchedScope = true;
       setActiveScope(profile.display_name.toLowerCase());
@@ -2023,12 +2057,25 @@
 
   function applyTheme(dark) {
     html.classList.toggle('dark', dark);
-    themeBtn.textContent = dark ? 'light mode' : 'dark mode';
+    themeBtn.textContent = dark ? 'Light Mode' : 'Dark Mode';
     localStorage.setItem('theme', dark ? 'dark' : 'light');
   }
 
   applyTheme(localStorage.getItem('theme') === 'dark');
   themeBtn.addEventListener('click', () => applyTheme(!html.classList.contains('dark')));
+
+  // Profile dropdown (avatar toggle, sign out, closes on outside click)
+  const profileAvatarBtn = document.getElementById('profile-avatar-btn');
+  const profileDropdownEl = document.getElementById('profile-dropdown');
+  profileAvatarBtn.addEventListener('click', () => {
+    profileDropdownEl.style.display = profileDropdownEl.style.display === 'none' ? 'flex' : 'none';
+  });
+  document.addEventListener('click', (e) => {
+    if (!document.getElementById('profile-widget').contains(e.target)) {
+      profileDropdownEl.style.display = 'none';
+    }
+  });
+  document.getElementById('btn-signout').addEventListener('click', () => supabase.auth.signOut().then(refreshAuthUI));
 
   // Toast
   function showToast(msg) {
