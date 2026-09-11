@@ -628,6 +628,18 @@
     flex-shrink: 0;
   }
 
+  .new-season-notice {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+
+  .new-season-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+
   .anime-sync-badge {
     font-size: 0.56rem;
     letter-spacing: 0.06em;
@@ -1543,7 +1555,6 @@
           <button class="btn add-dropdown-item" id="btn-add-reading">Reading</button>
         </div>
       </div>
-      <button class="btn" id="btn-import-letterboxd">Import Letterboxd</button>
     </div>
   </header>
   <div id="pibble-spam" class="pibble-spam"></div>
@@ -1551,6 +1562,7 @@
     <button class="profile-avatar" id="profile-avatar-btn"></button>
     <div class="profile-dropdown" id="profile-dropdown" style="display:none">
       <div class="profile-dropdown-name" id="profile-dropdown-name"></div>
+      <button class="btn profile-dropdown-item" id="btn-import-letterboxd">Import Letterboxd</button>
       <button class="btn profile-dropdown-item" id="btn-theme">Dark Mode</button>
       <button class="btn profile-dropdown-item" id="btn-signout">Sign Out</button>
     </div>
@@ -2230,7 +2242,7 @@
     if (checkWriteError(error)) return;
     invalidateShowsCache();
     loadShows();
-    if (justFinished) openFinishModal(id, show.title, 'show');
+    if (justFinished) openFinishModal(id, show.title, 'show', show.rating || 0);
   }
 
   async function markFinished(id) {
@@ -2247,7 +2259,7 @@
     if (checkWriteError(error)) return;
     invalidateShowsCache();
     loadShows();
-    openFinishModal(id, show.title, 'show');
+    openFinishModal(id, show.title, 'show', show.rating || 0);
   }
 
   // Movie-watchlist equivalent of markFinished() — no episode fields to
@@ -2265,7 +2277,7 @@
     if (checkWriteError(error)) return;
     invalidateShowsCache();
     renderMovieWatchlistTab();
-    openFinishModal(id, movie.title, 'show');
+    openFinishModal(id, movie.title, 'show', movie.rating || 0);
   }
 
   document.body.addEventListener('click', e => {
@@ -2471,11 +2483,13 @@
   let finishModalId = null;
   let finishModalKind = 'show';
 
-  function openFinishModal(id, title, kind = 'show') {
+  function openFinishModal(id, title, kind = 'show', existingRating = 0) {
     finishModalId = id;
     finishModalKind = kind;
-    document.getElementById('finish-modal-title').textContent = `Finished — ${title}`;
-    document.getElementById('finish-modal-stars').innerHTML = renderStars(id, 0, kind);
+    document.getElementById('finish-modal-title').textContent = existingRating
+      ? `Update your rating? — ${title}`
+      : `Finished — ${title}`;
+    document.getElementById('finish-modal-stars').innerHTML = renderStars(id, existingRating, kind);
     document.getElementById('finish-modal-text').value = '';
     document.getElementById('finish-modal').classList.add('open');
   }
@@ -2799,7 +2813,10 @@
 
   async function checkAnimeSequel(show, allShows) {
     const query = `query ($s: String) { Media(search: $s, type: ANIME) {
-      relations { edges { relationType node { title { romaji english } format } } }
+      relations { edges { relationType node {
+        title { romaji english } format episodes genres coverImage { large }
+        studios(isMain: true) { nodes { name } }
+      } } }
     } }`;
     const res = await fetch('https://graphql.anilist.co', {
       method: 'POST',
@@ -2813,7 +2830,16 @@
     const sequelTitle = sequel.node.title.english || sequel.node.title.romaji;
     const alreadyTracked = allShows.some(s2 => s2.title.toLowerCase().trim() === sequelTitle.toLowerCase().trim());
     if (alreadyTracked) return null;
-    return `${show.title} → new season: "${sequelTitle}"`;
+    return {
+      type: 'anime',
+      scope: show.scope,
+      text: `${show.title} → new season: "${sequelTitle}"`,
+      sequelTitle,
+      episodes: sequel.node.episodes || null,
+      coverUrl: sequel.node.coverImage?.large || null,
+      genres: sequel.node.genres || null,
+      studio: sequel.node.studios?.nodes?.[0]?.name || null,
+    };
   }
 
   async function checkWesternSeason(show) {
@@ -2825,7 +2851,15 @@
     const detailRes = await fetch(`https://api.themoviedb.org/3/tv/${match.id}?api_key=${TMDB_API_KEY}`);
     const detail = await detailRes.json();
     if (detail.number_of_seasons && detail.number_of_seasons > show.totalSeasons) {
-      return `${show.title} → Season ${detail.number_of_seasons} is now available (tracked through Season ${show.totalSeasons})`;
+      return {
+        type: 'western',
+        scope: show.scope,
+        text: `${show.title} → Season ${detail.number_of_seasons} is now available (tracked through Season ${show.totalSeasons})`,
+        showId: show.id,
+        showTitle: show.title,
+        newSeasonCount: detail.number_of_seasons,
+        newTotalEpisodes: detail.number_of_episodes || show.totalEpisodes,
+      };
     }
     return null;
   }
@@ -2836,7 +2870,7 @@
   // (declined once before as a one-click auto-apply feature, 2026-08-23).
   async function searchAniListCovers(title, type) {
     const query = `query ($s: String, $type: MediaType) { Page(perPage: 5) {
-      media(search: $s, type: $type) { title { romaji english } coverImage { large } startDate { year } }
+      media(search: $s, type: $type) { title { romaji english } coverImage { large } startDate { year } episodes chapters }
     } }`;
     const res = await fetch('https://graphql.anilist.co', {
       method: 'POST',
@@ -2847,7 +2881,9 @@
     const media = json?.data?.Page?.media || [];
     return media.filter(m => m.coverImage?.large).map(m => ({
       url: m.coverImage.large,
-      label: (m.title.english || m.title.romaji) + (m.startDate?.year ? ` (${m.startDate.year})` : '')
+      label: (m.title.english || m.title.romaji) + (m.startDate?.year ? ` (${m.startDate.year})` : ''),
+      episodes: m.episodes || null,
+      chapters: m.chapters || null,
     }));
   }
 
@@ -2858,21 +2894,31 @@
     return results.filter(r => r.poster_path).slice(0, 5).map(r => {
       const name = kind === 'movie' ? r.title : r.name;
       const date = kind === 'movie' ? r.release_date : r.first_air_date;
-      return { url: `https://image.tmdb.org/t/p/w342${r.poster_path}`, label: name + (date ? ` (${date.slice(0, 4)})` : '') };
+      return {
+        url: `https://image.tmdb.org/t/p/w342${r.poster_path}`,
+        label: name + (date ? ` (${date.slice(0, 4)})` : ''),
+        tmdbId: r.id,
+      };
     });
   }
 
   async function searchOpenLibraryCovers(title) {
-    const res = await fetch(`https://openlibrary.org/search.json?title=${encodeURIComponent(title)}&limit=8`);
+    // number_of_pages_median is omitted from the default response shape --
+    // Open Library only includes it when explicitly requested via `fields`.
+    const res = await fetch(`https://openlibrary.org/search.json?title=${encodeURIComponent(title)}&limit=8&fields=title,cover_i,first_publish_year,number_of_pages_median`);
     const json = await res.json();
     const docs = json.docs || [];
     return docs.filter(d => d.cover_i).slice(0, 5).map(d => ({
       url: `https://covers.openlibrary.org/b/id/${d.cover_i}-M.jpg`,
-      label: d.title + (d.first_publish_year ? ` (${d.first_publish_year})` : '')
+      label: d.title + (d.first_publish_year ? ` (${d.first_publish_year})` : ''),
+      pages: d.number_of_pages_median || null,
     }));
   }
 
-  function renderCoverCandidates(containerId, inputId, statusId, candidates) {
+  // onPick receives the exact candidate the user chose -- lets each caller
+  // fill its own image + total fields (episodes/chapters/pages/runtime)
+  // from data tied to that specific match, never a separate blind lookup.
+  function renderCoverCandidates(containerId, statusId, candidates, onPick) {
     const container = document.getElementById(containerId);
     const status = document.getElementById(statusId);
     if (!candidates.length) {
@@ -2889,7 +2935,7 @@
       </button>
     `).join('');
     [...container.querySelectorAll('.cover-candidate')].forEach((btn, i) => {
-      btn.addEventListener('click', () => { document.getElementById(inputId).value = candidates[i].url; });
+      btn.addEventListener('click', () => onPick(candidates[i]));
     });
   }
 
@@ -2905,7 +2951,22 @@
       const results = category === 'anime' ? await searchAniListCovers(title, 'ANIME')
         : category === 'movie' ? await searchTMDBCovers(title, 'movie')
         : await searchTMDBCovers(title, 'tv');
-      renderCoverCandidates('add-show-cover-candidates', 'add-show-image-url', 'add-show-cover-status', results);
+      renderCoverCandidates('add-show-cover-candidates', 'add-show-cover-status', results, async (c) => {
+        document.getElementById('add-show-image-url').value = c.url;
+        if (category === 'anime' && c.episodes) {
+          document.getElementById('add-show-total-episodes').value = c.episodes;
+        } else if (c.tmdbId) {
+          // TMDB's search endpoint doesn't carry runtime/episode totals --
+          // fetch those only for the one candidate actually picked.
+          try {
+            const kind = category === 'movie' ? 'movie' : 'tv';
+            const detailRes = await fetch(`https://api.themoviedb.org/3/${kind}/${c.tmdbId}?api_key=${TMDB_API_KEY}`);
+            const detail = await detailRes.json();
+            if (kind === 'movie' && detail.runtime) document.getElementById('add-show-runtime').value = detail.runtime;
+            else if (kind === 'tv' && detail.number_of_episodes) document.getElementById('add-show-total-episodes').value = detail.number_of_episodes;
+          } catch (e) { /* cover URL is already filled; totals are best-effort */ }
+        }
+      });
     } catch (e) {
       statusEl.textContent = 'Search failed — try again.';
     }
@@ -2923,19 +2984,85 @@
     try {
       const results = (category === 'manga' || category === 'manhwa') ? await searchAniListCovers(title, 'MANGA')
         : await searchOpenLibraryCovers(title);
-      renderCoverCandidates('add-reading-cover-candidates', 'add-reading-image-url', 'add-reading-cover-status', results);
+      renderCoverCandidates('add-reading-cover-candidates', 'add-reading-cover-status', results, (c) => {
+        document.getElementById('add-reading-image-url').value = c.url;
+        // AniList only populates `chapters` once a series is FINISHED (same
+        // caveat as the new-chapter checker) -- null for ongoing series, so
+        // this is best-effort, not guaranteed, same as CLAUDE.md documents.
+        if ((category === 'manga' || category === 'manhwa') && c.chapters) {
+          document.getElementById('add-reading-total-chapters').value = c.chapters;
+        } else if (category === 'book' && c.pages) {
+          document.getElementById('add-reading-total-pages').value = c.pages;
+        }
+      });
     } catch (e) {
       statusEl.textContent = 'Search failed — try again.';
     }
   }
 
+  // Adds a newly-detected anime sequel as its own show row (a sequel is a
+  // separate AniList entry, not more episodes on the existing one).
+  async function addSequelFromNotice(notice, status) {
+    const id = slugify(notice.sequelTitle);
+    if (!id) return;
+    const { error } = await supabase.from('shows').insert({
+      id, title: notice.sequelTitle, category: 'anime', scope: notice.scope,
+      poster_url: notice.coverUrl, studio: notice.studio, genres: notice.genres,
+      total_episodes: notice.episodes, current_episode: 0, total_seasons: 1,
+      current_season: 1, season_episode: 0, list_status: status, in_tier_pool: false,
+      last_updated: new Date().toISOString().slice(0, 10),
+    });
+    if (checkWriteError(error)) return;
+    invalidateShowsCache();
+    showToast(`Added "${notice.sequelTitle}"`);
+    loadShows();
+  }
+
+  // Bumps the SAME western show row's totals -- unlike anime, a new season
+  // of a western show is more episodes on the same TMDB entry, not a
+  // separate one. Once total_episodes exceeds current_episode again, the
+  // show naturally reappears in In Progress (see loadShows' completed
+  // filter), and finishing it again re-fires the existing rate/note prompt
+  // with the prior rating pre-filled -- see openFinishModal.
+  async function applyWesternSeasonBump(notice) {
+    const { error } = await supabase.from('shows').update({
+      total_seasons: notice.newSeasonCount,
+      total_episodes: notice.newTotalEpisodes,
+      last_updated: new Date().toISOString().slice(0, 10),
+    }).eq('id', notice.showId).eq('scope', notice.scope);
+    if (checkWriteError(error)) return;
+    invalidateShowsCache();
+    showToast(`Updated "${notice.showTitle}" to Season ${notice.newSeasonCount}`);
+    loadShows();
+  }
+
   function showNewSeasonsBanner(notices) {
-    document.getElementById('new-seasons-banner-slot').innerHTML = `
-      <div class="new-chapters-banner">
-        <span>New seasons: ${escapeHTML(notices.join(' · '))}</span>
-        <button class="btn" onclick="this.closest('.new-chapters-banner').remove()">Dismiss</button>
+    const slot = document.getElementById('new-seasons-banner-slot');
+    slot.innerHTML = notices.map((n, i) => `
+      <div class="new-chapters-banner new-season-notice">
+        <span>${escapeHTML(n.text)}</span>
+        <div class="new-season-actions">
+          ${n.type === 'anime' ? `
+            <button class="btn" data-idx="${i}" data-action="watching">Add to Watching</button>
+            <button class="btn" data-idx="${i}" data-action="watchlist">Add to Watchlist</button>
+          ` : `
+            <button class="btn" data-idx="${i}" data-action="bump">Add New Season</button>
+          `}
+          <button class="btn" data-idx="${i}" data-action="dismiss">Dismiss</button>
+        </div>
       </div>
-    `;
+    `).join('');
+    [...slot.querySelectorAll('button[data-action]')].forEach(btn => {
+      btn.addEventListener('click', () => {
+        const notice = notices[parseInt(btn.dataset.idx, 10)];
+        const action = btn.dataset.action;
+        if (action === 'dismiss') { btn.closest('.new-season-notice').remove(); return; }
+        if (action === 'watching') addSequelFromNotice(notice, 'watching');
+        else if (action === 'watchlist') addSequelFromNotice(notice, 'watchlist');
+        else if (action === 'bump') applyWesternSeasonBump(notice);
+        btn.closest('.new-season-notice').remove();
+      });
+    });
   }
 
   async function loadShows() {
@@ -4165,7 +4292,7 @@
     document.getElementById('import-letterboxd-modal').classList.add('open');
   }
 
-  document.getElementById('btn-import-letterboxd').addEventListener('click', openImportLetterboxdModal);
+  document.getElementById('btn-import-letterboxd').addEventListener('click', () => { document.getElementById('profile-dropdown').style.display = 'none'; openImportLetterboxdModal(); });
   document.getElementById('import-letterboxd-close').addEventListener('click', () => {
     document.getElementById('import-letterboxd-modal').classList.remove('open');
   });
