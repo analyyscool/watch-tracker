@@ -129,6 +129,15 @@
      paint over the dropdown regardless of the dropdown's own z-index. */
   #signed-out-screen, #app-content { position: relative; z-index: 1; }
   #app-header { position: relative; z-index: 2; }
+  /* Modals live inside #app-content, so their z-index:100 is scoped to
+     #app-content's own stacking context (1) and still loses to
+     #app-header's 2 — the header's "+ Add" dropdown was painting over the
+     top of every open modal. While a modal is open, drop the header back
+     to parity with #app-content so DOM order (content after header) wins
+     instead. The dropdown is never open at the same time as a modal, so
+     this doesn't reintroduce the tabs-over-dropdown bug the z-index:2 was
+     added for. */
+  body:has(.modal-backdrop.open) #app-header { z-index: 1; }
 
   /* ── Header ── */
   header {
@@ -1578,9 +1587,10 @@
 <body>
 <div class="container">
   <header id="app-header">
-    <p class="header-eyebrow">in progress</p>
-    <h1>Currently Watching</h1>
+    <p class="header-eyebrow" id="header-eyebrow">in progress</p>
+    <h1 id="header-title">Currently Watching</h1>
     <p class="header-count" id="show-count"></p>
+    <p class="header-count" id="reading-count" style="display:none"></p>
     <div class="header-actions">
       <select class="sf-select" id="scope-toggle">
         <option value="karl">Karl</option>
@@ -1709,8 +1719,12 @@
       <div class="wheel-editor-row">
         <input type="text" id="wheel-add-custom-title" placeholder="Custom movie title&hellip;">
         <input type="number" id="wheel-add-custom-runtime" placeholder="min" min="1">
+        <button class="btn" id="wheel-add-custom-find-cover">Find Cover</button>
         <button class="btn" id="wheel-add-custom-btn">+ Add</button>
       </div>
+      <input type="hidden" id="wheel-add-custom-poster">
+      <p class="cover-search-status" id="wheel-add-custom-cover-status" style="display:none"></p>
+      <div class="cover-candidates" id="wheel-add-custom-cover-candidates"></div>
     </div>
   </div>
 
@@ -1719,7 +1733,7 @@
       <h2>The wheel picked&hellip;</h2>
       <div id="spin-result-body"></div>
       <div class="modal-actions" style="flex-wrap:wrap">
-        <button class="btn btn-primary" id="spin-result-watch">Watch this one</button>
+        <button class="btn btn-primary" id="spin-result-watch">Watch next</button>
         <button class="btn" id="spin-result-again">Spin again</button>
         <button class="btn" id="spin-result-remove">Remove from wheel</button>
         <button class="btn" id="spin-result-watched">Mark watched</button>
@@ -1731,6 +1745,7 @@
 
   <div id="view-reading" style="display:none">
     <div id="new-chapters-banner-slot"></div>
+    <div id="new-media-sequels-banner-slot"></div>
     <div class="category-toggle" id="reading-category-toggle">
       <button class="btn reading-category-btn active" data-category="book">Books</button>
       <button class="btn reading-category-btn" data-category="manga">Manga</button>
@@ -1882,7 +1897,7 @@
         <label for="add-show-total-episodes">Total episodes</label>
         <input type="number" id="add-show-total-episodes" min="1">
       </div>
-      <div class="add-form-field">
+      <div class="add-form-field" id="add-show-current-episode-field">
         <label for="add-show-current-episode">Current episode</label>
         <input type="number" id="add-show-current-episode" min="0" value="0">
       </div>
@@ -1890,13 +1905,23 @@
     <div class="add-form-field" id="add-show-movie-status-field" style="display:none">
       <label for="add-show-movie-status">Status</label>
       <select id="add-show-movie-status">
-        <option value="watched">Watched</option>
+        <option id="add-show-movie-status-active" value="watched">Watched</option>
         <option value="watchlist">Want to watch</option>
       </select>
     </div>
     <div class="add-form-field" id="add-show-runtime-field" style="display:none">
       <label for="add-show-runtime">Runtime (minutes)</label>
       <input type="number" id="add-show-runtime" min="1">
+    </div>
+    <div class="add-form-row">
+      <div class="add-form-field">
+        <label for="add-show-genres">Genres</label>
+        <input type="text" id="add-show-genres" placeholder="Optional — comma-separated, filled by Find Cover">
+      </div>
+      <div class="add-form-field">
+        <label for="add-show-studio">Studio</label>
+        <input type="text" id="add-show-studio" placeholder="Optional — filled by Find Cover">
+      </div>
     </div>
     <div class="add-form-field">
       <label for="add-show-image-url">Image URL</label>
@@ -2327,6 +2352,8 @@
     if (finBtn) { markFinished(finBtn.dataset.id); return; }
     const movieWatchedBtn = e.target.closest('.movie-watched-btn[data-id]');
     if (movieWatchedBtn) { markMovieWatched(movieWatchedBtn.dataset.id); return; }
+    const moviePinBtn = e.target.closest('.movie-watchlist-pin-btn[data-id]');
+    if (moviePinBtn) { togglePin(moviePinBtn.dataset.id).then(renderMovieWatchlistTab); return; }
     const movieRemoveBtn = e.target.closest('.movie-watchlist-remove-btn[data-id]');
     if (movieRemoveBtn) {
       if (!canWriteScope(activeScope)) return;
@@ -2924,7 +2951,7 @@
   // (declined once before as a one-click auto-apply feature, 2026-08-23).
   async function searchAniListCovers(title, type) {
     const query = `query ($s: String, $type: MediaType) { Page(perPage: 5) {
-      media(search: $s, type: $type) { title { romaji english } coverImage { large } startDate { year } episodes chapters }
+      media(search: $s, type: $type) { title { romaji english } coverImage { large } startDate { year } episodes chapters genres studios(isMain: true) { nodes { name } } }
     } }`;
     const res = await fetch('https://graphql.anilist.co', {
       method: 'POST',
@@ -2933,12 +2960,18 @@
     });
     const json = await res.json();
     const media = json?.data?.Page?.media || [];
-    return media.filter(m => m.coverImage?.large).map(m => ({
-      url: m.coverImage.large,
-      label: (m.title.english || m.title.romaji) + (m.startDate?.year ? ` (${m.startDate.year})` : ''),
-      episodes: m.episodes || null,
-      chapters: m.chapters || null,
-    }));
+    return media.filter(m => m.coverImage?.large).map(m => {
+      const name = m.title.english || m.title.romaji;
+      return {
+        url: m.coverImage.large,
+        name,
+        label: name + (m.startDate?.year ? ` (${m.startDate.year})` : ''),
+        episodes: m.episodes || null,
+        chapters: m.chapters || null,
+        genres: m.genres || null,
+        studio: m.studios?.nodes?.[0]?.name || null,
+      };
+    });
   }
 
   async function searchTMDBCovers(title, kind) {
@@ -2950,6 +2983,7 @@
       const date = kind === 'movie' ? r.release_date : r.first_air_date;
       return {
         url: `https://image.tmdb.org/t/p/w342${r.poster_path}`,
+        name,
         label: name + (date ? ` (${date.slice(0, 4)})` : ''),
         tmdbId: r.id,
       };
@@ -2964,6 +2998,7 @@
     const docs = json.docs || [];
     return docs.filter(d => d.cover_i).slice(0, 5).map(d => ({
       url: `https://covers.openlibrary.org/b/id/${d.cover_i}-M.jpg`,
+      name: d.title,
       label: d.title + (d.first_publish_year ? ` (${d.first_publish_year})` : ''),
       pages: d.number_of_pages_median || null,
     }));
@@ -3007,18 +3042,25 @@
         : await searchTMDBCovers(title, 'tv');
       renderCoverCandidates('add-show-cover-candidates', 'add-show-cover-status', results, async (c) => {
         document.getElementById('add-show-image-url').value = c.url;
-        if (category === 'anime' && c.episodes) {
-          document.getElementById('add-show-total-episodes').value = c.episodes;
+        if (c.name) document.getElementById('add-show-title').value = c.name;
+        if (category === 'anime') {
+          if (c.episodes) document.getElementById('add-show-total-episodes').value = c.episodes;
+          if (c.genres) document.getElementById('add-show-genres').value = c.genres.join(', ');
+          if (c.studio) document.getElementById('add-show-studio').value = c.studio;
         } else if (c.tmdbId) {
-          // TMDB's search endpoint doesn't carry runtime/episode totals --
-          // fetch those only for the one candidate actually picked.
+          // TMDB's search endpoint doesn't carry runtime/episode totals or
+          // genres/studio -- fetch those only for the one candidate actually
+          // picked.
           try {
             const kind = category === 'movie' ? 'movie' : 'tv';
             const detailRes = await fetch(`https://api.themoviedb.org/3/${kind}/${c.tmdbId}?api_key=${TMDB_API_KEY}`);
             const detail = await detailRes.json();
             if (kind === 'movie' && detail.runtime) document.getElementById('add-show-runtime').value = detail.runtime;
             else if (kind === 'tv' && detail.number_of_episodes) document.getElementById('add-show-total-episodes').value = detail.number_of_episodes;
-          } catch (e) { /* cover URL is already filled; totals are best-effort */ }
+            if (detail.genres?.length) document.getElementById('add-show-genres').value = detail.genres.map(g => g.name).join(', ');
+            const studio = kind === 'movie' ? detail.production_companies?.[0]?.name : detail.networks?.[0]?.name;
+            if (studio) document.getElementById('add-show-studio').value = studio;
+          } catch (e) { /* cover URL is already filled; totals/genres/studio are best-effort */ }
         }
       });
     } catch (e) {
@@ -3040,6 +3082,7 @@
         : await searchOpenLibraryCovers(title);
       renderCoverCandidates('add-reading-cover-candidates', 'add-reading-cover-status', results, (c) => {
         document.getElementById('add-reading-image-url').value = c.url;
+        if (c.name) document.getElementById('add-reading-title').value = c.name;
         // AniList only populates `chapters` once a series is FINISHED (same
         // caveat as the new-chapter checker) -- null for ongoing series, so
         // this is best-effort, not guaranteed, same as CLAUDE.md documents.
@@ -3280,8 +3323,13 @@
   // ── Movie Watchlist (its own sub-tab, card-style like Watching) ──
   async function renderMovieWatchlistTab() {
     const rows = await fetchShows(activeScope);
-    const movies = rows.filter(s => s.category === 'movie' && s.listStatus === 'watchlist')
+    const pinned = getPinnedIds(rows);
+    const allMovies = rows.filter(s => s.category === 'movie' && s.listStatus === 'watchlist');
+    const pinnedMovies = allMovies.filter(m => pinned.includes(m.id))
+      .sort((a, b) => pinned.indexOf(a.id) - pinned.indexOf(b.id));
+    const nonPinnedMovies = allMovies.filter(m => !pinned.includes(m.id))
       .sort((a, b) => a.title.localeCompare(b.title));
+    const movies = [...pinnedMovies, ...nonPinnedMovies];
     const grid = document.getElementById('movie-watchlist-grid');
     const empty = document.getElementById('movie-watchlist-empty');
     grid.innerHTML = '';
@@ -3289,13 +3337,14 @@
     empty.style.display = 'none';
     const canWrite = canWriteScope(activeScope);
     movies.forEach(movie => {
+      const isPinned = pinned.includes(movie.id);
       const card = document.createElement('div');
-      card.className = 'card';
+      card.className = 'card' + (isPinned ? ' pinned' : '');
       card.innerHTML = `
         ${movie.posterUrl ? `<img class="card-poster" src="${movie.posterUrl}" alt="" onerror="this.remove()">` : ''}
         <div class="card-body">
           <div class="card-top">
-            <div class="card-title">${escapeHTML(movie.title)}</div>
+            <div class="card-title">${escapeHTML(movie.title)}${isPinned ? ' <span class="stat" style="color:var(--accent)">★ Watch next</span>' : ''}</div>
           </div>
           ${showTags(movie) ? `<div class="card-tags">${showTags(movie)}</div>` : ''}
           <div class="card-stats">
@@ -3304,6 +3353,7 @@
           ${canWrite ? `
           <div class="progress-controls">
             <button class="btn btn-primary movie-watched-btn" data-id="${movie.id}">Watched?</button>
+            <button class="btn movie-watchlist-pin-btn" data-id="${movie.id}">${isPinned ? 'Unpin' : 'Watch next'}</button>
             <button class="btn movie-watchlist-remove-btn" data-id="${movie.id}" data-title="${escapeHTML(movie.title)}">Remove</button>
           </div>` : ''}
         </div>
@@ -3379,7 +3429,7 @@
       } else {
         out.push({
           key: 'e:' + i, type: 'custom', title: e.title,
-          runtimeMinutes: e.runtimeMinutes || null, entryIndex: i,
+          runtimeMinutes: e.runtimeMinutes || null, posterUrl: e.posterUrl || null, entryIndex: i,
         });
       }
     });
@@ -3544,11 +3594,12 @@
 
   function openSpinResult(entry) {
     document.getElementById('spin-result-body').innerHTML = `
-      ${entry.type === 'watchlist' && entry.posterUrl ? `<img src="${entry.posterUrl}" alt="" onerror="this.remove()">` : ''}
+      ${entry.posterUrl ? `<img src="${entry.posterUrl}" alt="" onerror="this.remove()">` : ''}
       <div class="spin-winner-title">${escapeHTML(entry.title)}</div>
       ${entry.runtimeMinutes ? `<div style="font-size:0.72rem;color:var(--muted);margin-top:0.3rem">${entry.runtimeMinutes} min</div>` : ''}
     `;
     const canWrite = canWriteScope(activeScope);
+    document.getElementById('spin-result-watch').style.display = (entry.type === 'watchlist' && canWrite) ? '' : 'none';
     document.getElementById('spin-result-watched').style.display = (entry.type === 'watchlist' && canWrite) ? '' : 'none';
     document.getElementById('spin-result-remove').style.display = (spinWheelId === WATCHLIST_WHEEL) ? 'none' : '';
     document.getElementById('spin-result-modal').classList.add('open');
@@ -3730,24 +3781,60 @@
     renderSpinWheelTab();
   });
 
+  document.getElementById('wheel-add-custom-find-cover').addEventListener('click', async () => {
+    const title = document.getElementById('wheel-add-custom-title').value.trim();
+    if (!title) return;
+    const statusEl = document.getElementById('wheel-add-custom-cover-status');
+    document.getElementById('wheel-add-custom-cover-candidates').innerHTML = '';
+    statusEl.textContent = 'Searching…';
+    statusEl.style.display = '';
+    try {
+      const results = await searchTMDBCovers(title, 'movie');
+      renderCoverCandidates('wheel-add-custom-cover-candidates', 'wheel-add-custom-cover-status', results, async (c) => {
+        document.getElementById('wheel-add-custom-poster').value = c.url;
+        if (c.name) document.getElementById('wheel-add-custom-title').value = c.name;
+        if (c.tmdbId) {
+          try {
+            const detailRes = await fetch(`https://api.themoviedb.org/3/movie/${c.tmdbId}?api_key=${TMDB_API_KEY}`);
+            const detail = await detailRes.json();
+            if (detail.runtime) document.getElementById('wheel-add-custom-runtime').value = detail.runtime;
+          } catch (e) { /* cover URL is already filled; runtime is best-effort */ }
+        }
+      });
+    } catch (e) {
+      statusEl.textContent = 'Search failed — try again.';
+    }
+  });
+
   document.getElementById('wheel-add-custom-btn').addEventListener('click', () => {
     const wheel = currentWheel();
     if (!wheel) return;
     const titleEl = document.getElementById('wheel-add-custom-title');
     const runtimeEl = document.getElementById('wheel-add-custom-runtime');
+    const posterEl = document.getElementById('wheel-add-custom-poster');
     const title = titleEl.value.trim();
     if (!title) return;
     const runtime = parseInt(runtimeEl.value, 10);
-    wheel.entries.push({ type: 'custom', title, runtimeMinutes: Number.isFinite(runtime) ? runtime : null });
+    wheel.entries.push({
+      type: 'custom', title, runtimeMinutes: Number.isFinite(runtime) ? runtime : null,
+      posterUrl: posterEl.value || null,
+    });
     titleEl.value = '';
     runtimeEl.value = '';
+    posterEl.value = '';
+    document.getElementById('wheel-add-custom-cover-candidates').innerHTML = '';
+    document.getElementById('wheel-add-custom-cover-status').style.display = 'none';
     saveSpinState();
     renderSpinWheelTab();
   });
 
   document.getElementById('spin-btn').addEventListener('click', doSpin);
   document.getElementById('spin-result-again').addEventListener('click', () => { closeSpinResult(); doSpin(); });
-  document.getElementById('spin-result-watch').addEventListener('click', closeSpinResult);
+  document.getElementById('spin-result-watch').addEventListener('click', async () => {
+    const id = spinWinner && spinWinner.type === 'watchlist' && spinWinner.showId;
+    closeSpinResult();
+    if (id) await togglePin(id);
+  });
   document.getElementById('spin-result-remove').addEventListener('click', () => { closeSpinResult(); removeWinnerFromWheel(); });
   document.getElementById('spin-result-watched').addEventListener('click', async () => {
     const id = spinWinner && spinWinner.showId;
@@ -3805,9 +3892,14 @@
     localStorage.setItem('lastChapterCheck', String(Date.now()));
 
     const rows = await fetchWrittenMedia(activeScope);
+    // Also watches entries marked 'completed' whose series itself is still
+    // 'ongoing'/'hiatus' -- otherwise a manga you finished reading (all
+    // chapters caught up at the time) never gets checked again once new
+    // chapters actually drop, the same gap the anime new-season checker
+    // closes for finished shows via inTierPool.
     const candidates = rows.filter(m =>
-      (m.category === 'manga' || m.category === 'manhwa') &&
-      m.listStatus === 'reading' && m.totalChapters
+      (m.category === 'manga' || m.category === 'manhwa') && m.totalChapters &&
+      (m.listStatus === 'reading' || (m.listStatus === 'completed' && ['ongoing', 'hiatus'].includes(m.seriesStatus)))
     );
     if (!candidates.length) return;
 
@@ -3846,14 +3938,20 @@
           });
         });
         if (maxChapter && maxChapter > m.totalChapters) {
-          updates.push({ id: m.id, title: m.title, delta: Math.round(maxChapter - m.totalChapters), newTotal: Math.round(maxChapter) });
+          updates.push({
+            id: m.id, title: m.title, delta: Math.round(maxChapter - m.totalChapters), newTotal: Math.round(maxChapter),
+            reopened: m.listStatus === 'completed',
+          });
         }
       } catch (e) { console.error('Chapter check failed for', m.title, e); }
     }
     if (!updates.length) return;
 
     await Promise.all(updates.map(u =>
-      supabase.from('written_media').update({ total_chapters: u.newTotal }).eq('id', u.id)
+      supabase.from('written_media').update({
+        total_chapters: u.newTotal,
+        ...(u.reopened ? { list_status: 'reading' } : {}),
+      }).eq('id', u.id)
     ));
     invalidateWrittenMediaCache();
     showNewChaptersBanner(updates);
@@ -3864,7 +3962,7 @@
   }
 
   function showNewChaptersBanner(updates) {
-    const text = updates.map(u => `${escapeHTML(u.title)} (+${u.delta})`).join(', ');
+    const text = updates.map(u => `${escapeHTML(u.title)} (+${u.delta})${u.reopened ? ' — moved back to Reading' : ''}`).join(', ');
     document.getElementById('new-chapters-banner-slot').innerHTML = `
       <div class="new-chapters-banner">
         <span>New chapters: ${text}</span>
@@ -3873,8 +3971,93 @@
     `;
   }
 
+  // ── Sequel-series detection for manga/manhwa (books/webnovels have no
+  // reliable free-API signal for this, so they're excluded entirely) ──
+  // Same relations-edge approach as checkAnimeSequel, own dismissal list so
+  // it doesn't share keys with the anime/western season checker.
+  function getDismissedMediaSequelNotices() {
+    try { return JSON.parse(localStorage.getItem('dismissedMediaSequelNotices') || '[]'); }
+    catch (e) { return []; }
+  }
+
+  function dismissMediaSequelNotice(key) {
+    const dismissed = getDismissedMediaSequelNotices();
+    if (!dismissed.includes(key)) {
+      dismissed.push(key);
+      localStorage.setItem('dismissedMediaSequelNotices', JSON.stringify(dismissed));
+    }
+  }
+
+  async function checkMediaSequel(m) {
+    const query = `query ($s: String) { Media(search: $s, type: MANGA) {
+      relations { edges { relationType node { title { romaji english } format } } }
+    } }`;
+    const res = await fetch('https://graphql.anilist.co', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, variables: { s: m.title } })
+    });
+    const json = await res.json();
+    const edges = json?.data?.Media?.relations?.edges || [];
+    const sequel = edges.find(e => e.relationType === 'SEQUEL' && ['MANGA', 'ONE_SHOT'].includes(e.node.format));
+    if (!sequel) return null;
+    const sequelTitle = sequel.node.title.english || sequel.node.title.romaji;
+    return {
+      key: `${m.id}::${sequelTitle}`,
+      text: `${m.title} → sequel series: "${sequelTitle}"`,
+      sequelTitle, category: m.category,
+    };
+  }
+
+  async function checkMangaSequels() {
+    const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+    const lastCheck = parseInt(localStorage.getItem('lastMediaSequelCheck') || '0', 10);
+    if (Date.now() - lastCheck < CHECK_INTERVAL_MS) return;
+    localStorage.setItem('lastMediaSequelCheck', String(Date.now()));
+
+    const rows = await fetchWrittenMedia(activeScope);
+    const candidates = rows.filter(m =>
+      (m.category === 'manga' || m.category === 'manhwa') &&
+      (m.listStatus === 'reading' || m.listStatus === 'completed')
+    );
+    if (!candidates.length) return;
+
+    const dismissed = getDismissedMediaSequelNotices();
+    const notices = [];
+    for (const m of candidates) {
+      try {
+        const notice = await checkMediaSequel(m);
+        if (notice && !dismissed.includes(notice.key)) notices.push(notice);
+      } catch (e) { console.error('Sequel check failed for', m.title, e); }
+    }
+    if (notices.length) showMediaSequelsBanner(notices);
+  }
+
+  function showMediaSequelsBanner(notices) {
+    document.getElementById('new-media-sequels-banner-slot').innerHTML = notices.map((n, i) => `
+      <div class="new-chapters-banner" data-idx="${i}">
+        <span class="media-sequel-open" data-idx="${i}" style="cursor:pointer;text-decoration:underline">${escapeHTML(n.text)}</span>
+        <button class="btn" data-idx="${i}" data-action="dismiss-media-sequel">Dismiss</button>
+      </div>
+    `).join('');
+    document.querySelectorAll('.media-sequel-open').forEach(el => {
+      el.addEventListener('click', () => {
+        const n = notices[parseInt(el.dataset.idx, 10)];
+        openAddReadingModal(n.sequelTitle, n.category);
+      });
+    });
+    document.querySelectorAll('[data-action="dismiss-media-sequel"]').forEach(el => {
+      el.addEventListener('click', () => {
+        const n = notices[parseInt(el.dataset.idx, 10)];
+        dismissMediaSequelNotice(n.key);
+        el.closest('.new-chapters-banner').remove();
+      });
+    });
+  }
+
   async function loadReading() {
     checkNewChapters();
+    checkMangaSequels();
     const allRows = await fetchWrittenMedia(activeScope);
     const rows = allRows.filter(m => m.category === activeReadingCategory);
     const reading = rows.filter(m => m.listStatus === 'reading');
@@ -3896,6 +4079,10 @@
     nonPinnedReading = applyReadingFilter(nonPinnedReading, readingSF.genre, null);
     nonPinnedReading = sortReading(nonPinnedReading, readingSort);
     const orderedReading = [...pinnedReading, ...nonPinnedReading];
+
+    const readingCountEl = document.getElementById('reading-count');
+    const rn = reading.length;
+    readingCountEl.innerHTML = rn > 0 ? `<strong>${rn}</strong> ${activeReadingCategory === 'book' ? 'book' : 'title'}${rn === 1 ? '' : 's'} in progress` : '';
 
     const grid = document.getElementById('reading-grid');
     const empty = document.getElementById('reading-empty');
@@ -4120,6 +4307,8 @@
     document.getElementById('add-show-current-episode').value = '0';
     document.getElementById('add-show-movie-status').value = 'watched';
     document.getElementById('add-show-runtime').value = '';
+    document.getElementById('add-show-genres').value = '';
+    document.getElementById('add-show-studio').value = '';
     document.getElementById('add-show-image-url').value = '';
     document.getElementById('add-show-error').style.display = 'none';
     document.getElementById('add-show-cover-candidates').innerHTML = '';
@@ -4131,9 +4320,15 @@
   function toggleAddShowFields() {
     const category = getAddShowCategory();
     const isMovie = category === 'movie';
+    const wantToWatch = document.getElementById('add-show-movie-status').value === 'watchlist';
     document.getElementById('add-show-episode-fields').style.display = isMovie ? 'none' : '';
-    document.getElementById('add-show-movie-status-field').style.display = isMovie ? '' : 'none';
+    document.getElementById('add-show-movie-status-field').style.display = '';
+    document.getElementById('add-show-movie-status-active').textContent = isMovie ? 'Watched' : 'Watching';
     document.getElementById('add-show-runtime-field').style.display = isMovie || category === 'western' ? '' : 'none';
+    // A not-yet-started show/movie has no progress to enter -- current
+    // episode is always 0 for those, so hide the field rather than let it
+    // silently get ignored.
+    document.getElementById('add-show-current-episode-field').style.display = (!isMovie && wantToWatch) ? 'none' : '';
   }
 
   // "+ Add" dropdown: one entry point, routes to the existing per-type
@@ -4151,6 +4346,7 @@
   document.getElementById('btn-add').addEventListener('click', () => { addDropdownEl.style.display = 'none'; openAddShowModal('show'); });
   document.getElementById('btn-add-movie').addEventListener('click', () => { addDropdownEl.style.display = 'none'; openAddShowModal('movie'); });
   document.getElementById('add-show-category').addEventListener('change', toggleAddShowFields);
+  document.getElementById('add-show-movie-status').addEventListener('change', toggleAddShowFields);
   document.getElementById('add-show-find-cover').addEventListener('click', findCoverForShow);
 
   document.getElementById('btn-close').addEventListener('click', () => {
@@ -4172,9 +4368,13 @@
     if (!id) { errorEl.textContent = 'Title must contain at least one letter or number.'; errorEl.style.display = ''; return; }
 
     const imageUrl = document.getElementById('add-show-image-url').value.trim();
+    const genresRaw = document.getElementById('add-show-genres').value.trim();
+    const studio = document.getElementById('add-show-studio').value.trim();
     const row = {
       id, title, category, scope,
       poster_url: imageUrl || null,
+      genres: genresRaw ? genresRaw.split(',').map(g => g.trim()).filter(Boolean) : null,
+      studio: studio || null,
       total_episodes: null, current_episode: null, total_seasons: null,
       current_season: null, season_episode: null, runtime_minutes: null,
       list_status: null, in_tier_pool: false,
@@ -4190,15 +4390,16 @@
         row.in_tier_pool = true;
       }
     } else {
+      const wantToWatch = document.getElementById('add-show-movie-status').value === 'watchlist';
       const totalEpisodes = parseInt(document.getElementById('add-show-total-episodes').value, 10);
-      const currentEpisode = parseInt(document.getElementById('add-show-current-episode').value, 10) || 0;
+      const currentEpisode = wantToWatch ? 0 : (parseInt(document.getElementById('add-show-current-episode').value, 10) || 0);
       if (!totalEpisodes) { errorEl.textContent = 'Total episodes is required.'; errorEl.style.display = ''; return; }
       row.total_episodes = totalEpisodes;
       row.total_seasons = 1;
       row.current_season = 1;
       row.current_episode = Math.min(currentEpisode, totalEpisodes);
       row.season_episode = row.current_episode;
-      row.list_status = 'watching';
+      row.list_status = wantToWatch ? 'watchlist' : 'watching';
       if (category === 'western') {
         const runtime = parseInt(document.getElementById('add-show-runtime').value, 10);
         if (runtime) row.runtime_minutes = runtime;
@@ -4223,9 +4424,9 @@
   });
 
   // ── Add Reading (manual entry, self-serve — no lookup) ──
-  function openAddReadingModal() {
-    document.getElementById('add-reading-title').value = '';
-    document.getElementById('add-reading-category').value = 'manga';
+  function openAddReadingModal(presetTitle = '', presetCategory = 'manga') {
+    document.getElementById('add-reading-title').value = presetTitle;
+    document.getElementById('add-reading-category').value = presetCategory;
     document.getElementById('add-reading-scope').value = activeScope === 'together' ? 'together' : activeScope;
     restrictScopeOptions(document.getElementById('add-reading-scope'));
     document.getElementById('add-reading-author').value = '';
@@ -4449,8 +4650,32 @@
     return Object.keys(TOPTAB_GROUPS).find(top => TOPTAB_GROUPS[top].includes(tab));
   }
 
+  // The header used to hard-code "Currently Watching" regardless of tab —
+  // stale-looking once the site grew past a single-purpose show tracker.
+  // Each tab gets its own eyebrow/title; only Watching/Reading get a live
+  // "N in progress" count line since that framing doesn't fit the rest.
+  const TAB_HEADERS = {
+    watching: { eyebrow: 'in progress', title: 'Currently Watching' },
+    'movie-watchlist': { eyebrow: 'queued up', title: 'Movie Watchlist' },
+    spinwheel: { eyebrow: "can't decide?", title: 'Spin the Wheel' },
+    tierlist: { eyebrow: 'ranked', title: 'Tier List' },
+    ratings: { eyebrow: 'rated', title: 'Ratings' },
+    reading: { eyebrow: 'in progress', title: 'Currently Reading' },
+    'reading-ratings': { eyebrow: 'rated', title: 'Reading Ratings' },
+    stats: { eyebrow: 'the numbers', title: 'Stats' },
+  };
+
+  function updateHeaderForTab(tab) {
+    const h = TAB_HEADERS[tab] || TAB_HEADERS.watching;
+    document.getElementById('header-eyebrow').textContent = h.eyebrow;
+    document.getElementById('header-title').textContent = h.title;
+    document.getElementById('show-count').style.display = tab === 'watching' ? '' : 'none';
+    document.getElementById('reading-count').style.display = tab === 'reading' ? '' : 'none';
+  }
+
   function activateSubtab(tab) {
     currentTab = tab;
+    updateHeaderForTab(tab);
     document.querySelectorAll('.sub-tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
     document.getElementById('view-watching').style.display = tab === 'watching' ? '' : 'none';
     document.getElementById('view-tierlist').style.display = tab === 'tierlist' ? '' : 'none';
