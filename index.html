@@ -3233,9 +3233,14 @@
       active.forEach(show => {
         const pct = Math.round((show.currentEpisode / show.totalEpisodes) * 100);
         const remaining = show.totalEpisodes - show.currentEpisode;
+        // seasonEpisode/currentSeason can be null on rows whose totals were
+        // patched directly (e.g. a season-count backfill) without also
+        // setting these — fall back to the cumulative episode count rather
+        // than rendering "Enull".
+        const seasonEp = show.seasonEpisode ?? show.currentEpisode;
         const epLabel = show.totalSeasons > 1
-          ? `S${show.currentSeason} · E${show.seasonEpisode}`
-          : `E${show.seasonEpisode}`;
+          ? `S${show.currentSeason ?? '?'} · E${seasonEp}`
+          : `E${seasonEp}`;
         const card = document.createElement('div');
         const isPinned = pinned.includes(show.id);
         const progressControls = canWriteScope(activeScope) ? `
@@ -3287,9 +3292,14 @@
     } else {
       completedDivider.style.display = '';
       completed.forEach(show => {
+        // seasonEpisode/currentSeason can be null on rows whose totals were
+        // patched directly (e.g. a season-count backfill) without also
+        // setting these — fall back to the cumulative episode count rather
+        // than rendering "Enull".
+        const seasonEp = show.seasonEpisode ?? show.currentEpisode;
         const epLabel = show.totalSeasons > 1
-          ? `S${show.currentSeason} · E${show.seasonEpisode}`
-          : `E${show.seasonEpisode}`;
+          ? `S${show.currentSeason ?? '?'} · E${seasonEp}`
+          : `E${seasonEp}`;
         const card = document.createElement('div');
         card.className = 'card';
         card.innerHTML = `
