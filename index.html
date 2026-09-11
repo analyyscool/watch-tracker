@@ -352,6 +352,8 @@
     gap: 0.625rem;
   }
 
+  #season-notices-grid { margin-bottom: 0.5rem; }
+
   #reading-grid, #reading-completed {
     display: flex;
     flex-direction: column;
@@ -684,7 +686,7 @@
 
   .mark-finished-btn, .movie-watchlist-remove-btn { margin-left: auto; }
 
-  .page-input {
+  .page-input, .total-pages-input {
     width: 4.5rem;
     font-family: 'DM Mono', monospace;
     font-size: 0.7rem;
@@ -1131,6 +1133,21 @@
   }
 
   .modal-close { width: 100%; text-align: center; }
+
+  .modal-x-close {
+    position: absolute;
+    top: 0.75rem;
+    right: 0.9rem;
+    border: none;
+    background: none;
+    font-size: 1.3rem;
+    line-height: 1;
+    color: var(--muted);
+    cursor: pointer;
+    padding: 0.2rem;
+  }
+
+  .modal-x-close:hover { color: var(--text); }
 
   .modal textarea {
     width: 100%;
@@ -1614,6 +1631,7 @@
 
   <div id="view-watching">
     <div id="season-notices-section"></div>
+    <div class="section-divider" id="in-progress-divider" style="display:none"><span>in progress</span></div>
     <div class="sort-filter-bar" id="watching-sf">
       <select class="sf-select" id="watching-sort">
         <option value="pct">Sort: % complete</option>
@@ -1692,7 +1710,8 @@
   </div>
 
   <div class="modal-backdrop" id="spin-result-modal">
-    <div class="modal">
+    <div class="modal" style="position:relative">
+      <button class="modal-x-close" id="spin-result-close" aria-label="Close">&times;</button>
       <h2>The wheel picked&hellip;</h2>
       <div id="spin-result-body"></div>
       <div class="modal-actions" style="flex-wrap:wrap">
@@ -1842,6 +1861,7 @@
       </div>
       <p class="cover-search-status" id="add-show-cover-status" style="display:none"></p>
       <div class="cover-candidates" id="add-show-cover-candidates"></div>
+      <p class="form-error" id="add-show-duplicate-warning" style="display:none"></p>
     </div>
     <div class="add-form-row">
       <div class="add-form-field" id="add-show-category-field">
@@ -1915,6 +1935,7 @@
       </div>
       <p class="cover-search-status" id="add-reading-cover-status" style="display:none"></p>
       <div class="cover-candidates" id="add-reading-cover-candidates"></div>
+      <p class="form-error" id="add-reading-duplicate-warning" style="display:none"></p>
     </div>
     <div class="add-form-row">
       <div class="add-form-field">
@@ -3055,7 +3076,7 @@
         : await searchTMDBCovers(title, 'tv');
       renderCoverCandidates('add-show-cover-candidates', 'add-show-cover-status', results, async (c) => {
         document.getElementById('add-show-image-url').value = c.url;
-        if (c.name) document.getElementById('add-show-title').value = c.name;
+        if (c.name) { document.getElementById('add-show-title').value = c.name; checkAddShowDuplicate(); }
         if (category === 'anime') {
           if (c.episodes) document.getElementById('add-show-total-episodes').value = c.episodes;
           if (c.genres) document.getElementById('add-show-genres').value = c.genres.join(', ');
@@ -3095,7 +3116,7 @@
         : await searchOpenLibraryCovers(title);
       renderCoverCandidates('add-reading-cover-candidates', 'add-reading-cover-status', results, (c) => {
         document.getElementById('add-reading-image-url').value = c.url;
-        if (c.name) document.getElementById('add-reading-title').value = c.name;
+        if (c.name) { document.getElementById('add-reading-title').value = c.name; checkAddReadingDuplicate(); }
         // AniList only populates `chapters` once a series is FINISHED (same
         // caveat as the new-chapter checker) -- null for ongoing series, so
         // this is best-effort, not guaranteed, same as CLAUDE.md documents.
@@ -3168,6 +3189,7 @@
   // season-number tag instead (for "not ready yet"), or dismiss outright.
   function renderSeasonNoticesSection(notices) {
     const slot = document.getElementById('season-notices-section');
+    document.getElementById('in-progress-divider').style.display = notices.length ? '' : 'none';
     if (!notices.length) { slot.innerHTML = ''; return; }
     slot.innerHTML = `
       <div class="section-divider"><span>new seasons available</span></div>
@@ -3880,6 +3902,7 @@
   });
 
   document.getElementById('spin-btn').addEventListener('click', doSpin);
+  document.getElementById('spin-result-close').addEventListener('click', closeSpinResult);
   document.getElementById('spin-result-again').addEventListener('click', () => { closeSpinResult(); doSpin(); });
   document.getElementById('spin-result-watch').addEventListener('click', async () => {
     const id = spinWinner && spinWinner.type === 'watchlist' && spinWinner.showId;
@@ -4150,7 +4173,9 @@
           ? (m.category === 'book'
               ? `<div class="progress-controls">
                    <input type="number" class="page-input" data-id="${m.id}" min="0" max="${m.totalPages || ''}" value="${m.currentPage || 0}">
-                   <span class="progress-value">/ ${m.totalPages || '?'}p</span>
+                   <span class="progress-value">/</span>
+                   <input type="number" class="total-pages-input" data-id="${m.id}" min="1" value="${m.totalPages || ''}" placeholder="?" title="Total pages — editable since different print editions vary">
+                   <span class="progress-value">p</span>
                    <button class="btn mark-finished-btn" data-media-id="${m.id}">Mark Finished</button>
                  </div>`
               : `<div class="progress-controls">
@@ -4285,6 +4310,22 @@
     loadReading();
   }
 
+  // Total pages is editable (unlike total chapters/episodes elsewhere) since
+  // different print editions of the same book can vary by a lot -- clamps
+  // current_page down too if it now exceeds the new, smaller total.
+  async function setTotalPages(id, total) {
+    const rows = await fetchWrittenMedia(activeScope);
+    const m = rows.find(r => r.id === id);
+    if (!m || !canWriteScope(activeScope)) return;
+    if (!total || total < 1) return;
+    const update = { total_pages: total, last_updated: new Date().toISOString().slice(0, 10) };
+    if ((m.currentPage || 0) > total) update.current_page = total;
+    const { error } = await supabase.from('written_media').update(update).eq('id', id);
+    if (checkWriteError(error)) return;
+    invalidateWrittenMediaCache();
+    loadReading();
+  }
+
   async function markReadingFinished(id) {
     const rows = await fetchWrittenMedia(activeScope);
     const m = rows.find(r => r.id === id);
@@ -4312,6 +4353,12 @@
   });
 
   document.body.addEventListener('change', e => {
+    const totalInput = e.target.closest('.total-pages-input');
+    if (totalInput) {
+      const total = parseInt(totalInput.value, 10);
+      if (!isNaN(total)) setTotalPages(totalInput.dataset.id, total);
+      return;
+    }
     const input = e.target.closest('.page-input');
     if (!input) return;
     const page = parseInt(input.value, 10);
@@ -4346,6 +4393,58 @@
     return addShowMode === 'movie' ? 'movie' : document.getElementById('add-show-category').value;
   }
 
+  // Shows have a natural duplicate guard at the DB level (id = slugify(title),
+  // a PK collision throws 23505 -- see the submit handler below), but that
+  // only surfaces after filling in the whole form and clicking Add. This
+  // checks proactively as soon as a title is typed, and doubles as the
+  // pre-submit block so the error is instant rather than a round trip.
+  async function findExistingShow(title, scope) {
+    if (!title.trim()) return null;
+    const rows = await fetchShows(scope);
+    return rows.find(s => s.title.toLowerCase() === title.trim().toLowerCase()) || null;
+  }
+
+  async function checkAddShowDuplicate() {
+    const title = document.getElementById('add-show-title').value;
+    const scope = document.getElementById('add-show-scope').value;
+    const warningEl = document.getElementById('add-show-duplicate-warning');
+    const match = await findExistingShow(title, scope);
+    if (match) {
+      const statusLabel = match.listStatus === 'watching' ? 'Watching'
+        : match.listStatus === 'watchlist' ? 'the Watchlist' : 'your rated/finished list';
+      warningEl.textContent = `Already in ${scope}'s list (in ${statusLabel}) — adding again will be blocked.`;
+      warningEl.style.display = '';
+    } else {
+      warningEl.style.display = 'none';
+    }
+    return match;
+  }
+
+  // written_media has no equivalent DB-level guard -- its id is an
+  // auto-generated UUID (see CLAUDE.md's note on it being non-idempotent),
+  // so without this check the same title could be added twice with no
+  // warning at all.
+  async function findExistingMedia(title, category, scope) {
+    if (!title.trim()) return null;
+    const rows = await fetchWrittenMedia(scope);
+    return rows.find(m => m.category === category && m.title.toLowerCase() === title.trim().toLowerCase()) || null;
+  }
+
+  async function checkAddReadingDuplicate() {
+    const title = document.getElementById('add-reading-title').value;
+    const category = document.getElementById('add-reading-category').value;
+    const scope = document.getElementById('add-reading-scope').value;
+    const warningEl = document.getElementById('add-reading-duplicate-warning');
+    const match = await findExistingMedia(title, category, scope);
+    if (match) {
+      warningEl.textContent = `Already in ${scope}'s ${category} list — adding again will be blocked.`;
+      warningEl.style.display = '';
+    } else {
+      warningEl.style.display = 'none';
+    }
+    return match;
+  }
+
   function openAddShowModal(mode = 'show') {
     addShowMode = mode;
     document.getElementById('add-show-modal-title').textContent = mode === 'movie' ? 'Add a Movie' : 'Add a Show';
@@ -4364,6 +4463,7 @@
     document.getElementById('add-show-error').style.display = 'none';
     document.getElementById('add-show-cover-candidates').innerHTML = '';
     document.getElementById('add-show-cover-status').style.display = 'none';
+    document.getElementById('add-show-duplicate-warning').style.display = 'none';
     toggleAddShowFields();
     document.getElementById('modal').classList.add('open');
   }
@@ -4396,9 +4496,24 @@
   });
   document.getElementById('btn-add').addEventListener('click', () => { addDropdownEl.style.display = 'none'; openAddShowModal('show'); });
   document.getElementById('btn-add-movie').addEventListener('click', () => { addDropdownEl.style.display = 'none'; openAddShowModal('movie'); });
-  document.getElementById('add-show-category').addEventListener('change', toggleAddShowFields);
+  document.getElementById('add-show-category').addEventListener('change', () => {
+    toggleAddShowFields();
+    // Genres/Studio/Image URL/Total Episodes all come from whichever source
+    // (AniList/TMDB) the previous category searched -- switching category
+    // without clearing these would let e.g. a TMDB-fetched Western result
+    // silently ride along into an Anime submission unless the user
+    // remembers to re-run Find Cover.
+    document.getElementById('add-show-total-episodes').value = '';
+    document.getElementById('add-show-genres').value = '';
+    document.getElementById('add-show-studio').value = '';
+    document.getElementById('add-show-image-url').value = '';
+    document.getElementById('add-show-cover-candidates').innerHTML = '';
+    document.getElementById('add-show-cover-status').style.display = 'none';
+  });
   document.getElementById('add-show-movie-status').addEventListener('change', toggleAddShowFields);
   document.getElementById('add-show-find-cover').addEventListener('click', findCoverForShow);
+  document.getElementById('add-show-title').addEventListener('blur', checkAddShowDuplicate);
+  document.getElementById('add-show-scope').addEventListener('change', checkAddShowDuplicate);
 
   document.getElementById('btn-close').addEventListener('click', () => {
     document.getElementById('modal').classList.remove('open');
@@ -4415,6 +4530,11 @@
     const category = getAddShowCategory();
     const scope = document.getElementById('add-show-scope').value;
     if (!title) { errorEl.textContent = 'Title is required.'; errorEl.style.display = ''; return; }
+    if (await findExistingShow(title, scope)) {
+      errorEl.textContent = `"${title}" is already in ${scope}'s list.`;
+      errorEl.style.display = '';
+      return;
+    }
     const id = slugify(title);
     if (!id) { errorEl.textContent = 'Title must contain at least one letter or number.'; errorEl.style.display = ''; return; }
 
@@ -4489,6 +4609,7 @@
     document.getElementById('add-reading-error').style.display = 'none';
     document.getElementById('add-reading-cover-candidates').innerHTML = '';
     document.getElementById('add-reading-cover-status').style.display = 'none';
+    document.getElementById('add-reading-duplicate-warning').style.display = 'none';
     toggleAddReadingFields();
     document.getElementById('add-reading-modal').classList.add('open');
   }
@@ -4503,8 +4624,10 @@
   }
 
   document.getElementById('btn-add-reading').addEventListener('click', () => { addDropdownEl.style.display = 'none'; openAddReadingModal(); });
-  document.getElementById('add-reading-category').addEventListener('change', toggleAddReadingFields);
+  document.getElementById('add-reading-category').addEventListener('change', () => { toggleAddReadingFields(); checkAddReadingDuplicate(); });
   document.getElementById('add-reading-find-cover').addEventListener('click', findCoverForReading);
+  document.getElementById('add-reading-title').addEventListener('blur', checkAddReadingDuplicate);
+  document.getElementById('add-reading-scope').addEventListener('change', checkAddReadingDuplicate);
 
   document.getElementById('add-reading-cancel').addEventListener('click', () => {
     document.getElementById('add-reading-modal').classList.remove('open');
@@ -4523,6 +4646,11 @@
     const author = document.getElementById('add-reading-author').value.trim();
     const imageUrl = document.getElementById('add-reading-image-url').value.trim();
     if (!title) { errorEl.textContent = 'Title is required.'; errorEl.style.display = ''; return; }
+    if (await findExistingMedia(title, category, scope)) {
+      errorEl.textContent = `"${title}" is already in ${scope}'s ${category} list.`;
+      errorEl.style.display = '';
+      return;
+    }
 
     const row = {
       title, category, scope, author: author || null, list_status: 'reading',
