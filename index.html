@@ -546,6 +546,58 @@
     margin-bottom: 0.75rem;
   }
 
+  .cover-search-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+  }
+
+  .cover-search-row input { flex: 1; }
+
+  .cover-candidates {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.6rem;
+  }
+
+  .cover-candidate {
+    width: 70px;
+    cursor: pointer;
+    border: 2px solid transparent;
+    border-radius: 4px;
+    padding: 2px;
+    background: none;
+    text-align: center;
+  }
+
+  .cover-candidate:hover { border-color: var(--accent); }
+
+  .cover-candidate img {
+    width: 100%;
+    height: 96px;
+    object-fit: cover;
+    border-radius: 3px;
+    display: block;
+  }
+
+  .cover-candidate span {
+    display: block;
+    font-size: 0.52rem;
+    color: var(--muted);
+    margin-top: 0.2rem;
+    line-height: 1.2;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .cover-search-status {
+    font-size: 0.6rem;
+    color: var(--muted);
+    margin-top: 0.4rem;
+  }
+
   .read-only-banner {
     text-align: center;
     font-size: 0.62rem;
@@ -1796,7 +1848,12 @@
     </div>
     <div class="add-form-field">
       <label for="add-show-image-url">Image URL</label>
-      <input type="text" id="add-show-image-url" placeholder="Optional — link to a poster image">
+      <div class="cover-search-row">
+        <input type="text" id="add-show-image-url" placeholder="Optional — link to a poster image">
+        <button type="button" class="btn" id="add-show-find-cover">Find Cover</button>
+      </div>
+      <p class="cover-search-status" id="add-show-cover-status" style="display:none"></p>
+      <div class="cover-candidates" id="add-show-cover-candidates"></div>
     </div>
     <p id="add-show-error" class="form-error" style="display:none"></p>
     <div class="modal-actions">
@@ -1859,7 +1916,12 @@
     </div>
     <div class="add-form-field">
       <label for="add-reading-image-url">Image URL</label>
-      <input type="text" id="add-reading-image-url" placeholder="Optional — link to cover art">
+      <div class="cover-search-row">
+        <input type="text" id="add-reading-image-url" placeholder="Optional — link to cover art">
+        <button type="button" class="btn" id="add-reading-find-cover">Find Cover</button>
+      </div>
+      <p class="cover-search-status" id="add-reading-cover-status" style="display:none"></p>
+      <div class="cover-candidates" id="add-reading-cover-candidates"></div>
     </div>
     <p id="add-reading-error" class="form-error" style="display:none"></p>
     <div class="modal-actions">
@@ -2766,6 +2828,105 @@
       return `${show.title} → Season ${detail.number_of_seasons} is now available (tracked through Season ${show.totalSeasons})`;
     }
     return null;
+  }
+
+  // ── Cover/poster search for the Add Show/Movie/Reading forms ──
+  // Always returns candidates for the user to pick from -- never
+  // auto-applies a top hit, since a blind match risks a wrong cover
+  // (declined once before as a one-click auto-apply feature, 2026-08-23).
+  async function searchAniListCovers(title, type) {
+    const query = `query ($s: String, $type: MediaType) { Page(perPage: 5) {
+      media(search: $s, type: $type) { title { romaji english } coverImage { large } startDate { year } }
+    } }`;
+    const res = await fetch('https://graphql.anilist.co', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, variables: { s: title, type } })
+    });
+    const json = await res.json();
+    const media = json?.data?.Page?.media || [];
+    return media.filter(m => m.coverImage?.large).map(m => ({
+      url: m.coverImage.large,
+      label: (m.title.english || m.title.romaji) + (m.startDate?.year ? ` (${m.startDate.year})` : '')
+    }));
+  }
+
+  async function searchTMDBCovers(title, kind) {
+    const res = await fetch(`https://api.themoviedb.org/3/search/${kind}?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(title)}`);
+    const json = await res.json();
+    const results = json.results || [];
+    return results.filter(r => r.poster_path).slice(0, 5).map(r => {
+      const name = kind === 'movie' ? r.title : r.name;
+      const date = kind === 'movie' ? r.release_date : r.first_air_date;
+      return { url: `https://image.tmdb.org/t/p/w342${r.poster_path}`, label: name + (date ? ` (${date.slice(0, 4)})` : '') };
+    });
+  }
+
+  async function searchOpenLibraryCovers(title) {
+    const res = await fetch(`https://openlibrary.org/search.json?title=${encodeURIComponent(title)}&limit=8`);
+    const json = await res.json();
+    const docs = json.docs || [];
+    return docs.filter(d => d.cover_i).slice(0, 5).map(d => ({
+      url: `https://covers.openlibrary.org/b/id/${d.cover_i}-M.jpg`,
+      label: d.title + (d.first_publish_year ? ` (${d.first_publish_year})` : '')
+    }));
+  }
+
+  function renderCoverCandidates(containerId, inputId, statusId, candidates) {
+    const container = document.getElementById(containerId);
+    const status = document.getElementById(statusId);
+    if (!candidates.length) {
+      container.innerHTML = '';
+      status.textContent = 'No covers found — enter a URL manually if you have one.';
+      status.style.display = '';
+      return;
+    }
+    status.style.display = 'none';
+    container.innerHTML = candidates.map((c, i) => `
+      <button type="button" class="cover-candidate" data-idx="${i}">
+        <img src="${c.url}" alt="">
+        <span>${escapeHTML(c.label)}</span>
+      </button>
+    `).join('');
+    [...container.querySelectorAll('.cover-candidate')].forEach((btn, i) => {
+      btn.addEventListener('click', () => { document.getElementById(inputId).value = candidates[i].url; });
+    });
+  }
+
+  async function findCoverForShow() {
+    const title = document.getElementById('add-show-title').value.trim();
+    if (!title) return;
+    const category = getAddShowCategory();
+    const statusEl = document.getElementById('add-show-cover-status');
+    document.getElementById('add-show-cover-candidates').innerHTML = '';
+    statusEl.textContent = 'Searching…';
+    statusEl.style.display = '';
+    try {
+      const results = category === 'anime' ? await searchAniListCovers(title, 'ANIME')
+        : category === 'movie' ? await searchTMDBCovers(title, 'movie')
+        : await searchTMDBCovers(title, 'tv');
+      renderCoverCandidates('add-show-cover-candidates', 'add-show-image-url', 'add-show-cover-status', results);
+    } catch (e) {
+      statusEl.textContent = 'Search failed — try again.';
+    }
+  }
+
+  async function findCoverForReading() {
+    const title = document.getElementById('add-reading-title').value.trim();
+    if (!title) return;
+    const category = document.getElementById('add-reading-category').value;
+    if (category === 'webnovel') return;
+    const statusEl = document.getElementById('add-reading-cover-status');
+    document.getElementById('add-reading-cover-candidates').innerHTML = '';
+    statusEl.textContent = 'Searching…';
+    statusEl.style.display = '';
+    try {
+      const results = (category === 'manga' || category === 'manhwa') ? await searchAniListCovers(title, 'MANGA')
+        : await searchOpenLibraryCovers(title);
+      renderCoverCandidates('add-reading-cover-candidates', 'add-reading-image-url', 'add-reading-cover-status', results);
+    } catch (e) {
+      statusEl.textContent = 'Search failed — try again.';
+    }
   }
 
   function showNewSeasonsBanner(notices) {
@@ -3778,6 +3939,8 @@
     document.getElementById('add-show-runtime').value = '';
     document.getElementById('add-show-image-url').value = '';
     document.getElementById('add-show-error').style.display = 'none';
+    document.getElementById('add-show-cover-candidates').innerHTML = '';
+    document.getElementById('add-show-cover-status').style.display = 'none';
     toggleAddShowFields();
     document.getElementById('modal').classList.add('open');
   }
@@ -3805,6 +3968,7 @@
   document.getElementById('btn-add').addEventListener('click', () => { addDropdownEl.style.display = 'none'; openAddShowModal('show'); });
   document.getElementById('btn-add-movie').addEventListener('click', () => { addDropdownEl.style.display = 'none'; openAddShowModal('movie'); });
   document.getElementById('add-show-category').addEventListener('change', toggleAddShowFields);
+  document.getElementById('add-show-find-cover').addEventListener('click', findCoverForShow);
 
   document.getElementById('btn-close').addEventListener('click', () => {
     document.getElementById('modal').classList.remove('open');
@@ -3888,6 +4052,8 @@
     document.getElementById('add-reading-current-chapter').value = '0';
     document.getElementById('add-reading-image-url').value = '';
     document.getElementById('add-reading-error').style.display = 'none';
+    document.getElementById('add-reading-cover-candidates').innerHTML = '';
+    document.getElementById('add-reading-cover-status').style.display = 'none';
     toggleAddReadingFields();
     document.getElementById('add-reading-modal').classList.add('open');
   }
@@ -3896,10 +4062,14 @@
     const category = document.getElementById('add-reading-category').value;
     document.getElementById('add-reading-page-fields').style.display = category === 'book' ? '' : 'none';
     document.getElementById('add-reading-chapter-fields').style.display = category === 'book' ? 'none' : '';
+    const findCoverBtn = document.getElementById('add-reading-find-cover');
+    findCoverBtn.disabled = category === 'webnovel';
+    findCoverBtn.title = category === 'webnovel' ? 'No reliable free cover source for webnovels' : '';
   }
 
   document.getElementById('btn-add-reading').addEventListener('click', () => { addDropdownEl.style.display = 'none'; openAddReadingModal(); });
   document.getElementById('add-reading-category').addEventListener('change', toggleAddReadingFields);
+  document.getElementById('add-reading-find-cover').addEventListener('click', findCoverForReading);
 
   document.getElementById('add-reading-cancel').addEventListener('click', () => {
     document.getElementById('add-reading-modal').classList.remove('open');
