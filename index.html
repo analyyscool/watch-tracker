@@ -2556,7 +2556,7 @@
 
   // Anime/western only — movie watchlist entries live in their own
   // "Movie Watchlist" sub-tab (renderMovieWatchlistTab) since the "→ start"
-  // clipboard-copy flow below is episode-based and doesn't apply to movies.
+  // flow below is episode-based and doesn't apply to movies.
   function renderWatchlist(items) {
     const watchlistEl = document.getElementById('watchlist');
     watchlistEl.innerHTML = '';
@@ -2568,11 +2568,16 @@
         <span class="watchlist-cta">→ start</span>
         <span class="watchlist-remove" title="Remove from watchlist">✕</span>
       `;
-      el.addEventListener('click', () => {
-        const cmd = `Start ${item.title} from S1E1`;
-        navigator.clipboard.writeText(cmd)
-          .then(() => showToast('Copied — paste to Claude'))
-          .catch(() => showToast('Tell Claude: Start ' + item.title));
+      el.addEventListener('click', async () => {
+        if (!canWriteScope(activeScope)) return;
+        const { error } = await supabase.from('shows').update({
+          list_status: 'watching', current_episode: 0, season_episode: 0, current_season: 1,
+          last_updated: new Date().toISOString().slice(0, 10),
+        }).eq('id', item.id).eq('scope', activeScope);
+        if (checkWriteError(error)) return;
+        invalidateShowsCache();
+        showToast(`Started "${item.title}"`);
+        loadShows();
       });
       el.querySelector('.watchlist-remove').addEventListener('click', async (e) => {
         e.stopPropagation();
