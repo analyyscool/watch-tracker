@@ -3475,15 +3475,22 @@
     const updates = [];
     for (const m of candidates) {
       try {
-        const searchRes = await fetch(`https://api.mangadex.org/manga?title=${encodeURIComponent(m.title)}&limit=5`);
+        const searchRes = await fetch(`https://api.mangadex.org/manga?title=${encodeURIComponent(m.title)}&limit=10`);
         const searchJson = await searchRes.json();
         const candidatesList = searchJson.data || [];
         if (!candidatesList.length) continue;
         // MangaDex's raw top relevance hit is often a colorized/spinoff
         // edition (e.g. "Hunter x Hunter (Official Colored)" outranks the
         // base "Hunter x Hunter") that lags far behind the real release —
-        // prefer an exact title match over the top hit.
-        const exact = candidatesList.find(c => (c.attributes.title.en || '').toLowerCase() === m.title.toLowerCase());
+        // prefer an exact title match over the top hit. Checking only
+        // title.en missed real matches whose primary MangaDex title is in
+        // another language (e.g. Vinland Saga stored under 'ja-ro') and
+        // fell through to a wrong top hit instead — check every title
+        // variant (all languages) plus altTitles.
+        const exact = candidatesList.find(c => {
+          const variants = [c.attributes.title, ...(c.attributes.altTitles || [])].flatMap(t => Object.values(t || {}));
+          return variants.some(v => (v || '').toLowerCase().trim() === m.title.toLowerCase().trim());
+        });
         const manga = exact || candidatesList[0];
         const aggRes = await fetch(`https://api.mangadex.org/manga/${manga.id}/aggregate?translatedLanguage[]=en`);
         const aggJson = await aggRes.json();
