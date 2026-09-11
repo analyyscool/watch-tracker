@@ -121,8 +121,14 @@
   /* #pibble-spam is position:fixed with its own stacking context, which
      would otherwise paint over normal-flow siblings regardless of DOM
      order — pull the real content into its own higher stacking context
-     so it always sits above the spam layer. */
-  #app-header, #signed-out-screen, #app-content { position: relative; z-index: 1; }
+     so it always sits above the spam layer. #app-header additionally
+     needs to outrank #app-content specifically: the "+ Add" dropdown is
+     an absolutely-positioned child of #app-header, and its own z-index
+     is scoped to #app-header's stacking context — with equal z-index on
+     both, #app-content's later DOM position would otherwise let its tabs
+     paint over the dropdown regardless of the dropdown's own z-index. */
+  #signed-out-screen, #app-content { position: relative; z-index: 1; }
+  #app-header { position: relative; z-index: 2; }
 
   /* ── Header ── */
   header {
@@ -169,6 +175,30 @@
     gap: 0.75rem;
     margin-top: 1.2rem;
     flex-wrap: wrap;
+  }
+
+  .add-widget {
+    position: relative;
+  }
+
+  .add-dropdown {
+    position: absolute;
+    top: calc(100% + 0.5rem);
+    left: 0;
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    border-radius: 6px;
+    padding: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    min-width: 140px;
+    z-index: 20;
+  }
+
+  .add-dropdown-item {
+    text-align: left;
+    width: 100%;
   }
 
   .profile-widget {
@@ -1453,9 +1483,14 @@
         <option value="liisa">Liisa</option>
         <option value="together">Together</option>
       </select>
-      <button class="btn btn-primary" id="btn-add">+ Add Show</button>
-      <button class="btn btn-primary" id="btn-add-movie">+ Add Movie</button>
-      <button class="btn btn-primary" id="btn-add-reading">+ Add Reading</button>
+      <div class="add-widget" id="add-widget">
+        <button class="btn btn-primary" id="btn-add-toggle">+ Add</button>
+        <div class="add-dropdown" id="add-dropdown" style="display:none">
+          <button class="btn add-dropdown-item" id="btn-add">Show</button>
+          <button class="btn add-dropdown-item" id="btn-add-movie">Movie</button>
+          <button class="btn add-dropdown-item" id="btn-add-reading">Reading</button>
+        </div>
+      </div>
       <button class="btn" id="btn-import-letterboxd">Import Letterboxd</button>
     </div>
   </header>
@@ -3748,8 +3783,20 @@
     document.getElementById('add-show-runtime-field').style.display = isMovie || category === 'western' ? '' : 'none';
   }
 
-  document.getElementById('btn-add').addEventListener('click', () => openAddShowModal('show'));
-  document.getElementById('btn-add-movie').addEventListener('click', () => openAddShowModal('movie'));
+  // "+ Add" dropdown: one entry point, routes to the existing per-type
+  // openers unchanged (Show/Movie share openAddShowModal via a mode flag,
+  // Reading has its own opener) -- see openAddShowModal's comment above.
+  const addDropdownEl = document.getElementById('add-dropdown');
+  document.getElementById('btn-add-toggle').addEventListener('click', () => {
+    addDropdownEl.style.display = addDropdownEl.style.display === 'none' ? 'flex' : 'none';
+  });
+  document.addEventListener('click', (e) => {
+    if (!document.getElementById('add-widget').contains(e.target)) {
+      addDropdownEl.style.display = 'none';
+    }
+  });
+  document.getElementById('btn-add').addEventListener('click', () => { addDropdownEl.style.display = 'none'; openAddShowModal('show'); });
+  document.getElementById('btn-add-movie').addEventListener('click', () => { addDropdownEl.style.display = 'none'; openAddShowModal('movie'); });
   document.getElementById('add-show-category').addEventListener('change', toggleAddShowFields);
 
   document.getElementById('btn-close').addEventListener('click', () => {
@@ -3844,7 +3891,7 @@
     document.getElementById('add-reading-chapter-fields').style.display = category === 'book' ? 'none' : '';
   }
 
-  document.getElementById('btn-add-reading').addEventListener('click', openAddReadingModal);
+  document.getElementById('btn-add-reading').addEventListener('click', () => { addDropdownEl.style.display = 'none'; openAddReadingModal(); });
   document.getElementById('add-reading-category').addEventListener('change', toggleAddReadingFields);
 
   document.getElementById('add-reading-cancel').addEventListener('click', () => {
