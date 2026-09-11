@@ -346,7 +346,7 @@
   .btn-primary:hover { background: rgba(10,132,255,0.08); color: var(--text); }
 
   /* ── Card list ── */
-  #grid, #movie-watchlist-grid {
+  #grid, #movie-watchlist-grid, #season-notices-grid {
     display: flex;
     flex-direction: column;
     gap: 0.625rem;
@@ -637,58 +637,6 @@
     flex-shrink: 0;
   }
 
-  .season-notice-list {
-    max-width: 640px;
-    margin: 0 auto 1.5rem;
-  }
-
-  .season-notice-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 0.6rem 0.9rem;
-    background: var(--surface2);
-    border: 1px solid var(--border2);
-    border-radius: 6px;
-    cursor: pointer;
-    font-size: 0.65rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--text);
-  }
-
-  .season-notice-rows { padding-top: 0.2rem; }
-
-  .season-notice-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
-    padding: 0.55rem 0.2rem;
-    border-bottom: 1px solid var(--border);
-    font-size: 0.68rem;
-    color: var(--muted);
-  }
-
-  .season-notice-row:hover { color: var(--text); }
-
-  .season-notice-actions {
-    display: flex;
-    gap: 0.8rem;
-    flex-shrink: 0;
-  }
-
-  .season-notice-actions span {
-    font-size: 0.56rem;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--accent);
-    cursor: pointer;
-  }
-
-  .season-notice-actions span.dismiss { color: var(--muted); }
-  .season-notice-actions span.dismiss:hover { color: #d64545; }
-
   .anime-sync-badge {
     font-size: 0.56rem;
     letter-spacing: 0.06em;
@@ -823,11 +771,26 @@
 
   .watchlist-item:first-child { border-top: 1px solid var(--border); }
 
+  .watchlist-name-group {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    min-width: 0;
+  }
+
   .watchlist-name {
     font-size: 0.73rem;
     color: var(--muted);
     letter-spacing: 0.03em;
     transition: color 0.15s;
+  }
+
+  .watchlist-tags {
+    font-size: 0.58rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--accent);
+    flex-shrink: 0;
   }
 
   .watchlist-cta {
@@ -1650,7 +1613,7 @@
   </div>
 
   <div id="view-watching">
-    <div id="new-seasons-banner-slot"></div>
+    <div id="season-notices-section"></div>
     <div class="sort-filter-bar" id="watching-sf">
       <select class="sf-select" id="watching-sort">
         <option value="pct">Sort: % complete</option>
@@ -1786,9 +1749,9 @@
 
   <div id="view-ratings" style="display:none">
     <div class="category-toggle" id="ratings-category-toggle">
+      <button class="btn ratings-category-btn" data-category="movie">Movies</button>
       <button class="btn ratings-category-btn active" data-category="anime">Anime</button>
       <button class="btn ratings-category-btn" data-category="western">Western</button>
-      <button class="btn ratings-category-btn" data-category="movie">Movies</button>
     </div>
     <input type="text" id="ratings-search" class="search-input" placeholder="Filter…">
     <div class="movies-controls">
@@ -1825,9 +1788,9 @@
 
   <div id="view-tierlist" style="display:none">
     <div class="category-toggle">
+      <button class="btn category-btn" data-category="movie">Movies</button>
       <button class="btn category-btn active" data-category="anime">Anime</button>
       <button class="btn category-btn" data-category="western">Western</button>
-      <button class="btn category-btn" data-category="movie">Movies</button>
     </div>
 
     <input type="text" id="tierlist-search" class="search-input" placeholder="Filter shows…">
@@ -1873,7 +1836,12 @@
     <p class="form-hint">Manual entry — no lookup, so you'll need to know the totals yourself. Poster/genre/studio can be filled in later.</p>
     <div class="add-form-field">
       <label for="add-show-title">Title</label>
-      <input type="text" id="add-show-title" placeholder="Title">
+      <div class="cover-search-row">
+        <input type="text" id="add-show-title" placeholder="Title">
+        <button type="button" class="btn" id="add-show-find-cover">Find Cover</button>
+      </div>
+      <p class="cover-search-status" id="add-show-cover-status" style="display:none"></p>
+      <div class="cover-candidates" id="add-show-cover-candidates"></div>
     </div>
     <div class="add-form-row">
       <div class="add-form-field" id="add-show-category-field">
@@ -1925,12 +1893,7 @@
     </div>
     <div class="add-form-field">
       <label for="add-show-image-url">Image URL</label>
-      <div class="cover-search-row">
-        <input type="text" id="add-show-image-url" placeholder="Optional — link to a poster image">
-        <button type="button" class="btn" id="add-show-find-cover">Find Cover</button>
-      </div>
-      <p class="cover-search-status" id="add-show-cover-status" style="display:none"></p>
-      <div class="cover-candidates" id="add-show-cover-candidates"></div>
+      <input type="text" id="add-show-image-url" placeholder="Optional — auto-filled by Find Cover above, or paste your own link">
     </div>
     <p id="add-show-error" class="form-error" style="display:none"></p>
     <div class="modal-actions">
@@ -1946,7 +1909,12 @@
     <p class="form-hint">Manual entry — no lookup, so you'll need to know the totals yourself. Cover art can be filled in later.</p>
     <div class="add-form-field">
       <label for="add-reading-title">Title</label>
-      <input type="text" id="add-reading-title" placeholder="Title">
+      <div class="cover-search-row">
+        <input type="text" id="add-reading-title" placeholder="Title">
+        <button type="button" class="btn" id="add-reading-find-cover">Find Cover</button>
+      </div>
+      <p class="cover-search-status" id="add-reading-cover-status" style="display:none"></p>
+      <div class="cover-candidates" id="add-reading-cover-candidates"></div>
     </div>
     <div class="add-form-row">
       <div class="add-form-field">
@@ -1993,12 +1961,7 @@
     </div>
     <div class="add-form-field">
       <label for="add-reading-image-url">Image URL</label>
-      <div class="cover-search-row">
-        <input type="text" id="add-reading-image-url" placeholder="Optional — link to cover art">
-        <button type="button" class="btn" id="add-reading-find-cover">Find Cover</button>
-      </div>
-      <p class="cover-search-status" id="add-reading-cover-status" style="display:none"></p>
-      <div class="cover-candidates" id="add-reading-cover-candidates"></div>
+      <input type="text" id="add-reading-image-url" placeholder="Optional — auto-filled by Find Cover above, or paste your own link">
     </div>
     <p id="add-reading-error" class="form-error" style="display:none"></p>
     <div class="modal-actions">
@@ -2350,6 +2313,14 @@
     if (stepBtn) { bumpProgress(stepBtn.dataset.id, parseInt(stepBtn.dataset.delta, 10)); return; }
     const finBtn = e.target.closest('.mark-finished-btn[data-id]');
     if (finBtn) { markFinished(finBtn.dataset.id); return; }
+    const watchingRemoveBtn = e.target.closest('.watching-remove-btn[data-id]');
+    if (watchingRemoveBtn) {
+      if (!canWriteScope(activeScope)) return;
+      if (!confirm(`Remove "${watchingRemoveBtn.dataset.title}" from your list entirely?`)) return;
+      supabase.from('shows').delete().eq('id', watchingRemoveBtn.dataset.id).eq('scope', activeScope)
+        .then(({ error }) => { if (checkWriteError(error)) return; invalidateShowsCache(); loadShows(); });
+      return;
+    }
     const movieWatchedBtn = e.target.closest('.movie-watched-btn[data-id]');
     if (movieWatchedBtn) { markMovieWatched(movieWatchedBtn.dataset.id); return; }
     const moviePinBtn = e.target.closest('.movie-watchlist-pin-btn[data-id]');
@@ -2631,16 +2602,26 @@
       const el = document.createElement('div');
       el.className = 'watchlist-item';
       el.innerHTML = `
-        <span class="watchlist-name">${escapeHTML(item.title)}</span>
+        <div class="watchlist-name-group">
+          <span class="watchlist-name">${escapeHTML(item.title)}</span>
+          ${item.tags && item.tags.length ? `<span class="watchlist-tags">${item.tags.map(t => escapeHTML(t)).join(', ')}</span>` : ''}
+        </div>
         <span class="watchlist-cta">→ start</span>
         <span class="watchlist-remove" title="Remove from watchlist">✕</span>
       `;
       el.addEventListener('click', async () => {
         if (!canWriteScope(activeScope)) return;
-        const { error } = await supabase.from('shows').update({
-          list_status: 'watching', current_episode: 0, season_episode: 0, current_season: 1,
-          last_updated: new Date().toISOString().slice(0, 10),
-        }).eq('id', item.id).eq('scope', activeScope);
+        // A row that already has progress (e.g. bumped here via "Add to
+        // Watchlist" on a season notice, rather than added fresh) keeps
+        // that progress instead of being zeroed out — only a genuinely
+        // never-started row initializes these fields.
+        const update = { list_status: 'watching', last_updated: new Date().toISOString().slice(0, 10) };
+        if (item.currentEpisode == null) {
+          update.current_episode = 0;
+          update.season_episode = 0;
+          update.current_season = 1;
+        }
+        const { error } = await supabase.from('shows').update(update).eq('id', item.id).eq('scope', activeScope);
         if (checkWriteError(error)) return;
         invalidateShowsCache();
         showToast(`Started "${item.title}"`);
@@ -2872,7 +2853,36 @@
     }
   }
 
+  // The section itself needs to survive a page reload without re-hitting
+  // AniList/TMDB every time (that's what the 6h throttle below is for), so
+  // the last computed (and not-yet-handled) notices are cached here and
+  // re-rendered from this cache on every Watching-tab load regardless of
+  // throttle state -- only the actual re-fetch is throttled.
+  function getAllPendingSeasonNotices() {
+    try { return JSON.parse(localStorage.getItem('pendingSeasonNotices') || '[]'); }
+    catch (e) { return []; }
+  }
+
+  function getPendingSeasonNotices(scope) {
+    return getAllPendingSeasonNotices().filter(n => n.scope === scope);
+  }
+
+  // Notices are cached globally (one localStorage key) but scoped per
+  // show's own `scope` field -- replacing only the current scope's slice
+  // on each real check so switching scopes doesn't wipe out another
+  // scope's still-pending notices.
+  function setPendingSeasonNotices(scope, notices) {
+    const others = getAllPendingSeasonNotices().filter(n => n.scope !== scope);
+    localStorage.setItem('pendingSeasonNotices', JSON.stringify([...others, ...notices]));
+  }
+
+  function removePendingSeasonNotice(key) {
+    localStorage.setItem('pendingSeasonNotices', JSON.stringify(getAllPendingSeasonNotices().filter(n => n.key !== key)));
+  }
+
   async function checkNewSeasons() {
+    renderSeasonNoticesSection(getPendingSeasonNotices(activeScope));
+
     const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
     const lastCheck = parseInt(localStorage.getItem('lastSeasonCheck') || '0', 10);
     if (Date.now() - lastCheck < CHECK_INTERVAL_MS) return;
@@ -2893,7 +2903,8 @@
         if (notice && !dismissed.includes(notice.key)) notices.push(notice);
       } catch (e) { console.error('Season check failed for', s.title, e); }
     }
-    if (notices.length) showNewSeasonsBanner(notices);
+    setPendingSeasonNotices(activeScope, notices);
+    renderSeasonNoticesSection(notices);
   }
 
   async function checkAnimeSequel(show) {
@@ -2917,6 +2928,7 @@
       text: `${show.title} → new season: "${sequelTitle}"`,
       showId: show.id,
       showTitle: show.title,
+      posterUrl: show.posterUrl,
       newSeasonCount: (show.totalSeasons || 1) + 1,
       newTotalEpisodes: show.totalEpisodes + (sequel.node.episodes || 0),
     };
@@ -2938,6 +2950,7 @@
         text: `${show.title} → Season ${detail.number_of_seasons} is now available (tracked through Season ${show.totalSeasons})`,
         showId: show.id,
         showTitle: show.title,
+        posterUrl: show.posterUrl,
         newSeasonCount: detail.number_of_seasons,
         newTotalEpisodes: detail.number_of_episodes || show.totalEpisodes,
       };
@@ -3108,58 +3121,85 @@
     const { error } = await supabase.from('shows').update({
       total_seasons: notice.newSeasonCount,
       total_episodes: notice.newTotalEpisodes,
+      list_status: 'watching',
       last_updated: new Date().toISOString().slice(0, 10),
     }).eq('id', notice.showId).eq('scope', notice.scope);
     if (checkWriteError(error)) return;
     dismissSeasonNotice(notice.key);
+    removePendingSeasonNotice(notice.key);
     invalidateShowsCache();
     showToast(`Updated "${notice.showTitle}" to Season ${notice.newSeasonCount}`);
     loadShows();
   }
 
-  // Starts collapsed behind a single count bar -- a stacked list of boxed
-  // cards per notice (the original design) was overwhelming in practice
-  // with a real list of 11 finished shows all flagging at once. Expands to
-  // a quiet single-line-per-notice list on click, matching the app's
-  // existing watchlist-row style rather than a heavy bordered card.
-  function showNewSeasonsBanner(notices) {
-    const slot = document.getElementById('new-seasons-banner-slot');
-    const count = notices.length;
+  // Bumps totals like applySeasonBump but parks the show on the Watchlist
+  // instead of jumping straight into Watching, tagging it with the season
+  // number as a visible reminder of what's actually new -- for a show
+  // that's finished for now but you don't want to start catching up on
+  // immediately. Reuses the existing `tags` column (already shown per-row
+  // in the Watchlist list) rather than inventing new schema.
+  async function applySeasonBumpToWatchlist(notice) {
+    const rows = await fetchShows(notice.scope);
+    const show = rows.find(s => s.id === notice.showId);
+    const seasonTag = `Season ${notice.newSeasonCount}`;
+    const tags = [...new Set([...(show?.tags || []), seasonTag])];
+    const { error } = await supabase.from('shows').update({
+      total_seasons: notice.newSeasonCount,
+      total_episodes: notice.newTotalEpisodes,
+      list_status: 'watchlist',
+      tags,
+      last_updated: new Date().toISOString().slice(0, 10),
+    }).eq('id', notice.showId).eq('scope', notice.scope);
+    if (checkWriteError(error)) return;
+    dismissSeasonNotice(notice.key);
+    removePendingSeasonNotice(notice.key);
+    invalidateShowsCache();
+    showToast(`Moved "${notice.showTitle}" to Watchlist, tagged "${seasonTag}"`);
+    loadShows();
+  }
+
+  // Persistent card section at the top of In Progress -- replaced the old
+  // collapsed-banner design (2026-09-11) since a dismissible banner only
+  // ever showed up transiently after a live AniList/TMDB check, vanishing
+  // on the next page load until the 6h throttle allowed a re-fetch. This
+  // renders straight from the pendingSeasonNotices cache instead, so it
+  // survives reloads, and offers three actions per notice: bump the same
+  // row into Watching now, bump it but park it in the Watchlist with a
+  // season-number tag instead (for "not ready yet"), or dismiss outright.
+  function renderSeasonNoticesSection(notices) {
+    const slot = document.getElementById('season-notices-section');
+    if (!notices.length) { slot.innerHTML = ''; return; }
     slot.innerHTML = `
-      <div class="season-notice-list" id="season-notice-list">
-        <div class="season-notice-header" id="season-notice-toggle">
-          <span>${count} new season${count === 1 ? '' : 's'} available</span>
-          <span id="season-notice-arrow">▸</span>
-        </div>
-        <div class="season-notice-rows" id="season-notice-rows" style="display:none">
-          ${notices.map((n, i) => `
-            <div class="season-notice-row">
-              <span>${escapeHTML(n.text)}</span>
-              <div class="season-notice-actions">
-                <span data-idx="${i}" data-action="bump">Add Season</span>
-                <span class="dismiss" data-idx="${i}" data-action="dismiss">Dismiss</span>
+      <div class="section-divider"><span>new seasons available</span></div>
+      <div id="season-notices-grid">
+        ${notices.map((n, i) => `
+          <div class="card">
+            ${n.posterUrl ? `<img class="card-poster" src="${n.posterUrl}" alt="" onerror="this.remove()">` : ''}
+            <div class="card-body">
+              <div class="card-top"><div class="card-title">${escapeHTML(n.showTitle)}</div></div>
+              <div class="card-stats"><span class="stat">${escapeHTML(n.text)}</span></div>
+              <div class="progress-controls">
+                <button class="btn btn-primary" data-idx="${i}" data-action="bump">Add to In Progress</button>
+                <button class="btn" data-idx="${i}" data-action="watchlist">Add to Watchlist</button>
+                <button class="btn" data-idx="${i}" data-action="dismiss">Dismiss</button>
               </div>
             </div>
-          `).join('')}
-        </div>
+          </div>
+        `).join('')}
       </div>
     `;
-    document.getElementById('season-notice-toggle').addEventListener('click', () => {
-      const rows = document.getElementById('season-notice-rows');
-      const expanded = rows.style.display !== 'none';
-      rows.style.display = expanded ? 'none' : '';
-      document.getElementById('season-notice-arrow').textContent = expanded ? '▸' : '▾';
-    });
-    [...slot.querySelectorAll('[data-action]')].forEach(el => {
-      el.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const notice = notices[parseInt(el.dataset.idx, 10)];
-        if (el.dataset.action === 'dismiss') dismissSeasonNotice(notice.key);
-        else applySeasonBump(notice);
-        el.closest('.season-notice-row').remove();
-        const remaining = document.getElementById('season-notice-rows').children.length;
-        if (remaining === 0) { document.getElementById('season-notice-list')?.remove(); return; }
-        document.querySelector('.season-notice-header span').textContent = `${remaining} new season${remaining === 1 ? '' : 's'} available`;
+    slot.querySelectorAll('[data-action]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const notice = notices[parseInt(btn.dataset.idx, 10)];
+        if (btn.dataset.action === 'dismiss') {
+          dismissSeasonNotice(notice.key);
+          removePendingSeasonNotice(notice.key);
+          renderSeasonNoticesSection(notices.filter(n => n.key !== notice.key));
+        } else if (btn.dataset.action === 'watchlist') {
+          applySeasonBumpToWatchlist(notice);
+        } else {
+          applySeasonBump(notice);
+        }
       });
     });
   }
@@ -3249,6 +3289,7 @@
             <span class="progress-value">${show.currentEpisode}/${show.totalEpisodes}</span>
             <button class="btn progress-step" data-id="${show.id}" data-delta="1">+</button>
             <button class="btn mark-finished-btn" data-id="${show.id}">Mark Finished</button>
+            <button class="btn watching-remove-btn" data-id="${show.id}" data-title="${escapeHTML(show.title)}">Remove</button>
           </div>` : '';
         card.className = 'card' + (isPinned ? ' pinned' : '');
         card.innerHTML = `
@@ -4315,7 +4356,7 @@
     restrictScopeOptions(document.getElementById('add-show-scope'));
     document.getElementById('add-show-total-episodes').value = '';
     document.getElementById('add-show-current-episode').value = '0';
-    document.getElementById('add-show-movie-status').value = 'watched';
+    document.getElementById('add-show-movie-status').value = 'watchlist';
     document.getElementById('add-show-runtime').value = '';
     document.getElementById('add-show-genres').value = '';
     document.getElementById('add-show-studio').value = '';
