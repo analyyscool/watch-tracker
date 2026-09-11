@@ -15,7 +15,16 @@ Open tasks queued for a future session. Newest at the top.
 
 ## Minor: Add form doesn't surface genres/studio
 
-- Raised 2026-09-11: the new cover-candidate picker (AniList/TMDB/Open Library) already receives genres/studio for anime from the same query used by the new-season-sequel-add flow, but the Add Show form itself has no genre/studio fields to fill — so this data is fetched and then discarded for manual adds. Small, not urgent; would need new fields added to the Add Show modal first.
+- Raised 2026-09-11, corrected same day: neither the cover-candidate picker's AniList query nor the season-checker's now fetch genres/studio (the season-checker's query was trimmed down when it stopped inserting separate rows for new anime seasons — see below). Small, not urgent; would need a genres/studio field added to `searchAniListCovers`'s query and to the Add Show modal itself.
+
+## IMDb import
+
+- Raised 2026-09-11: mirror the existing Letterboxd importer (CRLF-safe CSV parsing, scope selection, direct Supabase writes) for IMDb — no public API for personal data, but IMDb lets you export your own ratings/watchlist as CSV from account settings, same shape as the Letterboxd flow. Not scoped/designed yet, just logged so it doesn't drift.
+
+## New-season checker: architecture note (2026-09-11)
+
+- Reworked after Karl flagged two real problems: (1) inserting a new show row per anime sequel was wrong — AniList treats each season as a separate entry, but Karl wants ONE row per show with cumulative episodes/seasons, matching how western shows already work here. Anime new-season detection now bumps the SAME row's `total_episodes`/`total_seasons` instead of inserting, same as western. This also answers "how many seasons have I seen" for free: `current_episode`/`total_episodes` is one cumulative pair, so "finished" always means "caught up to what was out at the time," and a later season bump naturally drops the show back into In Progress. (2) The banner's Dismiss button didn't persist anything — now both Dismiss and Add New Season write a key to a `dismissedSeasonNotices` localStorage list, so a specific detected season won't re-nag once handled either way, while a genuinely later new season (different key) still surfaces normally.
+- Visual redesign still pending as of this note: Karl wasn't sold on the original boxed-card-per-notice look (especially with 11 notices at once in real testing). Two mockups were screenshotted and compared — a quiet always-visible thin-row list vs. the same list collapsed behind a single "N new seasons available ▸" bar. Recommended and awaiting Karl's go-ahead on the collapsed version.
 
 ## Written media (books, manga, manhwa, webnovels) — follow-ups from the 2026-08-14 implementation session
 

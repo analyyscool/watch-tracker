@@ -628,17 +628,57 @@
     flex-shrink: 0;
   }
 
-  .new-season-notice {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.5rem;
+  .season-notice-list {
+    max-width: 640px;
+    margin: 0 auto 1.5rem;
   }
 
-  .new-season-actions {
+  .season-notice-header {
     display: flex;
-    gap: 0.5rem;
-    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.6rem 0.9rem;
+    background: var(--surface2);
+    border: 1px solid var(--border2);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.65rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text);
   }
+
+  .season-notice-rows { padding-top: 0.2rem; }
+
+  .season-notice-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.55rem 0.2rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.68rem;
+    color: var(--muted);
+  }
+
+  .season-notice-row:hover { color: var(--text); }
+
+  .season-notice-actions {
+    display: flex;
+    gap: 0.8rem;
+    flex-shrink: 0;
+  }
+
+  .season-notice-actions span {
+    font-size: 0.56rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--accent);
+    cursor: pointer;
+  }
+
+  .season-notice-actions span.dismiss { color: var(--muted); }
+  .season-notice-actions span.dismiss:hover { color: #d64545; }
 
   .anime-sync-badge {
     font-size: 0.56rem;
@@ -2781,14 +2821,29 @@
   }
 
   // ── New-season checking ──
-  // Mirrors checkNewChapters(): fires whenever the In Progress tab renders,
-  // throttled via a localStorage timestamp to at most once every 6 hours.
-  // Unlike chapters, there's no single field to bump to silence a match —
-  // an anime sequel is a whole separate show, and a western season bump
-  // needs its own episode-count lookup — so this never auto-mutates data.
-  // The banner just keeps reappearing until the underlying Supabase row is
-  // actually updated (sequel added, or total_seasons backfilled).
+  // Fires whenever the In Progress tab renders, throttled via a localStorage
+  // timestamp to at most once every 6 hours. Both anime and western treat a
+  // new season as more episodes on the SAME show row -- matching how this
+  // app already tracks multi-season western shows -- never a separate
+  // entry per season, so "how many seasons have I seen" stays answered by
+  // one cumulative total_episodes/current_episode pair with no separate
+  // flag needed. Dismissed or applied notices are remembered in
+  // localStorage keyed per detected season (not per show), so acting on
+  // (or dismissing) one doesn't suppress a genuinely later new season.
   const TMDB_API_KEY = 'eea657b9ab068f2638dbe9e0ff6bc7ac';
+
+  function getDismissedSeasonNotices() {
+    try { return JSON.parse(localStorage.getItem('dismissedSeasonNotices') || '[]'); }
+    catch (e) { return []; }
+  }
+
+  function dismissSeasonNotice(key) {
+    const dismissed = getDismissedSeasonNotices();
+    if (!dismissed.includes(key)) {
+      dismissed.push(key);
+      localStorage.setItem('dismissedSeasonNotices', JSON.stringify(dismissed));
+    }
+  }
 
   async function checkNewSeasons() {
     const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
@@ -2803,25 +2858,20 @@
     );
     if (!candidates.length) return;
 
-    const allShows = await fetchShows(null);
+    const dismissed = getDismissedSeasonNotices();
     const notices = [];
     for (const s of candidates) {
       try {
-        const notice = s.category === 'anime'
-          ? await checkAnimeSequel(s, allShows)
-          : await checkWesternSeason(s);
-        if (notice) notices.push(notice);
+        const notice = s.category === 'anime' ? await checkAnimeSequel(s) : await checkWesternSeason(s);
+        if (notice && !dismissed.includes(notice.key)) notices.push(notice);
       } catch (e) { console.error('Season check failed for', s.title, e); }
     }
     if (notices.length) showNewSeasonsBanner(notices);
   }
 
-  async function checkAnimeSequel(show, allShows) {
+  async function checkAnimeSequel(show) {
     const query = `query ($s: String) { Media(search: $s, type: ANIME) {
-      relations { edges { relationType node {
-        title { romaji english } format episodes genres coverImage { large }
-        studios(isMain: true) { nodes { name } }
-      } } }
+      relations { edges { relationType node { title { romaji english } format episodes } } }
     } }`;
     const res = await fetch('https://graphql.anilist.co', {
       method: 'POST',
@@ -2833,17 +2883,15 @@
     const sequel = edges.find(e => e.relationType === 'SEQUEL' && ['TV', 'TV_SHORT'].includes(e.node.format));
     if (!sequel) return null;
     const sequelTitle = sequel.node.title.english || sequel.node.title.romaji;
-    const alreadyTracked = allShows.some(s2 => s2.title.toLowerCase().trim() === sequelTitle.toLowerCase().trim());
-    if (alreadyTracked) return null;
     return {
       type: 'anime',
+      key: `${show.id}::${sequelTitle}`,
       scope: show.scope,
       text: `${show.title} → new season: "${sequelTitle}"`,
-      sequelTitle,
-      episodes: sequel.node.episodes || null,
-      coverUrl: sequel.node.coverImage?.large || null,
-      genres: sequel.node.genres || null,
-      studio: sequel.node.studios?.nodes?.[0]?.name || null,
+      showId: show.id,
+      showTitle: show.title,
+      newSeasonCount: (show.totalSeasons || 1) + 1,
+      newTotalEpisodes: show.totalEpisodes + (sequel.node.episodes || 0),
     };
   }
 
@@ -2858,6 +2906,7 @@
     if (detail.number_of_seasons && detail.number_of_seasons > show.totalSeasons) {
       return {
         type: 'western',
+        key: `${show.id}::s${detail.number_of_seasons}`,
         scope: show.scope,
         text: `${show.title} → Season ${detail.number_of_seasons} is now available (tracked through Season ${show.totalSeasons})`,
         showId: show.id,
@@ -3005,67 +3054,69 @@
     }
   }
 
-  // Adds a newly-detected anime sequel as its own show row (a sequel is a
-  // separate AniList entry, not more episodes on the existing one).
-  async function addSequelFromNotice(notice, status) {
-    const id = slugify(notice.sequelTitle);
-    if (!id) return;
-    const { error } = await supabase.from('shows').insert({
-      id, title: notice.sequelTitle, category: 'anime', scope: notice.scope,
-      poster_url: notice.coverUrl, studio: notice.studio, genres: notice.genres,
-      total_episodes: notice.episodes, current_episode: 0, total_seasons: 1,
-      current_season: 1, season_episode: 0, list_status: status, in_tier_pool: false,
-      last_updated: new Date().toISOString().slice(0, 10),
-    });
-    if (checkWriteError(error)) return;
-    invalidateShowsCache();
-    showToast(`Added "${notice.sequelTitle}"`);
-    loadShows();
-  }
-
-  // Bumps the SAME western show row's totals -- unlike anime, a new season
-  // of a western show is more episodes on the same TMDB entry, not a
-  // separate one. Once total_episodes exceeds current_episode again, the
-  // show naturally reappears in In Progress (see loadShows' completed
-  // filter), and finishing it again re-fires the existing rate/note prompt
-  // with the prior rating pre-filled -- see openFinishModal.
-  async function applyWesternSeasonBump(notice) {
+  // Bumps the SAME show row's totals for a new season -- both anime and
+  // western are tracked as one cumulative row, matching how this app has
+  // always tracked multi-season western shows, never a separate entry per
+  // season. Once total_episodes exceeds current_episode again, the show
+  // naturally reappears in In Progress (see loadShows' completed filter),
+  // and finishing it again re-fires the existing rate/note prompt with the
+  // prior rating pre-filled -- see openFinishModal.
+  async function applySeasonBump(notice) {
     const { error } = await supabase.from('shows').update({
       total_seasons: notice.newSeasonCount,
       total_episodes: notice.newTotalEpisodes,
       last_updated: new Date().toISOString().slice(0, 10),
     }).eq('id', notice.showId).eq('scope', notice.scope);
     if (checkWriteError(error)) return;
+    dismissSeasonNotice(notice.key);
     invalidateShowsCache();
     showToast(`Updated "${notice.showTitle}" to Season ${notice.newSeasonCount}`);
     loadShows();
   }
 
+  // Starts collapsed behind a single count bar -- a stacked list of boxed
+  // cards per notice (the original design) was overwhelming in practice
+  // with a real list of 11 finished shows all flagging at once. Expands to
+  // a quiet single-line-per-notice list on click, matching the app's
+  // existing watchlist-row style rather than a heavy bordered card.
   function showNewSeasonsBanner(notices) {
     const slot = document.getElementById('new-seasons-banner-slot');
-    slot.innerHTML = notices.map((n, i) => `
-      <div class="new-chapters-banner new-season-notice">
-        <span>${escapeHTML(n.text)}</span>
-        <div class="new-season-actions">
-          ${n.type === 'anime' ? `
-            <button class="btn" data-idx="${i}" data-action="watching">Add to Watching</button>
-            <button class="btn" data-idx="${i}" data-action="watchlist">Add to Watchlist</button>
-          ` : `
-            <button class="btn" data-idx="${i}" data-action="bump">Add New Season</button>
-          `}
-          <button class="btn" data-idx="${i}" data-action="dismiss">Dismiss</button>
+    const count = notices.length;
+    slot.innerHTML = `
+      <div class="season-notice-list" id="season-notice-list">
+        <div class="season-notice-header" id="season-notice-toggle">
+          <span>${count} new season${count === 1 ? '' : 's'} available</span>
+          <span id="season-notice-arrow">▸</span>
+        </div>
+        <div class="season-notice-rows" id="season-notice-rows" style="display:none">
+          ${notices.map((n, i) => `
+            <div class="season-notice-row">
+              <span>${escapeHTML(n.text)}</span>
+              <div class="season-notice-actions">
+                <span data-idx="${i}" data-action="bump">Add Season</span>
+                <span class="dismiss" data-idx="${i}" data-action="dismiss">Dismiss</span>
+              </div>
+            </div>
+          `).join('')}
         </div>
       </div>
-    `).join('');
-    [...slot.querySelectorAll('button[data-action]')].forEach(btn => {
-      btn.addEventListener('click', () => {
-        const notice = notices[parseInt(btn.dataset.idx, 10)];
-        const action = btn.dataset.action;
-        if (action === 'dismiss') { btn.closest('.new-season-notice').remove(); return; }
-        if (action === 'watching') addSequelFromNotice(notice, 'watching');
-        else if (action === 'watchlist') addSequelFromNotice(notice, 'watchlist');
-        else if (action === 'bump') applyWesternSeasonBump(notice);
-        btn.closest('.new-season-notice').remove();
+    `;
+    document.getElementById('season-notice-toggle').addEventListener('click', () => {
+      const rows = document.getElementById('season-notice-rows');
+      const expanded = rows.style.display !== 'none';
+      rows.style.display = expanded ? 'none' : '';
+      document.getElementById('season-notice-arrow').textContent = expanded ? '▸' : '▾';
+    });
+    [...slot.querySelectorAll('[data-action]')].forEach(el => {
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const notice = notices[parseInt(el.dataset.idx, 10)];
+        if (el.dataset.action === 'dismiss') dismissSeasonNotice(notice.key);
+        else applySeasonBump(notice);
+        el.closest('.season-notice-row').remove();
+        const remaining = document.getElementById('season-notice-rows').children.length;
+        if (remaining === 0) { document.getElementById('season-notice-list')?.remove(); return; }
+        document.querySelector('.season-notice-header span').textContent = `${remaining} new season${remaining === 1 ? '' : 's'} available`;
       });
     });
   }
