@@ -812,6 +812,36 @@
     margin-left: 0.6rem;
   }
 
+  .rec-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 1rem;
+  }
+
+  .rec-reason {
+    font-size: 0.62rem;
+    color: var(--muted);
+    margin: 0.4rem 0;
+  }
+
+  .rec-card-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin-top: 0.5rem;
+  }
+
+  .rec-dismiss-btn {
+    font-size: 0.9rem;
+    line-height: 1;
+    color: var(--muted);
+    cursor: pointer;
+    background: none;
+    border: none;
+    padding: 0.1rem 0.3rem;
+  }
+  .rec-dismiss-btn:hover { color: var(--text); }
+
   .watchlist-remove {
     font-size: 0.85rem;
     line-height: 1;
@@ -1621,6 +1651,7 @@
   <div class="tabs" id="top-tabs">
     <button class="tab-btn active" data-toptab="tvmovies">TV / Movies</button>
     <button class="tab-btn" data-toptab="reading">Reading</button>
+    <button class="tab-btn" data-toptab="recommendations">Recommendations</button>
     <button class="tab-btn" data-toptab="stats">Stats</button>
   </div>
 
@@ -1812,6 +1843,8 @@
   </div>
 
   <div id="view-stats" style="display:none"></div>
+
+  <div id="view-recommendations" style="display:none"></div>
 
   <div id="view-tierlist" style="display:none">
     <div class="category-toggle">
@@ -2066,6 +2099,11 @@
     activeStatsCategory = cat;
     renderStatsTab();
   }
+  let activeRecCategory = 'anime';
+  function setRecCategory(cat) {
+    activeRecCategory = cat;
+    renderRecommendationsTab();
+  }
   let currentTab = 'watching'; // active sub-tab (watching/tierlist/ratings/stats/reading/reading-ratings)
   let hasAutoSwitchedScope = false; // only auto-switch the scope once per sign-in
 
@@ -2085,6 +2123,7 @@
     else if (currentTab === 'stats') renderStatsTab();
     else if (currentTab === 'reading') loadReading();
     else if (currentTab === 'reading-ratings') renderReadingRatingsTab();
+    else if (currentTab === 'recommendations') renderRecommendationsTab();
     else loadShows();
   }
 
@@ -5241,6 +5280,7 @@
   const TOPTAB_GROUPS = {
     tvmovies: ['watching', 'movie-watchlist', 'spinwheel', 'tierlist', 'ratings'],
     reading: ['reading', 'reading-ratings'],
+    recommendations: ['recommendations'],
     stats: ['stats'],
   };
   function toptabFor(tab) {
@@ -5259,6 +5299,7 @@
     ratings: { eyebrow: 'rated', title: 'Ratings' },
     reading: { eyebrow: 'in progress', title: 'Currently Reading' },
     'reading-ratings': { eyebrow: 'rated', title: 'Reading Ratings' },
+    recommendations: { eyebrow: 'discover', title: 'Recommendations' },
     stats: { eyebrow: 'the numbers', title: 'Stats' },
   };
 
@@ -5282,6 +5323,7 @@
     document.getElementById('view-stats').style.display = tab === 'stats' ? '' : 'none';
     document.getElementById('view-reading').style.display = tab === 'reading' ? '' : 'none';
     document.getElementById('view-reading-ratings').style.display = tab === 'reading-ratings' ? '' : 'none';
+    document.getElementById('view-recommendations').style.display = tab === 'recommendations' ? '' : 'none';
     if (tab === 'tierlist') {
       watchedShowsCache = null;
       initTierlistView();
@@ -5304,6 +5346,9 @@
     }
     if (tab === 'reading-ratings') {
       renderReadingRatingsTab();
+    }
+    if (tab === 'recommendations') {
+      renderRecommendationsTab();
     }
     const top = toptabFor(tab);
     if (top) localStorage.setItem(`activeSubtab:${top}`, tab);
@@ -6281,6 +6326,101 @@
         ${ratedMedia.length ? ratingHistogramRows(ratedMedia) : '<p style="font-size:0.65rem; color:var(--muted)">No ratings yet.</p>'}
       </div>
     `;
+  }
+
+  async function renderRecommendationsTab({ force = false } = {}) {
+    const container = document.getElementById('view-recommendations');
+    const allRows = activeRecCategory === 'anime' ? await fetchShows(activeScope) : await fetchWrittenMedia(activeScope);
+    // Restrict to the domain-appropriate rows for BOTH seed selection and
+    // dedup -- otherwise a highly-rated western show would become a
+    // wasted seed for an AniList `type: ANIME` search (it simply returns
+    // no match, but it's still an unnecessary network call), mirroring
+    // how computeAffinity is already called separately per-domain
+    // elsewhere in this file (shows vs. written_media, never merged).
+    const rows = activeRecCategory === 'anime'
+      ? allRows.filter(s => s.category === 'anime')
+      : allRows.filter(m => m.category === 'manga' || m.category === 'manhwa');
+    const ratedCount = rows.filter(r => r.rating != null).length;
+
+    container.innerHTML = `
+      <div class="tabs sub-tabs">
+        <button class="tab-btn sub-tab-btn${activeRecCategory === 'anime' ? ' active' : ''}" onclick="setRecCategory('anime')">Anime</button>
+        <button class="tab-btn sub-tab-btn${activeRecCategory === 'manga' ? ' active' : ''}" onclick="setRecCategory('manga')">Manga / Manhwa</button>
+        <button class="btn" id="rec-refresh-btn" style="margin-left:auto">Refresh</button>
+      </div>
+      <div id="rec-stale-note" style="display:none; font-size:0.65rem; color:var(--muted); margin:0.5rem 0"></div>
+      <div id="rec-grid" class="rec-grid"></div>
+    `;
+
+    document.getElementById('rec-refresh-btn').addEventListener('click', () => renderRecommendationsTab({ force: true }));
+
+    const grid = document.getElementById('rec-grid');
+    if (ratedCount < MIN_RATED_FOR_AFFINITY) {
+      grid.innerHTML = `<p style="font-size:0.75rem; color:var(--muted)">Rate a few more shows to get personalized recommendations.</p>`;
+      return;
+    }
+
+    grid.innerHTML = `<p style="font-size:0.7rem; color:var(--muted)">Loading recommendations…</p>`;
+    const { list, stale } = await loadRecommendations(activeScope, activeRecCategory, rows, { force });
+
+    const staleNote = document.getElementById('rec-stale-note');
+    if (stale) {
+      staleNote.style.display = '';
+      staleNote.textContent = "Couldn't refresh — showing last known recommendations.";
+    }
+
+    if (!list.length) {
+      grid.innerHTML = `<p style="font-size:0.75rem; color:var(--muted)">No recommendations yet — try Refresh, or rate more titles.</p>`;
+      return;
+    }
+
+    grid.innerHTML = list.map(item => `
+      <div class="card rec-card">
+        ${item.coverUrl ? `<img class="card-poster" src="${item.coverUrl}" alt="" onerror="this.remove()">` : ''}
+        <div class="card-body">
+          <div class="card-title">${escapeHTML(item.title)}</div>
+          ${(item.genres || []).length ? `<div class="card-tags">${(item.genres || []).map(g => escapeHTML(g)).join(', ')}</div>` : ''}
+          <div class="rec-reason">${item.reason === 'because_rated'
+            ? `Because you rated <strong>${escapeHTML(item.reasonDetail)}</strong>${item.sourceRating != null ? ` ★${item.sourceRating}` : ''}`
+            : `Matches your ${escapeHTML(item.reasonDetail)} taste`}</div>
+          <div class="rec-card-actions">
+            <button class="btn rec-add-btn">+ Add to Watchlist</button>
+            <button class="rec-dismiss-btn" title="Dismiss">✕</button>
+          </div>
+        </div>
+      </div>
+    `).join('');
+
+    grid.querySelectorAll('.rec-dismiss-btn').forEach((btn, i) => {
+      btn.addEventListener('click', async () => {
+        const ok = await dismissRecommendation(activeScope, list[i]);
+        if (!ok) return;
+        btn.closest('.rec-card').remove();
+      });
+    });
+
+    grid.querySelectorAll('.rec-add-btn').forEach((btn, i) => {
+      btn.addEventListener('click', async () => {
+        const item = list[i];
+        if (!canWriteScope(activeScope)) return;
+        if (activeRecCategory === 'anime') {
+          const { error } = await supabase.from('shows').insert({
+            id: `rec-${externalIdFor(item)}-${Date.now()}`, title: item.title, category: 'anime', scope: activeScope,
+            poster_url: item.coverUrl, studio: item.studio, genres: item.genres, list_status: 'watchlist', in_tier_pool: false,
+          });
+          if (checkWriteError(error)) return;
+          invalidateShowsCache();
+        } else {
+          const { error } = await supabase.from('written_media').insert({
+            title: item.title, category: 'manga', scope: activeScope, cover_url: item.coverUrl, genres: item.genres, list_status: 'plan_to_read',
+          });
+          if (checkWriteError(error)) return;
+          invalidateWrittenMediaCache();
+        }
+        showToast(`Added "${item.title}" to your watchlist`);
+        btn.closest('.rec-card').remove();
+      });
+    });
   }
 
   // ── Auto-refresh on focus ──
