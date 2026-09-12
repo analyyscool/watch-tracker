@@ -4083,7 +4083,6 @@
       coverUrl: r.poster_path ? `https://image.tmdb.org/t/p/w342${r.poster_path}` : null,
       score: r.vote_average != null ? Math.round(r.vote_average * 10) : null,
       collectionId: r.belongs_to_collection?.id ?? null,
-      isTV: mediaType === 'tv',
     };
   }
 
@@ -4116,7 +4115,7 @@
     // there's a healthy buffer (2x count) for the caller's own filtering.
     for (let page = 1; page <= 4 && results.length < count * 2; page++) {
       try {
-        const res = await fetch(`https://api.themoviedb.org/3/discover/${mediaType}?api_key=${TMDB_API_KEY}&with_genres=${genreIds.join('|')}&sort_by=vote_average.desc&vote_count.gte=200&page=${page}`);
+        const res = await fetch(`https://api.themoviedb.org/3/discover/${mediaType}?api_key=${TMDB_API_KEY}&with_genres=${genreIds.join('|')}&sort_by=vote_average.desc&vote_count.gte=${TMDB_MIN_VOTE_COUNT}&page=${page}`);
         const json = await res.json();
         if (!res.ok) { console.warn('TMDB genre-affinity search failed', res.status); break; }
         anySucceeded = true;
@@ -4132,13 +4131,18 @@
   }
 
   // TMDB's vote_count is the closest analogue to AniList's `popularity`
-  // floor (PEAK_MIN_POPULARITY) -- 200 is a starting point, NOT verified
-  // against TMDB's real vote-count distribution the way 15000 was
-  // spot-checked live for AniList. Spot-check this during Task 6's
-  // end-to-end verification (e.g. fetch the top 50 by vote_average with
-  // no floor and eyeball where genuinely-obscure titles start
-  // outnumbering broadly-known ones) and adjust before shipping.
-  const TMDB_MIN_VOTE_COUNT = 200;
+  // floor (PEAK_MIN_POPULARITY). Spot-checked live (2026-09-13):
+  // `/discover/movie?sort_by=vote_average.desc` with no floor returns
+  // near-unanimous unknowns (vote_count 1-3, e.g. random festival shorts
+  // and fan uploads) even at the very top of the sort. Raising the floor
+  // step by step, 200 still let through low-effort/fringe titles mixed
+  // with real ones (e.g. "Batman: Knightfall Part 1: Knightfall" at 279
+  // votes, a documentary at 246, "Macario" at 221) -- 500 was the point
+  // where those dropped out while still keeping legitimately popular but
+  // less classically-titled recent hits (e.g. "Swapped" at 2172, "Facing
+  // El Chapo" at 616, "Avatar Aang: The Last Airbender" at 1100). Settled
+  // on 500.
+  const TMDB_MIN_VOTE_COUNT = 500;
 
   async function fetchTMDBPeakUnseenCandidates(mediaType, count) {
     if (count <= 0) return [];
@@ -4227,12 +4231,14 @@
   const REC_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
   // Stable dedup/dismissal key across sources: AniList id when we have
-  // one, else a MAL-id key (Jikan fallback), else a normalized-title key
-  // as a last resort (genre-affinity results always have an anilistId,
-  // so this only applies to a Jikan result with a missing malId, which
-  // shouldn't happen in practice but keeps the function total).
+  // one, else a TMDB id (western/movie candidates), else a MAL-id key
+  // (Jikan fallback), else a normalized-title key as a last resort
+  // (genre-affinity results always have an anilistId or tmdbId, so the
+  // title fallback only applies to a Jikan result with a missing malId,
+  // which shouldn't happen in practice but keeps the function total).
   function externalIdFor(item) {
     if (item.anilistId) return String(item.anilistId);
+    if (item.tmdbId) return `tmdb:${item.tmdbId}`;
     if (item.malId) return `mal:${item.malId}`;
     return `title:${normalizeTitle(item.title)}`;
   }
@@ -4317,7 +4323,15 @@
       fetchSeed: (seed, mediaType) => fetchTMDBRecommendationsFor(seed.title, mediaType),
       fetchGenreAffinity: (genres, mediaType, count) => fetchTMDBGenreAffinityCandidates(genres, mediaType, count),
       fetchPeakUnseen: (mediaType, count) => fetchTMDBPeakUnseenCandidates(mediaType, count),
-      isFreshEntry: (candidate, alreadyHave) => isFreshMovieEntry(candidate, alreadyHave),
+      // isFreshMovieEntry is real per-candidate collection data (unlike
+      // TV's isTVSpinoffOrPrequel), but it's still 2 TMDB round-trips per
+      // candidate -- against the full raw candidate pool (30-50+ per
+      // section) that's up to ~400 sequential requests before a section
+      // even finishes filling. Same cost-control posture as western:
+      // every candidate passes here, and the check runs once as a
+      // post-pass against the small quota-filled finalist set instead
+      // (Step 4 below).
+      isFreshEntry: async () => true,
     },
     western: {
       mediaType: 'tv',
@@ -4499,6 +4513,27 @@
       becauseYouLiked = await filterSpinoffs(becauseYouLiked);
       overallTaste = await filterSpinoffs(overallTaste);
       peakUnseen = await filterSpinoffs(peakUnseen);
+    }
+
+    // Movies DO have structured per-candidate franchise data
+    // (isFreshMovieEntry, via TMDB's belongs_to_collection), but it's
+    // still 2 TMDB round-trips per candidate -- checking it against the
+    // full raw candidate pool (see RECOMMENDATION_SOURCES.movie's
+    // isFreshEntry comment) rather than the small quota-filled finalist
+    // set here would cost up to ~400 sequential requests per section.
+    // Same "post-pass after quotas fill" structure as the western
+    // spin-off/prequel filter above -- no backfill for a removed slot.
+    if (category === 'movie') {
+      const filterFranchiseTails = async (list) => {
+        const kept = [];
+        for (const item of list) {
+          if (await isFreshMovieEntry(item, alreadyHave)) kept.push(item);
+        }
+        return kept;
+      };
+      becauseYouLiked = await filterFranchiseTails(becauseYouLiked);
+      overallTaste = await filterFranchiseTails(overallTaste);
+      peakUnseen = await filterFranchiseTails(peakUnseen);
     }
 
     const sections = { becauseYouLiked, overallTaste, peakUnseen };
@@ -7493,15 +7528,20 @@
 
   // Shared by the Recommendations tab's sections and the show-detail
   // modal's "Similar to this" list -- inserts a recommended item as a
-  // watchlist/to-read entry. `category` is 'anime' or 'manga' (manga
-  // covers manhwa too, same convention as elsewhere in this feature).
+  // watchlist/to-read entry. `category` is 'anime', 'western', 'movie',
+  // or 'manga' (manga covers manhwa too, same convention as elsewhere in
+  // this feature). isShowsCategory mirrors the same predicate used in
+  // renderRecommendationsTab: anime/western/movie all live in the `shows`
+  // table (using their own actual category, not a hardcoded 'anime'),
+  // everything else (manga) goes to `written_media`.
   // Returns true on success (caller removes the card), false on a write
   // failure (checkWriteError already showed the toast).
   async function addRecommendationItemToWatchlist(item, category, scope) {
     if (!canWriteScope(scope)) return false;
-    if (category === 'anime') {
+    const isShowsCategory = category === 'anime' || category === 'western' || category === 'movie';
+    if (isShowsCategory) {
       const { error } = await supabase.from('shows').insert({
-        id: `rec-${externalIdFor(item)}-${Date.now()}`, title: item.title, category: 'anime', scope,
+        id: `rec-${externalIdFor(item)}-${Date.now()}`, title: item.title, category, scope,
         poster_url: item.coverUrl, studio: item.studio, genres: item.genres, list_status: 'watchlist', in_tier_pool: false,
       });
       if (checkWriteError(error)) return false;
@@ -7523,9 +7563,10 @@
   // wants to start right away rather than queue it.
   async function startRecommendationItemNow(item, category, scope) {
     if (!canWriteScope(scope)) return false;
-    if (category === 'anime') {
+    const isShowsCategory = category === 'anime' || category === 'western' || category === 'movie';
+    if (isShowsCategory) {
       const { error } = await supabase.from('shows').insert({
-        id: `rec-${externalIdFor(item)}-${Date.now()}`, title: item.title, category: 'anime', scope,
+        id: `rec-${externalIdFor(item)}-${Date.now()}`, title: item.title, category, scope,
         poster_url: item.coverUrl, studio: item.studio, genres: item.genres,
         list_status: 'watching', current_episode: 0, season_episode: 0, current_season: 1, in_tier_pool: false,
         last_updated: new Date().toISOString().slice(0, 10),
