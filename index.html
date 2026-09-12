@@ -804,6 +804,14 @@
     flex-shrink: 0;
   }
 
+  .watchlist-match {
+    font-size: 0.58rem;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+    flex-shrink: 0;
+    margin-left: 0.6rem;
+  }
+
   .watchlist-remove {
     font-size: 0.85rem;
     line-height: 1;
@@ -2197,6 +2205,60 @@
 
   function invalidateWrittenMediaCache() { writtenMediaCache = null; }
 
+  // ── Taste affinity scoring ──
+  // Ranks watchlist/to-read items by how well their genres/studio match
+  // what you've historically rated highly. Needs a minimum number of rated
+  // items before it's trusted — below that, a couple of data points would
+  // just be noise wearing the mask of a real signal.
+  const MIN_RATED_FOR_AFFINITY = 5;
+
+  function computeAffinity(items) {
+    const genreSum = {}, genreCount = {};
+    const studioSum = {}, studioCount = {};
+    let ratedCount = 0;
+    items.forEach(it => {
+      if (it.rating == null) return;
+      ratedCount++;
+      (it.genres || []).forEach(g => {
+        genreSum[g] = (genreSum[g] || 0) + it.rating;
+        genreCount[g] = (genreCount[g] || 0) + 1;
+      });
+      if (it.studio) {
+        studioSum[it.studio] = (studioSum[it.studio] || 0) + it.rating;
+        studioCount[it.studio] = (studioCount[it.studio] || 0) + 1;
+      }
+    });
+    const genreAvg = {};
+    Object.keys(genreSum).forEach(g => { genreAvg[g] = genreSum[g] / genreCount[g]; });
+    const studioAvg = {};
+    Object.keys(studioSum).forEach(s => { studioAvg[s] = studioSum[s] / studioCount[s]; });
+    return { genreAvg, studioAvg, ratedCount };
+  }
+
+  // Score is on the same 0–5 scale as ratings; null means not enough
+  // genre/studio overlap with anything rated to say anything.
+  function scoreAffinity(item, affinity) {
+    const genreScores = (item.genres || []).map(g => affinity.genreAvg[g]).filter(v => v != null);
+    const genreScore = genreScores.length ? genreScores.reduce((a, b) => a + b, 0) / genreScores.length : null;
+    const studioScore = item.studio && affinity.studioAvg[item.studio] != null ? affinity.studioAvg[item.studio] : null;
+    if (genreScore == null && studioScore == null) return null;
+    if (genreScore != null && studioScore != null) return genreScore * 0.75 + studioScore * 0.25;
+    return genreScore != null ? genreScore : studioScore;
+  }
+
+  // Sorts by affinity score descending (unscored items sink to the bottom,
+  // keeping their relative order) and stamps a `_matchPct` (0–100) on each
+  // scored item for the badge in renderWatchlist/renderToRead.
+  function applyAffinityRanking(items, affinity) {
+    if (affinity.ratedCount < MIN_RATED_FOR_AFFINITY) return items;
+    const scored = items.map(item => ({ item, score: scoreAffinity(item, affinity) }));
+    scored.sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
+    return scored.map(({ item, score }) => {
+      if (score != null) item._matchPct = Math.round((score / 5) * 100);
+      return item;
+    });
+  }
+
   // Shared write-error guard for Supabase mutations. Call sites destructure
   // { error } from the write's result and do `if (checkWriteError(error)) return;`
   // immediately after, before any cache-invalidate/re-render steps.
@@ -2627,6 +2689,7 @@
           <span class="watchlist-name">${escapeHTML(item.title)}</span>
           ${item.tags && item.tags.length ? `<span class="watchlist-tags">${item.tags.map(t => escapeHTML(t)).join(', ')}</span>` : ''}
         </div>
+        ${item._matchPct != null ? `<span class="watchlist-match" title="Based on your ratings for similar genres/studio">${item._matchPct}% match</span>` : ''}
         <span class="watchlist-cta">→ start</span>
         <span class="watchlist-remove" title="Remove from watchlist">✕</span>
       `;
@@ -2703,7 +2766,7 @@
     items.forEach(item => {
       const row = document.createElement('div');
       row.className = 'watchlist-item';
-      row.innerHTML = `<span class="watchlist-name">${escapeHTML(item.title)}</span><span class="watchlist-cta">→ start</span><span class="watchlist-remove" title="Remove from to-read">✕</span>`;
+      row.innerHTML = `<span class="watchlist-name">${escapeHTML(item.title)}</span>${item._matchPct != null ? `<span class="watchlist-match" title="Based on your ratings for similar genres/studio">${item._matchPct}% match</span>` : ''}<span class="watchlist-cta">→ start</span><span class="watchlist-remove" title="Remove from to-read">✕</span>`;
       row.addEventListener('click', async () => {
         if (!canWriteScope(activeScope)) return;
         const { error } = await supabase.from('written_media').update({ list_status: 'reading' }).eq('id', item.id);
@@ -3311,9 +3374,10 @@
     document.getElementById('watchlist-add').style.display = canWriteScope(activeScope) ? '' : 'none';
     const activeTags = [...document.querySelectorAll('#watchlist-tag-filter .tag-pill.active')].map(btn => btn.dataset.tag);
     renderWatchlistTagFilter(watchlist, activeTags);
-    const filteredWatchlist = activeTags.length
+    let filteredWatchlist = activeTags.length
       ? watchlist.filter(s => (s.tags || []).some(t => activeTags.includes(t)))
       : watchlist;
+    filteredWatchlist = applyAffinityRanking(filteredWatchlist, computeAffinity(rows));
     watchlistCache = filteredWatchlist;
 
     const grid = document.getElementById('grid');
@@ -4363,9 +4427,12 @@
     document.getElementById('to-read-add').style.display = canWriteScope(activeScope) ? '' : 'none';
     const toReadActiveTags = [...document.querySelectorAll('#to-read-tag-filter .tag-pill.active')].map(btn => btn.dataset.tag);
     renderToReadTagFilter(toRead, toReadActiveTags);
-    const filteredToRead = toReadActiveTags.length
+    let filteredToRead = toReadActiveTags.length
       ? toRead.filter(m => (m.tags || []).some(t => toReadActiveTags.includes(t)))
       : toRead;
+    // Affinity is computed across all reading categories (not just
+    // activeReadingCategory) so it has enough rated items to be meaningful.
+    filteredToRead = applyAffinityRanking(filteredToRead, computeAffinity(allRows));
     toReadCache = filteredToRead;
     renderToRead(filteredToRead);
   }
@@ -5865,6 +5932,29 @@
       `).join('');
     }
 
+    // Unlike barRows (sorted by count, for top-N lists), a rating histogram
+    // needs to stay ordered along the rating axis (0.5–5.0) rather than by
+    // frequency, so it gets its own row renderer.
+    function ratingHistogramRows(items) {
+      const buckets = {};
+      for (let v = 0.5; v <= 5; v += 0.5) buckets[v.toFixed(1)] = 0;
+      items.forEach(it => {
+        if (it.rating == null) return;
+        const key = it.rating.toFixed(1);
+        buckets[key] = (buckets[key] || 0) + 1;
+      });
+      const top = Math.max(1, ...Object.values(buckets));
+      return Object.entries(buckets).map(([label, count]) => `
+        <div class="bar-row">
+          <span class="bar-row-label">${label}★</span>
+          <div class="bar-row-track"><div class="bar-row-fill" style="width:${(count / top) * 100}%"></div></div>
+          <span class="bar-row-count">${count}</span>
+        </div>
+      `).join('');
+    }
+
+    const ratedShows = rows.filter(s => s.rating != null);
+
     const hours = (minutesWatched / 60).toFixed(1);
 
     const mediaRows = await fetchWrittenMedia(activeScope);
@@ -5893,6 +5983,8 @@
     [...mediaReading, ...mediaCompleted, ...mediaToRead].forEach(m => {
       (m.genres || []).forEach(g => { mediaGenreCounts[g] = (mediaGenreCounts[g] || 0) + 1; });
     });
+
+    const ratedMedia = mediaRows.filter(m => m.rating != null);
 
     document.getElementById('view-stats').innerHTML = `
       <div class="tabs sub-tabs">
@@ -5924,6 +6016,9 @@
         <p style="font-size:0.6rem; color:var(--muted); margin-top:1rem;">
           Genre/studio breakdown is based on the ${genreStudioPool.filter(s => (s.genres && s.genres.length) || s.studio).length} shows tracked with genre/studio metadata — any entry still missing that data isn't counted here.
         </p>
+
+        <div class="stats-section-title">Rating distribution</div>
+        ${ratedShows.length ? ratingHistogramRows(ratedShows) : '<p style="font-size:0.65rem; color:var(--muted)">No ratings yet.</p>'}
       </div>
 
       <div id="stats-reading-panel" style="display:${activeStatsCategory === 'reading' ? '' : 'none'}">
@@ -5940,6 +6035,9 @@
 
         <div class="stats-section-title">Top genres</div>
         ${Object.keys(mediaGenreCounts).length ? barRows(mediaGenreCounts) : '<p style="font-size:0.65rem; color:var(--muted)">No genre data yet.</p>'}
+
+        <div class="stats-section-title">Rating distribution</div>
+        ${ratedMedia.length ? ratingHistogramRows(ratedMedia) : '<p style="font-size:0.65rem; color:var(--muted)">No ratings yet.</p>'}
       </div>
     `;
   }
