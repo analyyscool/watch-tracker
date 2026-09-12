@@ -3211,6 +3211,43 @@
     }
   }
 
+  // Fills remaining recommendation slots once the recommendations-field
+  // pass doesn't produce enough candidates -- searches AniList's overall
+  // catalog for popular titles in the given genres. Best-effort: a failed
+  // or empty response here just means fewer recommendations shown, not a
+  // hard error, so failures return [] rather than throwing.
+  async function fetchGenreAffinityCandidates(genres, type, count) {
+    if (!genres.length || count <= 0) return [];
+    const query = `query ($genres: [String], $type: MediaType, $perPage: Int) {
+      Page(perPage: $perPage) {
+        media(genre_in: $genres, type: $type, sort: SCORE_DESC) {
+          id title { romaji english } genres coverImage { large } studios(isMain: true) { nodes { name } }
+        }
+      }
+    }`;
+    try {
+      const res = await fetch('https://graphql.anilist.co', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, variables: { genres, type, perPage: count } })
+      });
+      const json = await res.json();
+      if (!res.ok || json.errors) return [];
+      const media = json?.data?.Page?.media || [];
+      return media.map(m => ({
+        anilistId: m.id,
+        malId: null,
+        title: m.title.english || m.title.romaji,
+        genres: m.genres || [],
+        coverUrl: m.coverImage?.large || null,
+        studio: m.studios?.nodes?.[0]?.name || null,
+      }));
+    } catch (e) {
+      console.warn('Genre-affinity recommendation search failed', e);
+      return [];
+    }
+  }
+
   async function searchTMDBCovers(title, kind) {
     const res = await fetch(`https://api.themoviedb.org/3/search/${kind}?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(title)}`);
     const json = await res.json();
