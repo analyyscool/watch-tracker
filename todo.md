@@ -4,6 +4,12 @@ Open tasks queued for a future session. Newest at the top.
 
 ---
 
+## Tier list / rank order isn't cross-device (localStorage only)
+
+- Raised 2026-09-12 while designing the Recommendations feature: `watchTierState:<category>` and `watchRankOrder:<category>` are stored purely in `localStorage`, keyed per browser — tier placement and rank order don't sync across devices. The `shows` table already has unused `tier` and `rank` columns (mapped in `fetchShows` but never written to) — the schema support already exists, it's just not wired up. Deliberately deferred as its own bounded task, separate from the Recommendations work in progress.
+
+---
+
 ## Long-term aspiration: minimize Claude-mediated actions
 
 - Raised 2026-08-15: in an ideal world, adding shows/books/manga (and other lookups) would run almost entirely through free public APIs the site calls directly, rather than being Claude-mediated (Karl asks Claude, Claude queries Jikan/TMDB/Open Library, Claude inserts into Supabase). Karl explicitly flagged this as a dream/aspiration, not something to build now — no free API covers judgment calls like remake/sequel disambiguation or webnovel/manhwa-without-MAL metadata, so full self-serve isn't realistic yet.
