@@ -812,10 +812,19 @@
     margin-left: 0.6rem;
   }
 
+  .rec-section-title {
+    font-size: 0.6rem;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 1.75rem 0 0.9rem;
+  }
+
   .rec-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
     gap: 1rem;
+    margin-bottom: 1rem;
   }
 
   .rec-reason {
@@ -3359,6 +3368,43 @@
     }
   }
 
+  // Non-personalized "peak stuff you haven't seen" section -- AniList's
+  // overall most popular/highest-scored catalog, no genre/seed filter at
+  // all. Same return-value contract as fetchGenreAffinityCandidates:
+  // `null` means the request itself failed, `[]` means it succeeded and
+  // (in practice, essentially never) found nothing.
+  async function fetchPeakUnseenCandidates(type, count) {
+    if (count <= 0) return [];
+    const query = `query ($type: MediaType, $perPage: Int) {
+      Page(perPage: $perPage) {
+        media(type: $type, sort: [POPULARITY_DESC, SCORE_DESC]) {
+          id title { romaji english } genres coverImage { large } studios(isMain: true) { nodes { name } }
+        }
+      }
+    }`;
+    try {
+      const res = await fetch('https://graphql.anilist.co', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, variables: { type, perPage: count } })
+      });
+      const json = await res.json();
+      if (!res.ok || json.errors) { console.warn('Peak-unseen recommendation search failed', res.status, json.errors); return null; }
+      const media = json?.data?.Page?.media || [];
+      return media.map(m => ({
+        anilistId: m.id,
+        malId: null,
+        title: m.title.english || m.title.romaji,
+        genres: m.genres || [],
+        coverUrl: m.coverImage?.large || null,
+        studio: m.studios?.nodes?.[0]?.name || null,
+      }));
+    } catch (e) {
+      console.warn('Peak-unseen recommendation search failed', e);
+      return null;
+    }
+  }
+
   // ── Recommendations: orchestration, cache, dismissal ──
   const REC_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -3395,19 +3441,34 @@
     return !checkWriteError(error);
   }
 
-  // Builds the ranked, deduped recommendation list for one scope+category
-  // and writes it to recommendations_cache. `rows` is the category-filtered
-  // shows/written_media list for the scope (used for seeding + affinity --
-  // an anime search should only seed off anime rows). `allRows` is the
-  // FULL unfiltered list for the scope (any category, any status), used
-  // only for the "already have" dedup set -- a title tracked under a
-  // different category (e.g. an anime film stored as category:'movie')
-  // must still count as "already have" so it isn't recommended back.
+  const REC_SECTION_CAP = 10;
+
+  // Builds three independent, deduped recommendation sections for one
+  // scope+category and writes them to recommendations_cache:
+  //   - becauseYouLiked: AniList's community "if you liked X" pairings,
+  //     seeded from your highest-rated titles.
+  //   - overallTaste: a genre/studio-affinity search across AniList's
+  //     catalog, matching your taste in aggregate rather than one
+  //     specific title. Always runs as its own section now (it used to
+  //     be a fallback that only fired when becauseYouLiked came up
+  //     short) -- deduped against becauseYouLiked so nothing appears in
+  //     both.
+  //   - peakUnseen: AniList's overall most popular/highest-scored
+  //     catalog, not personalized at all beyond dedup -- deduped against
+  //     both of the above plus "already have"/dismissed.
+  // `rows` is the category-filtered shows/written_media list for the
+  // scope (used for seeding + affinity -- an anime search should only
+  // seed off anime rows). `allRows` is the FULL unfiltered list for the
+  // scope (any category, any status), used only for the "already have"
+  // dedup set -- a title tracked under a different category (e.g. an
+  // anime film stored as category:'movie') must still count as "already
+  // have" so it isn't recommended back.
   async function computeRecommendations(scope, category, rows, allRows) {
     const type = category === 'anime' ? 'ANIME' : 'MANGA';
     const alreadyHave = buildAlreadyHaveTitles(allRows);
     const dismissed = await getDismissedRecommendationIds(scope, category);
     const seeds = pickRecommendationSeeds(rows, { scope });
+    const usedIds = new Set(); // cross-section dedup -- nothing appears in more than one section
 
     // Sequential, not Promise.all -- mirrors checkNewSeasons/checkNewChapters'
     // established pattern for batching calls to these rate-limited,
@@ -3426,7 +3487,7 @@
     // usable" signal below rather than being forced to `false`, since a
     // real outage on the fallback path is just as much a total failure
     // whether or not there happened to be any seeds to try first.
-    const seedPassFoundNothing = seedResults.length === 0 || seedResults.every(r => r === null);
+    const becauseYouLikedFailed = seedResults.length === 0 || seedResults.every(r => r === null);
 
     const bySeedCount = new Map();
     seedResults.forEach((candidates, i) => {
@@ -3446,78 +3507,103 @@
       });
     });
 
-    let ranked = [...bySeedCount.values()]
+    const becauseYouLiked = [...bySeedCount.values()]
       .sort((a, b) => (b.seedCount - a.seedCount) || (b.bestSeedRating - a.bestSeedRating))
-      .slice(0, 15)
+      .slice(0, REC_SECTION_CAP)
       .map(r => ({ ...r.item, reason: 'because_rated', reasonDetail: r.seedTitle, sourceRating: r.bestSeedRating }));
+    becauseYouLiked.forEach(item => usedIds.add(externalIdFor(item)));
 
-    let genreFallbackFailed = false;
-    if (ranked.length < 15) {
-      const affinity = computeAffinity(rows);
-      const topGenres = Object.entries(affinity.genreAvg).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([g]) => g);
-      const rankedIds = new Set(ranked.map(r => externalIdFor(r)));
-      const need = 15 - ranked.length;
-      const fillCandidates = await fetchGenreAffinityCandidates(topGenres, type, need + rankedIds.size);
-      if (fillCandidates === null) {
-        genreFallbackFailed = true;
-      } else {
-        for (const candidate of fillCandidates) {
-          if (ranked.length >= 15) break;
-          if (alreadyHave.has(normalizeTitle(candidate.title))) continue;
-          const id = externalIdFor(candidate);
-          if (dismissed.has(id) || rankedIds.has(id)) continue;
-          rankedIds.add(id);
-          ranked.push({ ...candidate, reason: 'affinity', reasonDetail: topGenres.slice(0, 2).join('/'), sourceRating: null });
-        }
+    const affinity = computeAffinity(rows);
+    const topGenres = Object.entries(affinity.genreAvg).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([g]) => g);
+    // Over-fetch to survive dedup filtering below.
+    const genreCandidates = await fetchGenreAffinityCandidates(topGenres, type, REC_SECTION_CAP + usedIds.size + 10);
+    const overallTasteFailed = genreCandidates === null;
+    const overallTaste = [];
+    if (genreCandidates) {
+      for (const candidate of genreCandidates) {
+        if (overallTaste.length >= REC_SECTION_CAP) break;
+        if (alreadyHave.has(normalizeTitle(candidate.title))) continue;
+        const id = externalIdFor(candidate);
+        if (dismissed.has(id) || usedIds.has(id)) continue;
+        usedIds.add(id);
+        overallTaste.push({ ...candidate, reason: 'affinity', reasonDetail: topGenres.slice(0, 2).join('/'), sourceRating: null });
       }
     }
 
-    // Total outage: the seed pass produced nothing usable (either every
-    // seed's fetch genuinely failed, or there were no seeds to begin
-    // with) AND the genre-affinity fallback also genuinely failed --
-    // throw so loadRecommendations' catch block falls back to the last
-    // good cache (`stale: true`) instead of upserting this empty `ranked`
-    // over it. A legitimately empty `ranked` (every fetch above succeeded
-    // but simply found nothing, with the fallback also succeeding empty)
-    // is NOT a failure and still gets cached as-is -- only a real
-    // fetch-layer failure on BOTH paths skips the upsert and throws.
-    if (seedPassFoundNothing && genreFallbackFailed) {
-      throw new Error('computeRecommendations: all seed fetches and the genre-affinity fallback failed');
+    const peakCandidates = await fetchPeakUnseenCandidates(type, REC_SECTION_CAP + usedIds.size + 10);
+    const peakUnseenFailed = peakCandidates === null;
+    const peakUnseen = [];
+    if (peakCandidates) {
+      for (const candidate of peakCandidates) {
+        if (peakUnseen.length >= REC_SECTION_CAP) break;
+        if (alreadyHave.has(normalizeTitle(candidate.title))) continue;
+        const id = externalIdFor(candidate);
+        if (dismissed.has(id) || usedIds.has(id)) continue;
+        usedIds.add(id);
+        peakUnseen.push({ ...candidate, reason: 'popular', reasonDetail: null, sourceRating: null });
+      }
     }
 
+    // Total outage: ALL THREE sections produced nothing usable due to a
+    // genuine fetch-layer failure -- throw so loadRecommendations' catch
+    // block falls back to the last good cache (`stale: true`) instead of
+    // upserting this empty result over it. If even one section got real
+    // data, cache the whole object as-is (a failed section just renders
+    // empty for this refresh) -- preserving a failed section's OLD cached
+    // data while updating the others is deliberately not attempted here,
+    // to keep this a single, simple all-or-nothing cache write.
+    if (becauseYouLikedFailed && overallTasteFailed && peakUnseenFailed) {
+      throw new Error('computeRecommendations: all three sections failed to fetch');
+    }
+
+    const sections = { becauseYouLiked, overallTaste, peakUnseen };
     const { error } = await supabase.from('recommendations_cache')
-      .upsert({ scope, category, data: ranked, updated_at: new Date().toISOString() }, { onConflict: 'scope,category' });
+      .upsert({ scope, category, data: sections, updated_at: new Date().toISOString() }, { onConflict: 'scope,category' });
     checkWriteError(error);
-    return ranked;
+    return sections;
   }
 
-  // Cache-first loader: returns the cached list if it's under the
+  // Filters every section of a cached {becauseYouLiked, overallTaste,
+  // peakUnseen} object against the current dismissed-ids set. Tolerates
+  // a pre-Batch-B cache row (a flat array, from before sections existed)
+  // by treating it as all three sections empty -- it'll just recompute
+  // on the next refresh rather than throwing on stale-shaped data.
+  function filterDismissedSections(sections, dismissed) {
+    const safe = Array.isArray(sections) || !sections ? {} : sections;
+    const filterOne = (list) => (list || []).filter(item => !dismissed.has(externalIdFor(item)));
+    return {
+      becauseYouLiked: filterOne(safe.becauseYouLiked),
+      overallTaste: filterOne(safe.overallTaste),
+      peakUnseen: filterOne(safe.peakUnseen),
+    };
+  }
+
+  // Cache-first loader: returns the cached sections if under the
   // throttle age, otherwise recomputes. `force` (the manual Refresh
-  // button, added in Task 6) skips the age check. On a total recompute
-  // failure, falls back to the last cached list rather than showing
-  // nothing (`stale: true` signals the UI to show a notice). Both the
-  // cache-hit path and the stale-fallback path filter out anything the
-  // user has since dismissed -- otherwise a dismissed item can resurface
-  // for up to 7 days (the cache's own age, independent of the dismissal).
+  // button) skips the age check. On a total recompute failure, falls
+  // back to the last cached sections rather than showing nothing
+  // (`stale: true` signals the UI to show a notice). Both the cache-hit
+  // path and the stale-fallback path filter out anything the user has
+  // since dismissed -- otherwise a dismissed item can resurface for up
+  // to 7 days (the cache's own age, independent of the dismissal).
   async function loadRecommendations(scope, category, rows, allRows, { force = false } = {}) {
     if (!force) {
       const { data, error } = await supabase.from('recommendations_cache')
         .select('data, updated_at').eq('scope', scope).eq('category', category).maybeSingle();
       if (!error && data && (Date.now() - new Date(data.updated_at).getTime()) < REC_CACHE_MAX_AGE_MS) {
         const dismissed = await getDismissedRecommendationIds(scope, category);
-        return { list: data.data.filter(item => !dismissed.has(externalIdFor(item))), stale: false };
+        return { sections: filterDismissedSections(data.data, dismissed), stale: false };
       }
     }
     try {
-      const list = await computeRecommendations(scope, category, rows, allRows);
-      return { list, stale: false };
+      const sections = await computeRecommendations(scope, category, rows, allRows);
+      return { sections, stale: false };
     } catch (e) {
       console.warn('Recommendations recompute failed, falling back to last cache', e);
       const { data } = await supabase.from('recommendations_cache')
         .select('data').eq('scope', scope).eq('category', category).maybeSingle();
       const dismissed = await getDismissedRecommendationIds(scope, category);
-      const list = (data?.data || []).filter(item => !dismissed.has(externalIdFor(item)));
-      return { list, stale: true };
+      return { sections: filterDismissedSections(data?.data, dismissed), stale: true };
     }
   }
 
@@ -6458,68 +6544,40 @@
     `;
   }
 
-  async function renderRecommendationsTab({ force = false } = {}) {
-    const container = document.getElementById('view-recommendations');
-    const allRows = activeRecCategory === 'anime' ? await fetchShows(activeScope) : await fetchWrittenMedia(activeScope);
-    // Restrict to the domain-appropriate rows for BOTH seed selection and
-    // dedup -- otherwise a highly-rated western show would become a
-    // wasted seed for an AniList `type: ANIME` search (it simply returns
-    // no match, but it's still an unnecessary network call), mirroring
-    // how computeAffinity is already called separately per-domain
-    // elsewhere in this file (shows vs. written_media, never merged).
-    const rows = activeRecCategory === 'anime'
-      ? allRows.filter(s => s.category === 'anime')
-      : allRows.filter(m => m.category === 'manga' || m.category === 'manhwa');
-    const ratedCount = rows.filter(r => r.rating != null).length;
-
-    container.innerHTML = `
-      <div class="tabs sub-tabs">
-        <button class="tab-btn sub-tab-btn${activeRecCategory === 'anime' ? ' active' : ''}" onclick="setRecCategory('anime')">Anime</button>
-        <button class="tab-btn sub-tab-btn${activeRecCategory === 'manga' ? ' active' : ''}" onclick="setRecCategory('manga')">Manga / Manhwa</button>
-        <button class="btn" id="rec-refresh-btn" style="margin-left:auto">Refresh</button>
-      </div>
-      <div id="rec-stale-note" style="display:none; font-size:0.65rem; color:var(--muted); margin:0.5rem 0"></div>
-      <div id="rec-grid" class="rec-grid"></div>
-    `;
-
-    document.getElementById('rec-refresh-btn').addEventListener('click', () => renderRecommendationsTab({ force: true }));
-
-    const grid = document.getElementById('rec-grid');
-    if (ratedCount < MIN_RATED_FOR_AFFINITY) {
-      grid.innerHTML = `<p style="font-size:0.75rem; color:var(--muted)">Rate a few more shows to get personalized recommendations.</p>`;
-      return;
-    }
-
-    grid.innerHTML = `<p style="font-size:0.7rem; color:var(--muted)">Loading recommendations…</p>`;
-    const { list, stale } = await loadRecommendations(activeScope, activeRecCategory, rows, allRows, { force });
-
-    const staleNote = document.getElementById('rec-stale-note');
-    if (stale) {
-      staleNote.style.display = '';
-      staleNote.textContent = "Couldn't refresh — showing last known recommendations.";
-    }
-
+  // Renders one section's grid (cards + dismiss/add handlers) into the
+  // given container id. `list` is that section's array of recommendation
+  // objects. Shared by all three sections in renderRecommendationsTab so
+  // the card markup/behavior stays identical across them.
+  function renderRecSectionGrid(gridId, list) {
+    const grid = document.getElementById(gridId);
     if (!list.length) {
-      grid.innerHTML = `<p style="font-size:0.75rem; color:var(--muted)">No recommendations yet — try Refresh, or rate more titles.</p>`;
+      grid.innerHTML = `<p style="font-size:0.7rem; color:var(--muted)">Nothing here right now.</p>`;
       return;
     }
-
-    grid.innerHTML = list.map(item => `
+    grid.innerHTML = list.map(item => {
+      let reasonHTML;
+      if (item.reason === 'because_rated') {
+        reasonHTML = `Because you rated <strong>${escapeHTML(item.reasonDetail)}</strong>${item.sourceRating != null ? ` ★${item.sourceRating}` : ''}`;
+      } else if (item.reason === 'affinity') {
+        reasonHTML = `Matches your ${escapeHTML(item.reasonDetail)} taste`;
+      } else {
+        reasonHTML = `Popular pick you haven't seen yet`;
+      }
+      return `
       <div class="card rec-card">
         ${item.coverUrl ? `<img class="card-poster" src="${item.coverUrl}" alt="" onerror="this.remove()">` : ''}
         <div class="card-body">
           <div class="card-title">${escapeHTML(item.title)}</div>
           ${(item.genres || []).length ? `<div class="card-tags">${(item.genres || []).map(g => escapeHTML(g)).join(', ')}</div>` : ''}
-          <div class="rec-reason">${item.reason === 'because_rated'
-            ? `Because you rated <strong>${escapeHTML(item.reasonDetail)}</strong>${item.sourceRating != null ? ` ★${item.sourceRating}` : ''}`
-            : `Matches your ${escapeHTML(item.reasonDetail)} taste`}</div>
+          <div class="rec-reason">${reasonHTML}</div>
           <div class="rec-card-actions">
             <button class="btn rec-add-btn">+ Add to Watchlist</button>
             <button class="rec-dismiss-btn" title="Dismiss">✕</button>
           </div>
         </div>
       </div>
-    `).join('');
+    `;
+    }).join('');
 
     grid.querySelectorAll('.rec-dismiss-btn').forEach((btn, i) => {
       btn.addEventListener('click', async () => {
@@ -6551,6 +6609,58 @@
         btn.closest('.rec-card').remove();
       });
     });
+  }
+
+  async function renderRecommendationsTab({ force = false } = {}) {
+    const container = document.getElementById('view-recommendations');
+    const allRows = activeRecCategory === 'anime' ? await fetchShows(activeScope) : await fetchWrittenMedia(activeScope);
+    // Restrict to the domain-appropriate rows for BOTH seed selection and
+    // dedup -- otherwise a highly-rated western show would become a
+    // wasted seed for an AniList `type: ANIME` search (it simply returns
+    // no match, but it's still an unnecessary network call), mirroring
+    // how computeAffinity is already called separately per-domain
+    // elsewhere in this file (shows vs. written_media, never merged).
+    const rows = activeRecCategory === 'anime'
+      ? allRows.filter(s => s.category === 'anime')
+      : allRows.filter(m => m.category === 'manga' || m.category === 'manhwa');
+    const ratedCount = rows.filter(r => r.rating != null).length;
+    const belowThreshold = ratedCount < MIN_RATED_FOR_AFFINITY;
+
+    // "Peak stuff you haven't seen" isn't personalized on ratings at all,
+    // so it renders regardless of belowThreshold -- only the two
+    // taste-driven sections are gated behind the rating minimum.
+    container.innerHTML = `
+      <div class="tabs sub-tabs">
+        <button class="tab-btn sub-tab-btn${activeRecCategory === 'anime' ? ' active' : ''}" onclick="setRecCategory('anime')">Anime</button>
+        <button class="tab-btn sub-tab-btn${activeRecCategory === 'manga' ? ' active' : ''}" onclick="setRecCategory('manga')">Manga / Manhwa</button>
+        <button class="btn" id="rec-refresh-btn" style="margin-left:auto">Refresh</button>
+      </div>
+      <div id="rec-stale-note" style="display:none; font-size:0.65rem; color:var(--muted); margin:0.5rem 0"></div>
+      ${belowThreshold ? `<p style="font-size:0.75rem; color:var(--muted); margin-bottom:1rem">Rate a few more shows to unlock "Because you liked" and "Matches your taste" recommendations.</p>` : `
+        <div class="rec-section-title">Because you liked...</div>
+        <div id="rec-grid-because" class="rec-grid"><p style="font-size:0.7rem; color:var(--muted)">Loading…</p></div>
+        <div class="rec-section-title">Matches your overall taste</div>
+        <div id="rec-grid-overall" class="rec-grid"><p style="font-size:0.7rem; color:var(--muted)">Loading…</p></div>
+      `}
+      <div class="rec-section-title">Peak stuff you haven't seen</div>
+      <div id="rec-grid-peak" class="rec-grid"><p style="font-size:0.7rem; color:var(--muted)">Loading…</p></div>
+    `;
+
+    document.getElementById('rec-refresh-btn').addEventListener('click', () => renderRecommendationsTab({ force: true }));
+
+    const { sections, stale } = await loadRecommendations(activeScope, activeRecCategory, rows, allRows, { force });
+
+    const staleNote = document.getElementById('rec-stale-note');
+    if (stale) {
+      staleNote.style.display = '';
+      staleNote.textContent = "Couldn't refresh — showing last known recommendations.";
+    }
+
+    if (!belowThreshold) {
+      renderRecSectionGrid('rec-grid-because', sections.becauseYouLiked);
+      renderRecSectionGrid('rec-grid-overall', sections.overallTaste);
+    }
+    renderRecSectionGrid('rec-grid-peak', sections.peakUnseen);
   }
 
   // ── Auto-refresh on focus ──
