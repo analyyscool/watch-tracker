@@ -2259,6 +2259,33 @@
     });
   }
 
+  // ── Recommendation seed selection ──
+  // Dedup key is the lowercased/trimmed title -- our rows don't store an
+  // AniList id today, so title matching is the only key we have (same
+  // caveat already accepted for sequel detection elsewhere in this file).
+  function buildAlreadyHaveTitles(rows) {
+    return new Set(rows.map(r => r.title.toLowerCase().trim()));
+  }
+
+  // Picks up to `limit` seed items rated >= minRating, highest first. For
+  // scope === 'together', averages every rater's score per item first
+  // (rows carry `allRatings`, an array of { user_id, rating, note }) so a
+  // show only one partner loved doesn't get treated as a shared favorite.
+  function pickRecommendationSeeds(rows, { scope, limit = 10, minRating = 4.0 } = {}) {
+    const withEffectiveRating = rows.map(r => {
+      let effectiveRating = r.rating;
+      if (scope === 'together' && r.allRatings && r.allRatings.length) {
+        const values = r.allRatings.map(x => x.rating).filter(v => v != null);
+        effectiveRating = values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
+      }
+      return { ...r, effectiveRating };
+    });
+    return withEffectiveRating
+      .filter(r => r.effectiveRating != null && r.effectiveRating >= minRating)
+      .sort((a, b) => b.effectiveRating - a.effectiveRating)
+      .slice(0, limit);
+  }
+
   // Shared write-error guard for Supabase mutations. Call sites destructure
   // { error } from the write's result and do `if (checkWriteError(error)) return;`
   // immediately after, before any cache-invalidate/re-render steps.
