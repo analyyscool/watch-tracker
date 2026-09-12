@@ -4290,8 +4290,52 @@
   // sitting on the watchlist). It's tracked separately so a matching
   // candidate can still surface, just flagged so the card can grey out
   // the redundant "+ Watchlist" button instead of offering to re-add it.
+  // One entry per Recommendations category, so computeRecommendations'
+  // shared orchestration (tier quotas, cross-section dedup, watchlist
+  // flagging, caching) doesn't need to know which API or franchise-check
+  // strategy backs a given category. `mediaType` is passed through to
+  // whichever fetch functions need it (AniList's `type`, TMDB's
+  // `mediaType` path segment) -- named generically here since the two
+  // source families use it for different literal values.
+  const RECOMMENDATION_SOURCES = {
+    anime: {
+      mediaType: 'ANIME',
+      fetchSeed: (seed, mediaType) => fetchRecommendationsForSeed(seed, mediaType),
+      fetchGenreAffinity: (genres, mediaType, count) => fetchGenreAffinityCandidates(genres, mediaType, count),
+      fetchPeakUnseen: (mediaType, count) => fetchPeakUnseenCandidates(mediaType, count),
+      isFreshEntry: (candidate, alreadyHave) => isFreshFranchiseEntry(candidate, alreadyHave),
+    },
+    manga: {
+      mediaType: 'MANGA',
+      fetchSeed: (seed, mediaType) => fetchRecommendationsForSeed(seed, mediaType),
+      fetchGenreAffinity: (genres, mediaType, count) => fetchGenreAffinityCandidates(genres, mediaType, count),
+      fetchPeakUnseen: (mediaType, count) => fetchPeakUnseenCandidates(mediaType, count),
+      isFreshEntry: (candidate, alreadyHave) => isFreshFranchiseEntry(candidate, alreadyHave),
+    },
+    movie: {
+      mediaType: 'movie',
+      fetchSeed: (seed, mediaType) => fetchTMDBRecommendationsFor(seed.title, mediaType),
+      fetchGenreAffinity: (genres, mediaType, count) => fetchTMDBGenreAffinityCandidates(genres, mediaType, count),
+      fetchPeakUnseen: (mediaType, count) => fetchTMDBPeakUnseenCandidates(mediaType, count),
+      isFreshEntry: (candidate, alreadyHave) => isFreshMovieEntry(candidate, alreadyHave),
+    },
+    western: {
+      mediaType: 'tv',
+      fetchSeed: (seed, mediaType) => fetchTMDBRecommendationsFor(seed.title, mediaType),
+      fetchGenreAffinity: (genres, mediaType, count) => fetchTMDBGenreAffinityCandidates(genres, mediaType, count),
+      fetchPeakUnseen: (mediaType, count) => fetchTMDBPeakUnseenCandidates(mediaType, count),
+      // No structured franchise data for TV at all (see
+      // isTVSpinoffOrPrequel's comment) -- every candidate passes this
+      // check; the blanket spin-off/prequel exclusion runs separately,
+      // ONLY against the small finalist set, after quotas are filled
+      // (Step 4 below), not per-raw-candidate here.
+      isFreshEntry: async () => true,
+    },
+  };
+
   async function computeRecommendations(scope, category, rows, allRows) {
-    const type = category === 'anime' ? 'ANIME' : 'MANGA';
+    const source = RECOMMENDATION_SOURCES[category];
+    const type = source.mediaType;
     // Shows use list_status 'watchlist'; written_media uses 'plan_to_read'
     // for the equivalent "want to but haven't started" status.
     const isWatchlistStatus = category === 'anime' ? (s) => s === 'watchlist' : (s) => s === 'plan_to_read';
@@ -4315,7 +4359,7 @@
     // needs to detect below).
     const seedResults = [];
     for (const seed of seeds) {
-      seedResults.push(await fetchRecommendationsForSeed(seed, type));
+      seedResults.push(await source.fetchSeed(seed, type));
     }
     // `null` (as opposed to `[]`) means that seed's fetch genuinely failed
     // (both AniList and the Jikan fallback threw) rather than succeeding
@@ -4332,10 +4376,11 @@
     // into one entry and combine their seedCount, instead of the earlier
     // season landing in the list as a second, seemingly-unrelated card.
     const bySeedTitle = new Map();
-    seedResults.forEach((candidates, i) => {
-      if (!candidates) return; // this seed's fetch failed outright -- skip, don't treat as "found nothing"
+    for (let i = 0; i < seedResults.length; i++) {
+      const candidates = seedResults[i];
+      if (!candidates) continue; // this seed's fetch failed outright -- skip, don't treat as "found nothing"
       const seed = seeds[i];
-      candidates.forEach(candidate => {
+      for (const candidate of candidates) {
         // candidateMatchesAny's prefix check (see titleOverlapsAny)
         // already covers "AniList recommended a sibling cour of the seed
         // itself" (e.g. seeding "Bleach: Thousand-Year Blood War"
@@ -4343,10 +4388,10 @@
         // always a member of alreadyHave, so a candidate whose title is
         // a word-boundary extension of it is caught here without a
         // separate seed-specific check.
-        if (candidateMatchesAny(candidate, alreadyHave)) return;
-        if (!isFreshFranchiseEntry(candidate, alreadyHave)) return;
+        if (candidateMatchesAny(candidate, alreadyHave)) continue;
+        if (!(await source.isFreshEntry(candidate, alreadyHave))) continue;
         const titleKey = normalizeTitle(candidate.title);
-        if (dismissed.has(externalIdFor(candidate))) return;
+        if (dismissed.has(externalIdFor(candidate))) continue;
         const existing = bySeedTitle.get(titleKey);
         if (existing) {
           existing.seedCount += 1;
@@ -4354,8 +4399,8 @@
         } else {
           bySeedTitle.set(titleKey, { item: candidate, seedCount: 1, bestSeedRating: seed.effectiveRating, seedTitle: seed.title });
         }
-      });
-    });
+      }
+    }
 
     // Fill per-TIER quotas (mirroring SEED_TIER_WEIGHTS' shares) so the
     // final CARD mix actually reflects the requested rating-tier split
@@ -4372,7 +4417,7 @@
     // philosophy as pickRecommendationSeeds' own tier-fill.
     const MAX_PER_SEED = 2;
     const seedContributionCount = new Map();
-    const becauseYouLiked = [];
+    let becauseYouLiked = [];
     const sortedBySeedCount = [...bySeedTitle.values()].sort((a, b) => (b.seedCount - a.seedCount) || (b.bestSeedRating - a.bestSeedRating));
     SEED_TIER_WEIGHTS.forEach(({ rating, share }) => {
       const tierQuota = Math.round(REC_SECTION_CAP * share);
@@ -4393,14 +4438,14 @@
     const affinity = computeAffinity(rows);
     const topGenres = Object.entries(affinity.genreAvg).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([g]) => g);
     // Over-fetch to survive dedup filtering below.
-    const genreCandidates = await fetchGenreAffinityCandidates(topGenres, type, REC_SECTION_CAP + usedTitles.size + 10);
+    const genreCandidates = await source.fetchGenreAffinity(topGenres, type, REC_SECTION_CAP + usedTitles.size + 10);
     const overallTasteFailed = genreCandidates === null;
-    const overallTaste = [];
+    let overallTaste = [];
     if (genreCandidates) {
       for (const candidate of genreCandidates) {
         if (overallTaste.length >= REC_SECTION_CAP) break;
         if (candidateMatchesAny(candidate, alreadyHave) || candidateMatchesAny(candidate, usedTitles)) continue;
-        if (!isFreshFranchiseEntry(candidate, alreadyHave)) continue;
+        if (!(await source.isFreshEntry(candidate, alreadyHave))) continue;
         if (dismissed.has(externalIdFor(candidate))) continue;
         candidateTitleKeys(candidate).forEach(k => usedTitles.add(k));
         const watchlistMatch = findWatchlistMatch(candidate, watchlistRows);
@@ -4408,14 +4453,14 @@
       }
     }
 
-    const peakCandidates = await fetchPeakUnseenCandidates(type, REC_SECTION_CAP + usedTitles.size + 10);
+    const peakCandidates = await source.fetchPeakUnseen(type, REC_SECTION_CAP + usedTitles.size + 10);
     const peakUnseenFailed = peakCandidates === null;
-    const peakUnseen = [];
+    let peakUnseen = [];
     if (peakCandidates) {
       for (const candidate of peakCandidates) {
         if (peakUnseen.length >= REC_SECTION_CAP) break;
         if (candidateMatchesAny(candidate, alreadyHave) || candidateMatchesAny(candidate, usedTitles)) continue;
-        if (!isFreshFranchiseEntry(candidate, alreadyHave)) continue;
+        if (!(await source.isFreshEntry(candidate, alreadyHave))) continue;
         if (dismissed.has(externalIdFor(candidate))) continue;
         candidateTitleKeys(candidate).forEach(k => usedTitles.add(k));
         const watchlistMatch = findWatchlistMatch(candidate, watchlistRows);
@@ -4433,6 +4478,27 @@
     // to keep this a single, simple all-or-nothing cache write.
     if (becauseYouLikedFailed && overallTasteFailed && peakUnseenFailed) {
       throw new Error('computeRecommendations: all three sections failed to fetch');
+    }
+
+    // TV can't check a specific candidate against a specific parent (see
+    // RECOMMENDATION_SOURCES.western's isFreshEntry comment) -- instead,
+    // blanket-filter the already-quota-filled finalist arrays. Filtering
+    // AFTER quotas fill (rather than per-raw-candidate during the main
+    // loops above) keeps this to ~10-30 keyword lookups total instead of
+    // one per raw candidate (30-50+ per section) -- no backfill for a
+    // removed slot, same "a tier just contributes what it has" philosophy
+    // as the rest of this function's quota logic.
+    if (category === 'western') {
+      const filterSpinoffs = async (list) => {
+        const kept = [];
+        for (const item of list) {
+          if (!(await isTVSpinoffOrPrequel(item))) kept.push(item);
+        }
+        return kept;
+      };
+      becauseYouLiked = await filterSpinoffs(becauseYouLiked);
+      overallTaste = await filterSpinoffs(overallTaste);
+      peakUnseen = await filterSpinoffs(peakUnseen);
     }
 
     const sections = { becauseYouLiked, overallTaste, peakUnseen };
