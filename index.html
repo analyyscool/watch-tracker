@@ -3365,10 +3365,13 @@
     }
     // `null` (as opposed to `[]`) means that seed's fetch genuinely failed
     // (both AniList and the Jikan fallback threw) rather than succeeding
-    // with no results. Only meaningful as a signal if there WERE seeds to
-    // begin with -- an empty seed list is a legitimate "nothing to do",
-    // not a failure.
-    const allSeedsFailed = seeds.length > 0 && seedResults.every(r => r === null);
+    // with no results. A zero-seed input (e.g. every rated item is below
+    // the seed threshold) contributed nothing either, for a different
+    // reason -- it's folded into the same "seed pass produced nothing
+    // usable" signal below rather than being forced to `false`, since a
+    // real outage on the fallback path is just as much a total failure
+    // whether or not there happened to be any seeds to try first.
+    const seedPassFoundNothing = seedResults.length === 0 || seedResults.every(r => r === null);
 
     const bySeedCount = new Map();
     seedResults.forEach((candidates, i) => {
@@ -3414,15 +3417,16 @@
       }
     }
 
-    // Total outage: every seed's fetch genuinely failed AND the
-    // genre-affinity fallback also genuinely failed -- throw so
-    // loadRecommendations' catch block falls back to the last good cache
-    // (`stale: true`) instead of upserting this empty `ranked` over it.
-    // A legitimately empty `ranked` (no seeds at all, or every fetch
-    // above succeeded but simply found nothing) is NOT a failure and
-    // still gets cached as-is -- only a real fetch-layer failure skips
-    // the upsert and throws.
-    if (allSeedsFailed && genreFallbackFailed) {
+    // Total outage: the seed pass produced nothing usable (either every
+    // seed's fetch genuinely failed, or there were no seeds to begin
+    // with) AND the genre-affinity fallback also genuinely failed --
+    // throw so loadRecommendations' catch block falls back to the last
+    // good cache (`stale: true`) instead of upserting this empty `ranked`
+    // over it. A legitimately empty `ranked` (every fetch above succeeded
+    // but simply found nothing, with the fallback also succeeding empty)
+    // is NOT a failure and still gets cached as-is -- only a real
+    // fetch-layer failure on BOTH paths skips the upsert and throws.
+    if (seedPassFoundNothing && genreFallbackFailed) {
       throw new Error('computeRecommendations: all seed fetches and the genre-affinity fallback failed');
     }
 
