@@ -4164,6 +4164,43 @@
     return anySucceeded ? results : null;
   }
 
+  // Movie equivalent of isFreshFranchiseEntry, but using TMDB's
+  // belongs_to_collection -- structured, reliable data (unlike AniList's
+  // relationType, whose ALTERNATIVE-edge extension was tried and reverted
+  // today after it wrongly gated Fullmetal Alchemist: Brotherhood -- see
+  // extractPrequelTitles' comment).
+  //
+  // belongs_to_collection only exists on TMDB's /movie/{id} DETAIL
+  // endpoint, never on the /recommendations, /discover, or /search LIST
+  // endpoints a candidate was built from (verified live) -- so this always
+  // fetches the candidate's own detail endpoint first. A collection's
+  // `parts` array isn't guaranteed to arrive pre-sorted, so this sorts by
+  // release_date itself before deciding what counts as "earlier".
+  async function isFreshMovieEntry(candidate, alreadyHave) {
+    try {
+      const detailRes = await fetch(`https://api.themoviedb.org/3/movie/${candidate.tmdbId}?api_key=${TMDB_API_KEY}`);
+      const detail = await detailRes.json();
+      const collectionId = detail.belongs_to_collection?.id;
+      if (!collectionId) return true;
+      const res = await fetch(`https://api.themoviedb.org/3/collection/${collectionId}?api_key=${TMDB_API_KEY}`);
+      const json = await res.json();
+      const parts = (json.parts || []).slice().sort((a, b) => (a.release_date || '9999').localeCompare(b.release_date || '9999'));
+      const candidateIndex = parts.findIndex(p => p.id === candidate.tmdbId);
+      // Candidate not found in its own collection's parts list (shouldn't
+      // happen, but TMDB data is occasionally inconsistent) -- treat as
+      // fresh rather than gate on a comparison that can't be made.
+      if (candidateIndex <= 0) return true;
+      const earlierParts = parts.slice(0, candidateIndex);
+      return earlierParts.some(p => titleOverlapsAny(normalizeTitle(p.title), alreadyHave));
+    } catch (e) {
+      console.warn('TMDB collection lookup failed for candidate', candidate.title, e);
+      // A failed lookup shouldn't silently exclude a candidate that might
+      // be perfectly fine -- same "fail open" posture as the rest of this
+      // file's franchise/dedup checks when a network call errors.
+      return true;
+    }
+  }
+
   // ── Recommendations: orchestration, cache, dismissal ──
   const REC_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
