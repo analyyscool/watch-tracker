@@ -344,6 +344,8 @@
   .btn:hover { border-color: var(--accent); color: var(--text); }
   .btn-primary { border-color: var(--accent); color: var(--accent); }
   .btn-primary:hover { background: rgba(10,132,255,0.08); color: var(--text); }
+  .btn:disabled { cursor: not-allowed; opacity: 0.5; }
+  .btn:disabled:hover { border-color: var(--border2); color: var(--muted); }
 
   /* ── Card list ── */
   #grid, #movie-watchlist-grid, #season-notices-grid {
@@ -2557,7 +2559,7 @@
   }
 
   // Picks up to `limit` seed items rated >= minRating, weighted by rating
-  // tier (40% from 5-star items, 40% from 4.5-star, 20% from 4-star, of
+  // tier (30% from 5-star items, 30% from 4.5-star, 40% from 4-star, of
   // `limit`) rather than simply taking the top N by rating -- otherwise a
   // handful of 5-star ratings would crowd out 4/4.5-star taste entirely.
   // A tier with fewer items than its share just contributes what it has;
@@ -2569,8 +2571,8 @@
   // one of the three tiers.
   const SEED_TIER_WEIGHTS = [
     { rating: 5.0, share: 0.3 },
-    { rating: 4.5, share: 0.4 },
-    { rating: 4.0, share: 0.3 },
+    { rating: 4.5, share: 0.3 },
+    { rating: 4.0, share: 0.4 },
   ];
 
   function pickRecommendationSeeds(rows, { scope, limit = 10, minRating = 4.0 } = {}) {
@@ -3030,9 +3032,14 @@
     similarGrid.innerHTML = `<p style="font-size:0.7rem; color:var(--muted)">Loading…</p>`;
 
     const allRows = kind === 'show' ? await fetchShows(activeScope) : await fetchWrittenMedia(activeScope);
-    const alreadyHave = buildAlreadyHaveTitles(allRows);
-    const candidates = await fetchRecommendationsForSeed({ title: item.title }, type);
     const category = kind === 'show' ? 'anime' : 'manga';
+    // Same watchlist-vs-"already have" split as computeRecommendations --
+    // a watchlist-only entry can still surface here, just flagged so the
+    // card can grey out the redundant "+ Watchlist" button.
+    const isWatchlistStatus = category === 'anime' ? (s) => s === 'watchlist' : (s) => s === 'plan_to_read';
+    const alreadyHave = buildAlreadyHaveTitles(allRows.filter(r => !isWatchlistStatus(r.listStatus)));
+    const onWatchlist = buildAlreadyHaveTitles(allRows.filter(r => isWatchlistStatus(r.listStatus)));
+    const candidates = await fetchRecommendationsForSeed({ title: item.title }, type);
 
     // Modal may have been closed (or reopened for a different item) while
     // this fetch was in flight -- don't clobber whatever's showing now.
@@ -3072,8 +3079,8 @@
       similarGrid.innerHTML = `<p style="font-size:0.7rem; color:var(--muted)">Nothing found.</p>`;
       return;
     }
-    similarGrid.innerHTML = similar.map(c => `
-      <div class="rec-card rec-card-h">
+    similarGrid.innerHTML = similar.map((c, idx) => `
+      <div class="rec-card rec-card-h" data-idx="${idx}">
         <div class="rec-card-h-top">
           ${c.coverUrl ? `<img class="rec-card-h-img" src="${c.coverUrl}" alt="" onerror="this.remove()">` : `<div class="rec-card-h-img"></div>`}
           <div class="rec-card-h-body">
@@ -3082,21 +3089,25 @@
           </div>
         </div>
         <div class="rec-card-actions">
-          <button class="btn rec-add-btn" title="Add to Watchlist">+ Watchlist</button>
+          ${candidateMatchesAny(c, onWatchlist)
+            ? `<button class="btn" disabled title="Already on your watchlist">On Watchlist</button>`
+            : `<button class="btn rec-add-btn" title="Add to Watchlist">+ Watchlist</button>`}
           <button class="btn rec-start-btn" title="Start Watching Now">▶ Start Now</button>
         </div>
       </div>
     `).join('');
-    similarGrid.querySelectorAll('.rec-start-btn').forEach((btn, i) => {
+    similarGrid.querySelectorAll('.rec-start-btn').forEach(btn => {
       btn.addEventListener('click', async () => {
-        const ok = await startRecommendationItemNow(similar[i], category, activeScope);
+        const c = similar[Number(btn.closest('.rec-card').dataset.idx)];
+        const ok = await startRecommendationItemNow(c, category, activeScope);
         if (!ok) return;
         btn.closest('.rec-card').remove();
       });
     });
-    similarGrid.querySelectorAll('.rec-add-btn').forEach((btn, i) => {
+    similarGrid.querySelectorAll('.rec-add-btn').forEach(btn => {
       btn.addEventListener('click', async () => {
-        const ok = await addRecommendationItemToWatchlist(similar[i], category, activeScope);
+        const c = similar[Number(btn.closest('.rec-card').dataset.idx)];
+        const ok = await addRecommendationItemToWatchlist(c, category, activeScope);
         if (!ok) return;
         btn.closest('.rec-card').remove();
       });
@@ -3831,7 +3842,15 @@
   // taste-affinity search should mean.
   async function fetchGenreAffinityCandidates(genres, type, count) {
     if (!genres.length || count <= 0) return [];
-    const perGenreCount = Math.max(5, Math.ceil(count / Math.min(genres.length, 3)));
+    // AniList caps perPage at 50 regardless of what's requested (confirmed
+    // live), so there's no cost to asking for the max here -- the caller's
+    // own already-have/franchise/dismissed filtering can end up discarding
+    // most of a genre's results (an established library has already seen
+    // a lot of its own favorite genre's well-known titles), and a shallow
+    // per-genre fetch meant that filtering had very little left to work
+    // with. Uncapped this used to come out to ~14/genre for a typical
+    // section size; 50 gives it real depth to filter down from.
+    const perGenreCount = Math.min(50, Math.max(15, Math.ceil(count / Math.min(genres.length, 3)) * 2));
     const query = `query ($genre: String, $type: MediaType, $perPage: Int) {
       Page(perPage: $perPage) {
         media(genre_in: [$genre], type: $type, sort: SCORE_DESC) {
@@ -3895,50 +3914,77 @@
   // deliberately generous floor: it excludes true one-off obscurities
   // while still allowing a legitimately good but slightly-niche show
   // through, rather than only ever surfacing the same handful of
-  // blockbuster titles. Over-fetches (3x `count`) since the popularity
-  // filter runs client-side after the sorted-by-score fetch.
+  // blockbuster titles.
   // Same return-value contract as fetchGenreAffinityCandidates: `null`
   // means the request itself failed, `[]` means it succeeded and
   // (in practice, essentially never) found nothing.
   const PEAK_MIN_POPULARITY = 15000;
+  // AniList silently caps `perPage` at 50 regardless of what's requested
+  // (confirmed live -- asking for 100 still returns exactly 50), so
+  // reaching deeper into the catalog means paginating, not asking for a
+  // bigger page. This matters a lot here specifically: AniList's global
+  // SCORE_DESC ranking is heavily dominated by long-running franchises'
+  // final seasons/movies (a real "peak stuff" candidate that ISN'T
+  // already-tracked-and-thus-deduped AND isn't a franchise tail the
+  // isFreshFranchiseEntry filter would reject is disproportionately rare
+  // within just the top 50) -- for an established library, that pool can
+  // collapse to near-zero survivors after the caller's own already-have/
+  // franchise/dismissed filtering. Paginating past page 1 is what actually
+  // fixes the "Peak stuff" section going empty, not a bigger single page.
+  const PEAK_MAX_PAGES = 4;
 
   async function fetchPeakUnseenCandidates(type, count) {
     if (count <= 0) return [];
-    const query = `query ($type: MediaType, $perPage: Int) {
-      Page(perPage: $perPage) {
+    const query = `query ($type: MediaType, $page: Int) {
+      Page(page: $page, perPage: 50) {
+        pageInfo { hasNextPage }
         media(type: $type, sort: SCORE_DESC) {
           id title { romaji english } genres coverImage { large } studios(isMain: true) { nodes { name } } averageScore popularity ${RELATION_FIELDS}
         }
       }
     }`;
-    try {
-      const res = await fetch('https://graphql.anilist.co', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query, variables: { type, perPage: count * 3 } })
-      });
-      const json = await res.json();
-      if (!res.ok || json.errors) { console.warn('Peak-unseen recommendation search failed', res.status, json.errors); return null; }
-      const media = json?.data?.Page?.media || [];
-      return media
-        .filter(m => (m.popularity || 0) >= PEAK_MIN_POPULARITY)
-        .slice(0, count)
-        .map(m => ({
-          anilistId: m.id,
-          malId: null,
-          title: m.title.english || m.title.romaji,
-          altTitles: [m.title.english, m.title.romaji].filter(Boolean),
-          genres: m.genres || [],
-          coverUrl: m.coverImage?.large || null,
-          studio: m.studios?.nodes?.[0]?.name || null,
-          relatedTitles: extractRelatedTitles(m.relations),
-          prequelTitles: extractPrequelTitles(m.relations),
-          score: m.averageScore ?? null,
-        }));
-    } catch (e) {
-      console.warn('Peak-unseen recommendation search failed', e);
-      return null;
+    const results = [];
+    let anySucceeded = false;
+    // Sequential, not Promise.all -- same rate-limit discipline as the
+    // other AniList candidate-listing loops in this file. Stops early once
+    // there's a healthy buffer for the caller's own filtering (2x `count`)
+    // so a well-covered library doesn't pay for all 4 pages every time.
+    for (let page = 1; page <= PEAK_MAX_PAGES && results.length < count * 2; page++) {
+      try {
+        const res = await fetch('https://graphql.anilist.co', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query, variables: { type, page } })
+        });
+        const json = await res.json();
+        if (!res.ok || json.errors) { console.warn('Peak-unseen recommendation search failed', res.status, json.errors); break; }
+        anySucceeded = true;
+        const media = json?.data?.Page?.media || [];
+        media.filter(m => (m.popularity || 0) >= PEAK_MIN_POPULARITY).forEach(m => {
+          results.push({
+            anilistId: m.id,
+            malId: null,
+            title: m.title.english || m.title.romaji,
+            altTitles: [m.title.english, m.title.romaji].filter(Boolean),
+            genres: m.genres || [],
+            coverUrl: m.coverImage?.large || null,
+            studio: m.studios?.nodes?.[0]?.name || null,
+            relatedTitles: extractRelatedTitles(m.relations),
+            prequelTitles: extractPrequelTitles(m.relations),
+            score: m.averageScore ?? null,
+          });
+        });
+        if (!json?.data?.Page?.pageInfo?.hasNextPage) break;
+      } catch (e) {
+        console.warn('Peak-unseen recommendation search failed', e);
+        break;
+      }
     }
+    // Deliberately NOT sliced to `count` here -- the caller still has its
+    // own already-have/franchise/dismissed filtering to run, and used to
+    // lose most of its headroom to this function pre-truncating before
+    // that ran at all.
+    return anySucceeded ? results : null;
   }
 
   // ── Recommendations: orchestration, cache, dismissal ──
@@ -3999,9 +4045,23 @@
   // dedup set -- a title tracked under a different category (e.g. an
   // anime film stored as category:'movie') must still count as "already
   // have" so it isn't recommended back.
+  //
+  // A watchlist-only entry is deliberately NOT folded into "already have"
+  // -- it's something the user wants to watch, not something they have,
+  // so excluding it just because it's on the watchlist starved sections
+  // for no reason (confirmed live: some rating profiles had noticeably
+  // thin sections purely because the natural candidates were already
+  // sitting on the watchlist). It's tracked separately so a matching
+  // candidate can still surface, just flagged so the card can grey out
+  // the redundant "+ Watchlist" button instead of offering to re-add it.
   async function computeRecommendations(scope, category, rows, allRows) {
     const type = category === 'anime' ? 'ANIME' : 'MANGA';
-    const alreadyHave = buildAlreadyHaveTitles(allRows);
+    // Shows use list_status 'watchlist'; written_media uses 'plan_to_read'
+    // for the equivalent "want to but haven't started" status.
+    const isWatchlistStatus = category === 'anime' ? (s) => s === 'watchlist' : (s) => s === 'plan_to_read';
+    const watchlistRows = allRows.filter(r => isWatchlistStatus(r.listStatus));
+    const alreadyHave = buildAlreadyHaveTitles(allRows.filter(r => !isWatchlistStatus(r.listStatus)));
+    const onWatchlist = buildAlreadyHaveTitles(watchlistRows);
     const dismissed = await getDismissedRecommendationIds(scope, category);
     const seeds = pickRecommendationSeeds(rows, { scope });
     // Cross-section dedup keyed by NORMALIZED TITLE, not AniList id --
@@ -4064,7 +4124,7 @@
 
     // Fill per-TIER quotas (mirroring SEED_TIER_WEIGHTS' shares) so the
     // final CARD mix actually reflects the requested rating-tier split
-    // (30% from 5-star seeds / 40% from 4.5-star / 30% from 4-star),
+    // (30% from 5-star seeds / 30% from 4.5-star / 40% from 4-star),
     // not just which shows got queried as seeds. Without this, a
     // candidate's tier is its `bestSeedRating` (which seed tier
     // recommended it) -- a couple of well-connected 5-star seeds could
@@ -4088,7 +4148,7 @@
         const count = seedContributionCount.get(r.seedTitle) || 0;
         if (count >= MAX_PER_SEED) continue;
         seedContributionCount.set(r.seedTitle, count + 1);
-        becauseYouLiked.push({ ...r.item, reason: 'because_rated', reasonDetail: r.seedTitle, sourceRating: r.bestSeedRating });
+        becauseYouLiked.push({ ...r.item, reason: 'because_rated', reasonDetail: r.seedTitle, sourceRating: r.bestSeedRating, alreadyOnWatchlist: candidateMatchesAny(r.item, onWatchlist) });
         addedForTier++;
       }
     });
@@ -4107,7 +4167,7 @@
         if (!isFreshFranchiseEntry(candidate, alreadyHave)) continue;
         if (dismissed.has(externalIdFor(candidate))) continue;
         candidateTitleKeys(candidate).forEach(k => usedTitles.add(k));
-        overallTaste.push({ ...candidate, reason: 'affinity', reasonDetail: topGenres.slice(0, 2).join('/'), sourceRating: null });
+        overallTaste.push({ ...candidate, reason: 'affinity', reasonDetail: topGenres.slice(0, 2).join('/'), sourceRating: null, alreadyOnWatchlist: candidateMatchesAny(candidate, onWatchlist) });
       }
     }
 
@@ -4121,7 +4181,7 @@
         if (!isFreshFranchiseEntry(candidate, alreadyHave)) continue;
         if (dismissed.has(externalIdFor(candidate))) continue;
         candidateTitleKeys(candidate).forEach(k => usedTitles.add(k));
-        peakUnseen.push({ ...candidate, reason: 'popular', reasonDetail: null, sourceRating: null });
+        peakUnseen.push({ ...candidate, reason: 'popular', reasonDetail: null, sourceRating: null, alreadyOnWatchlist: candidateMatchesAny(candidate, onWatchlist) });
       }
     }
 
@@ -7199,7 +7259,7 @@
       grid.innerHTML = `<p style="font-size:0.7rem; color:var(--muted)">Nothing here right now.</p>`;
       return;
     }
-    grid.innerHTML = list.map(item => {
+    grid.innerHTML = list.map((item, idx) => {
       let reasonHTML;
       if (item.reason === 'because_rated') {
         reasonHTML = `Because you rated <strong>${escapeHTML(item.reasonDetail)}</strong>${item.sourceRating != null ? ` ★${item.sourceRating}` : ''}`;
@@ -7210,7 +7270,7 @@
       }
       const genresText = (item.genres || []).map(g => escapeHTML(g)).join(', ');
       return `
-      <div class="rec-card rec-card-h">
+      <div class="rec-card rec-card-h" data-idx="${idx}">
         <div class="rec-card-h-top">
           ${item.coverUrl ? `<img class="rec-card-h-img" src="${item.coverUrl}" alt="" onerror="this.remove()">` : `<div class="rec-card-h-img"></div>`}
           <div class="rec-card-h-body">
@@ -7220,7 +7280,9 @@
           </div>
         </div>
         <div class="rec-card-actions">
-          <button class="btn rec-add-btn" title="Add to Watchlist">+ Watchlist</button>
+          ${item.alreadyOnWatchlist
+            ? `<button class="btn" disabled title="Already on your watchlist">On Watchlist</button>`
+            : `<button class="btn rec-add-btn" title="Add to Watchlist">+ Watchlist</button>`}
           <button class="btn rec-start-btn" title="Start Watching Now">▶ Start Now</button>
           <button class="rec-dismiss-btn" title="Dismiss">✕</button>
         </div>
@@ -7228,25 +7290,33 @@
     `;
     }).join('');
 
-    grid.querySelectorAll('.rec-dismiss-btn').forEach((btn, i) => {
+    // Buttons are looked up by which .rec-card they're inside (via its
+    // data-idx) rather than by the NodeList's own position -- the
+    // "+ Watchlist" button is conditionally omitted per card (see
+    // alreadyOnWatchlist above), which would otherwise desync a plain
+    // positional index from `list`.
+    grid.querySelectorAll('.rec-dismiss-btn').forEach(btn => {
       btn.addEventListener('click', async () => {
-        const ok = await dismissRecommendation(activeScope, activeRecCategory, list[i]);
+        const item = list[Number(btn.closest('.rec-card').dataset.idx)];
+        const ok = await dismissRecommendation(activeScope, activeRecCategory, item);
         if (!ok) return;
         btn.closest('.rec-card').remove();
       });
     });
 
-    grid.querySelectorAll('.rec-start-btn').forEach((btn, i) => {
+    grid.querySelectorAll('.rec-start-btn').forEach(btn => {
       btn.addEventListener('click', async () => {
-        const ok = await startRecommendationItemNow(list[i], activeRecCategory, activeScope);
+        const item = list[Number(btn.closest('.rec-card').dataset.idx)];
+        const ok = await startRecommendationItemNow(item, activeRecCategory, activeScope);
         if (!ok) return;
         btn.closest('.rec-card').remove();
       });
     });
 
-    grid.querySelectorAll('.rec-add-btn').forEach((btn, i) => {
+    grid.querySelectorAll('.rec-add-btn').forEach(btn => {
       btn.addEventListener('click', async () => {
-        const ok = await addRecommendationItemToWatchlist(list[i], activeRecCategory, activeScope);
+        const item = list[Number(btn.closest('.rec-card').dataset.idx)];
+        const ok = await addRecommendationItemToWatchlist(item, activeRecCategory, activeScope);
         if (!ok) return;
         btn.closest('.rec-card').remove();
       });
