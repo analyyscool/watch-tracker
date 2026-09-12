@@ -2928,20 +2928,7 @@
     renderSeasonNoticesSection(notices);
   }
 
-  async function checkAnimeSequel(show) {
-    const query = `query ($s: String) { Media(search: $s, type: ANIME) {
-      relations { edges { relationType node { title { romaji english } format episodes } } }
-    } }`;
-    const res = await fetch('https://graphql.anilist.co', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query, variables: { s: show.title } })
-    });
-    const json = await res.json();
-    const edges = json?.data?.Media?.relations?.edges || [];
-    const sequel = edges.find(e => e.relationType === 'SEQUEL' && ['TV', 'TV_SHORT'].includes(e.node.format));
-    if (!sequel) return null;
-    const sequelTitle = sequel.node.title.english || sequel.node.title.romaji;
+  function buildSeasonNotice(show, sequelTitle, sequelEpisodes) {
     return {
       type: 'anime',
       key: `${show.id}::${sequelTitle}`,
@@ -2951,8 +2938,61 @@
       showTitle: show.title,
       posterUrl: show.posterUrl,
       newSeasonCount: (show.totalSeasons || 1) + 1,
-      newTotalEpisodes: show.totalEpisodes + (sequel.node.episodes || 0),
+      newTotalEpisodes: show.totalEpisodes + (sequelEpisodes || 0),
     };
+  }
+
+  async function checkAnimeSequel(show) {
+    const query = `query ($s: String) { Media(search: $s, type: ANIME) {
+      relations { edges { relationType node { title { romaji english } format episodes } } }
+    } }`;
+    try {
+      const res = await fetch('https://graphql.anilist.co', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, variables: { s: show.title } })
+      });
+      const json = await res.json();
+      // AniList's recurring "temporarily disabled due to severe stability
+      // issues" outage still returns 200 with a GraphQL `errors` array
+      // rather than a non-2xx status, so both must be checked to detect it.
+      if (!res.ok || json.errors) throw new Error(`AniList error ${res.status}`);
+      const edges = json?.data?.Media?.relations?.edges || [];
+      const sequel = edges.find(e => e.relationType === 'SEQUEL' && ['TV', 'TV_SHORT'].includes(e.node.format));
+      if (!sequel) return null;
+      return buildSeasonNotice(show, sequel.node.title.english || sequel.node.title.romaji, sequel.node.episodes);
+    } catch (e) {
+      console.warn('AniList sequel check failed for', show.title, '— falling back to Jikan', e);
+      const fallback = await fetchJikanAnimeSequel(show.title).catch(() => null);
+      return fallback ? buildSeasonNotice(show, fallback.title, fallback.episodes) : null;
+    }
+  }
+
+  // Fallback for checkAnimeSequel when AniList itself is down (its outages
+  // are recurring, see CLAUDE.md) -- same relations-edge concept via Jikan
+  // (MAL's API) instead. Only invoked on AniList failure, never blended
+  // with a successful AniList result, so a legitimate "no sequel" answer
+  // from AniList is never second-guessed.
+  async function fetchJikanAnimeSequel(title) {
+    const searchRes = await fetch(`https://api.jikan.moe/v4/anime?q=${encodeURIComponent(title)}&limit=5`);
+    const searchJson = await searchRes.json();
+    const results = searchJson.data || [];
+    if (!results.length) return null;
+    const exact = results.find(r => {
+      const variants = [r.title, r.title_english, r.title_japanese, ...(r.titles || []).map(t => t.title)];
+      return variants.some(v => (v || '').toLowerCase().trim() === title.toLowerCase().trim());
+    });
+    const anime = exact || results[0];
+    const relRes = await fetch(`https://api.jikan.moe/v4/anime/${anime.mal_id}/relations`);
+    const relJson = await relRes.json();
+    const seqGroup = (relJson.data || []).find(r => r.relation === 'Sequel');
+    const entry = (seqGroup?.entry || []).find(e => e.type === 'Anime');
+    if (!entry) return null;
+    const detailRes = await fetch(`https://api.jikan.moe/v4/anime/${entry.mal_id}`);
+    const detailJson = await detailRes.json();
+    const d = detailJson.data;
+    if (!d || d.type !== 'TV') return null;
+    return { title: d.title_english || d.title, episodes: d.episodes || 0 };
   }
 
   async function checkWesternSeason(show) {
@@ -4101,25 +4141,56 @@
     }
   }
 
-  async function checkMediaSequel(m) {
-    const query = `query ($s: String) { Media(search: $s, type: MANGA) {
-      relations { edges { relationType node { title { romaji english } format } } }
-    } }`;
-    const res = await fetch('https://graphql.anilist.co', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query, variables: { s: m.title } })
-    });
-    const json = await res.json();
-    const edges = json?.data?.Media?.relations?.edges || [];
-    const sequel = edges.find(e => e.relationType === 'SEQUEL' && ['MANGA', 'ONE_SHOT'].includes(e.node.format));
-    if (!sequel) return null;
-    const sequelTitle = sequel.node.title.english || sequel.node.title.romaji;
+  function buildMediaSequelNotice(m, sequelTitle) {
     return {
       key: `${m.id}::${sequelTitle}`,
       text: `${m.title} → sequel series: "${sequelTitle}"`,
       sequelTitle, category: m.category,
     };
+  }
+
+  async function checkMediaSequel(m) {
+    const query = `query ($s: String) { Media(search: $s, type: MANGA) {
+      relations { edges { relationType node { title { romaji english } format } } }
+    } }`;
+    try {
+      const res = await fetch('https://graphql.anilist.co', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, variables: { s: m.title } })
+      });
+      const json = await res.json();
+      if (!res.ok || json.errors) throw new Error(`AniList error ${res.status}`);
+      const edges = json?.data?.Media?.relations?.edges || [];
+      const sequel = edges.find(e => e.relationType === 'SEQUEL' && ['MANGA', 'ONE_SHOT'].includes(e.node.format));
+      if (!sequel) return null;
+      return buildMediaSequelNotice(m, sequel.node.title.english || sequel.node.title.romaji);
+    } catch (e) {
+      console.warn('AniList sequel check failed for', m.title, '— falling back to Jikan', e);
+      const fallback = await fetchJikanMangaSequel(m.title).catch(() => null);
+      return fallback ? buildMediaSequelNotice(m, fallback.title) : null;
+    }
+  }
+
+  // Fallback for checkMediaSequel when AniList itself is down. No episode/
+  // chapter count needed here (unlike the anime path) -- Add Reading's
+  // "Find Cover" flow fills totals separately once the user picks the
+  // sequel, so only the sequel's title has to be known.
+  async function fetchJikanMangaSequel(title) {
+    const searchRes = await fetch(`https://api.jikan.moe/v4/manga?q=${encodeURIComponent(title)}&limit=5`);
+    const searchJson = await searchRes.json();
+    const results = searchJson.data || [];
+    if (!results.length) return null;
+    const exact = results.find(r => {
+      const variants = [r.title, r.title_english, r.title_japanese, ...(r.titles || []).map(t => t.title)];
+      return variants.some(v => (v || '').toLowerCase().trim() === title.toLowerCase().trim());
+    });
+    const manga = exact || results[0];
+    const relRes = await fetch(`https://api.jikan.moe/v4/manga/${manga.mal_id}/relations`);
+    const relJson = await relRes.json();
+    const seqGroup = (relJson.data || []).find(r => r.relation === 'Sequel');
+    const entry = (seqGroup?.entry || []).find(e => e.type === 'Manga');
+    return entry ? { title: entry.name } : null;
   }
 
   async function checkMangaSequels() {
