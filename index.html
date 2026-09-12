@@ -820,45 +820,81 @@
     margin: 1.75rem 0 0.9rem;
   }
 
+  /* Recommendation cards: a horizontal list-row layout (small fixed
+     cover on the left, all text compacted into one column on the
+     right, actions on their own full-width row below) replaces an
+     earlier vertical poster-card design that stacked 6-7 elements in a
+     narrow column and felt visually crowded. Deliberately its own
+     class family (not reusing .card/.card-body/.card-poster, which are
+     shared with unrelated vertical-poster views elsewhere in the app)
+     so this redesign can't leak into or fight those. */
   .rec-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-    gap: 1rem;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 0.75rem;
     margin-bottom: 1rem;
   }
 
-  .rec-reason {
-    font-size: 0.62rem;
+  .rec-card-h {
+    display: flex;
+    flex-direction: column;
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .rec-card-h-top {
+    display: flex;
+    gap: 0.75rem;
+    padding: 0.75rem;
+  }
+
+  .rec-card-h-img {
+    width: 64px;
+    height: 92px;
+    object-fit: cover;
+    border-radius: 5px;
+    flex-shrink: 0;
+    background: var(--border2);
+  }
+
+  .rec-card-h-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+
+  .rec-card-h-title {
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 0.78rem;
+    color: var(--text);
+    line-height: 1.25;
+  }
+
+  .rec-card-h-meta {
+    font-size: 0.6rem;
     color: var(--muted);
-    margin: 0.4rem 0;
     overflow-wrap: break-word;
   }
 
-  .rec-score {
-    font-size: 0.6rem;
-    color: var(--accent);
-    margin-top: 0.3rem;
-    letter-spacing: 0.03em;
-  }
+  .rec-card-h-meta .rec-score-inline { color: var(--accent); }
 
-  /* Recommendation card titles wrap fully instead of the default
-     single-line ellipsis truncation used on show-tracking cards --
-     there's no fixed metadata (episode count, % complete) sharing the
-     header row here, so there's room, and a truncated title is a worse
-     tradeoff than a two-line one for a card you're deciding whether to
-     add. */
-  .rec-card .card-title {
-    white-space: normal;
-    overflow: visible;
-    text-overflow: clip;
+  .rec-card-h-reason {
+    font-size: 0.6rem;
+    color: var(--muted);
+    margin-top: 0.15rem;
+    overflow-wrap: break-word;
   }
 
   .rec-card-actions {
     display: flex;
-    flex-wrap: wrap;
     align-items: center;
     gap: 0.5rem;
-    margin-top: 0.5rem;
+    padding: 0 0.75rem 0.75rem;
   }
 
   .rec-add-btn, .rec-start-btn {
@@ -878,6 +914,7 @@
     background: none;
     border: none;
     padding: 0.1rem 0.3rem;
+    flex-shrink: 0;
   }
   .rec-dismiss-btn:hover { color: var(--text); }
 
@@ -1223,9 +1260,9 @@
   }
 
   .show-detail-ratings .star-rating {
-    transform: scale(1.35);
+    transform: scale(2);
     transform-origin: left center;
-    margin-left: 0.35rem;
+    margin-left: 0.6rem;
   }
 
   .modal-close { width: 100%; text-align: center; }
@@ -1244,6 +1281,14 @@
   }
 
   .modal-x-close:hover { color: var(--text); }
+
+  /* Bigger close target specifically for the show-detail modal -- this
+     is scoped to that one modal (not a blanket .modal-x-close change,
+     which is shared with other modals nobody flagged as too small). */
+  #show-detail-x-close {
+    font-size: 1.8rem;
+    padding: 0.3rem;
+  }
 
   .modal textarea {
     width: 100%;
@@ -2414,6 +2459,17 @@
       .trim();
   }
 
+  // A lighter cousin of normalizeTitle for use in an actual AniList
+  // SEARCH string (as opposed to a comparison key) -- preserves casing
+  // and spacing, only strips the edition-suffix parenthetical. Needed
+  // because AniList's search 404s outright on a literal string like
+  // "Dragon Ball (Fan Cut)" (confirmed live), since that's not a real
+  // title anywhere in its catalog -- searching the base "Dragon Ball"
+  // instead actually resolves.
+  function stripEditionSuffixForSearch(title) {
+    return title.replace(/\s*\(\s*(fan cut|recut)[^)]*\)\s*/gi, ' ').replace(/\s+/g, ' ').trim();
+  }
+
   // A candidate's dedup identity is its own normalized title PLUS its
   // known PREQUEL/SEQUEL relation titles (see RELATION_FIELDS/
   // extractRelatedTitles, added to every candidate-listing AniList
@@ -2969,16 +3025,17 @@
       return;
     }
     similarGrid.innerHTML = similar.map(c => `
-      <div class="card rec-card">
-        ${c.coverUrl ? `<img class="card-poster" src="${c.coverUrl}" alt="" onerror="this.remove()">` : ''}
-        <div class="card-body">
-          <div class="card-title">${escapeHTML(c.title)}</div>
-          ${(c.genres || []).length ? `<div class="card-tags">${(c.genres || []).map(g => escapeHTML(g)).join(', ')}</div>` : ''}
-          ${recScoreBadgeHTML(c.score)}
-          <div class="rec-card-actions">
-            <button class="btn rec-add-btn" title="Add to Watchlist">+ Watchlist</button>
-            <button class="btn rec-start-btn" title="Start Watching Now">▶ Start Now</button>
+      <div class="rec-card rec-card-h">
+        <div class="rec-card-h-top">
+          ${c.coverUrl ? `<img class="rec-card-h-img" src="${c.coverUrl}" alt="" onerror="this.remove()">` : `<div class="rec-card-h-img"></div>`}
+          <div class="rec-card-h-body">
+            <div class="rec-card-h-title">${escapeHTML(c.title)}</div>
+            <div class="rec-card-h-meta">${(c.genres || []).map(g => escapeHTML(g)).join(', ')}${recScoreBadgeHTML(c.score)}</div>
           </div>
+        </div>
+        <div class="rec-card-actions">
+          <button class="btn rec-add-btn" title="Add to Watchlist">+ Watchlist</button>
+          <button class="btn rec-start-btn" title="Start Watching Now">▶ Start Now</button>
         </div>
       </div>
     `).join('');
@@ -3112,8 +3169,22 @@
     renderWatchlist(watchlistCache.filter(i => i.title.toLowerCase().includes(q)));
   });
 
+  // A tag matching "Season N"/"Part N" (auto-applied by the new-season
+  // detection flow, e.g. applySeasonBumpToWatchlist) is useless as a
+  // FILTER -- it only ever matches the one show it was stamped on, so it
+  // just clutters the filter-pill bar with one-off labels alongside
+  // real, reusable tags. It still shows up fine as an on-card label
+  // (untouched, separate code) -- this only trims what populates the
+  // filter pills themselves. Matches on the tag text itself rather than
+  // tracking where a tag came from, so it also cleans up older tags from
+  // a since-changed/removed generator, not just the current one.
+  const AUTO_SEASON_TAG_PATTERN = /^(season|part)\s*\d+$/i;
+  function isFilterableTag(tag) {
+    return !AUTO_SEASON_TAG_PATTERN.test(tag.trim());
+  }
+
   function renderWatchlistTagFilter(watchlist, activeTags) {
-    const allTags = [...new Set(watchlist.flatMap(s => s.tags || []))].sort();
+    const allTags = [...new Set(watchlist.flatMap(s => s.tags || []))].filter(isFilterableTag).sort();
     const bar = document.getElementById('watchlist-tag-filter');
     bar.innerHTML = allTags.map(tag => `<button class="btn tag-pill${activeTags.includes(tag) ? ' active' : ''}" data-tag="${escapeHTML(tag)}">${escapeHTML(tag)}</button>`).join('');
     bar.querySelectorAll('.tag-pill').forEach(btn => {
@@ -3176,7 +3247,7 @@
   });
 
   function renderToReadTagFilter(toRead, activeTags) {
-    const allTags = [...new Set(toRead.flatMap(m => m.tags || []))].sort();
+    const allTags = [...new Set(toRead.flatMap(m => m.tags || []))].filter(isFilterableTag).sort();
     const bar = document.getElementById('to-read-tag-filter');
     bar.innerHTML = allTags.map(tag => `<button class="btn tag-pill${activeTags.includes(tag) ? ' active' : ''}" data-tag="${escapeHTML(tag)}">${escapeHTML(tag)}</button>`).join('');
     bar.querySelectorAll('.tag-pill').forEach(btn => {
@@ -3536,24 +3607,44 @@
   const MIN_RECOMMENDATION_VOTES = 3;
   const ANIME_RECOMMENDATION_FORMATS = new Set(['TV', 'MOVIE']);
 
+  // A single `Media(search:)` call blindly trusts AniList's own top-hit
+  // ranking, which can pick the wrong entry outright -- confirmed live:
+  // searching the real, massively popular "Frieren: Beyond Journey's
+  // End" (verbatim) resolved to an obscure placeholder-titled side-entry
+  // (popularity 10,889, a redacted "●●" title) instead of the actual
+  // series (popularity 479,337) -- which was sitting right there as the
+  // 3rd result of the same search. Querying a small Page of candidates
+  // and picking the one with the highest `popularity` is a cheap,
+  // reliable disambiguator: the real, well-known version of a show is
+  // essentially always the most-added-to-lists variant among same-named
+  // candidates (spinoffs/specials/unreleased placeholders trail far
+  // behind). This searches the EDITION-STRIPPED title (see
+  // stripEditionSuffixForSearch) so a locally-tagged variant like
+  // "Dragon Ball (Fan Cut)" resolves at all -- AniList 404s outright on
+  // that literal string otherwise.
   async function fetchAniListRecommendationsFor(title, type) {
-    const query = `query ($s: String, $type: MediaType) { Media(search: $s, type: $type) {
-      id
-      recommendations(sort: RATING_DESC, perPage: 10) {
-        nodes { rating mediaRecommendation { id format title { romaji english } genres coverImage { large } studios(isMain: true) { nodes { name } } averageScore ${RELATION_FIELDS} } }
+    const query = `query ($s: String, $type: MediaType) { Page(perPage: 5) {
+      media(search: $s, type: $type) {
+        id popularity
+        recommendations(sort: RATING_DESC, perPage: 10) {
+          nodes { rating mediaRecommendation { id format title { romaji english } genres coverImage { large } studios(isMain: true) { nodes { name } } averageScore ${RELATION_FIELDS} } }
+        }
       }
     } }`;
     const res = await fetch('https://graphql.anilist.co', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query, variables: { s: title, type } })
+      body: JSON.stringify({ query, variables: { s: stripEditionSuffixForSearch(title), type } })
     });
     const json = await res.json();
     // AniList's recurring "temporarily disabled due to severe stability
     // issues" outage still returns 200 with a GraphQL `errors` array
     // rather than a non-2xx status, so both must be checked.
     if (!res.ok || json.errors) throw new Error(`AniList error ${res.status}`);
-    const nodes = (json?.data?.Media?.recommendations?.nodes || []).filter(n => {
+    const candidates = json?.data?.Page?.media || [];
+    if (!candidates.length) return [];
+    const best = candidates.reduce((a, b) => ((b.popularity || 0) > (a.popularity || 0) ? b : a));
+    const nodes = (best.recommendations?.nodes || []).filter(n => {
       if ((n.rating || 0) < MIN_RECOMMENDATION_VOTES) return false;
       if (type === 'ANIME' && !ANIME_RECOMMENDATION_FORMATS.has(n.mediaRecommendation?.format)) return false;
       return true;
@@ -6983,7 +7074,7 @@
   // with this app's own 0-5 star ratings on the same card.
   function recScoreBadgeHTML(score) {
     if (score == null) return '';
-    return `<div class="rec-score">AniList ${score}%</div>`;
+    return ` · <span class="rec-score-inline">AniList ${score}%</span>`;
   }
 
   // Renders one section's grid (cards + dismiss/add handlers) into the
@@ -7005,19 +7096,21 @@
       } else {
         reasonHTML = `Popular pick you haven't seen yet`;
       }
+      const genresText = (item.genres || []).map(g => escapeHTML(g)).join(', ');
       return `
-      <div class="card rec-card">
-        ${item.coverUrl ? `<img class="card-poster" src="${item.coverUrl}" alt="" onerror="this.remove()">` : ''}
-        <div class="card-body">
-          <div class="card-title">${escapeHTML(item.title)}</div>
-          ${(item.genres || []).length ? `<div class="card-tags">${(item.genres || []).map(g => escapeHTML(g)).join(', ')}</div>` : ''}
-          ${recScoreBadgeHTML(item.score)}
-          <div class="rec-reason">${reasonHTML}</div>
-          <div class="rec-card-actions">
-            <button class="btn rec-add-btn" title="Add to Watchlist">+ Watchlist</button>
-            <button class="btn rec-start-btn" title="Start Watching Now">▶ Start Now</button>
-            <button class="rec-dismiss-btn" title="Dismiss">✕</button>
+      <div class="rec-card rec-card-h">
+        <div class="rec-card-h-top">
+          ${item.coverUrl ? `<img class="rec-card-h-img" src="${item.coverUrl}" alt="" onerror="this.remove()">` : `<div class="rec-card-h-img"></div>`}
+          <div class="rec-card-h-body">
+            <div class="rec-card-h-title">${escapeHTML(item.title)}</div>
+            <div class="rec-card-h-meta">${genresText}${recScoreBadgeHTML(item.score)}</div>
+            <div class="rec-card-h-reason">${reasonHTML}</div>
           </div>
+        </div>
+        <div class="rec-card-actions">
+          <button class="btn rec-add-btn" title="Add to Watchlist">+ Watchlist</button>
+          <button class="btn rec-start-btn" title="Start Watching Now">▶ Start Now</button>
+          <button class="rec-dismiss-btn" title="Dismiss">✕</button>
         </div>
       </div>
     `;
