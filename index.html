@@ -2545,9 +2545,9 @@
   // is rounded to the nearest 0.5 before bucketing so it still lands in
   // one of the three tiers.
   const SEED_TIER_WEIGHTS = [
-    { rating: 5.0, share: 0.4 },
+    { rating: 5.0, share: 0.3 },
     { rating: 4.5, share: 0.4 },
-    { rating: 4.0, share: 0.2 },
+    { rating: 4.0, share: 0.3 },
   ];
 
   function pickRecommendationSeeds(rows, { scope, limit = 10, minRating = 4.0 } = {}) {
@@ -3019,7 +3019,32 @@
       similarGrid.innerHTML = `<p style="font-size:0.7rem; color:var(--muted)">Couldn't load similar titles right now.</p>`;
       return;
     }
-    const similar = candidates.filter(c => !candidateMatchesAny(c, alreadyHave)).slice(0, 6);
+    const similar = candidates
+      .filter(c => !candidateMatchesAny(c, alreadyHave) && isFreshFranchiseEntry(c, alreadyHave))
+      .slice(0, 6);
+
+    // The seed-based "if you liked X" pass can legitimately come up thin
+    // (e.g. this exact show doesn't already track many of its own
+    // AniList-recommended titles) or empty (e.g. weak/spinoff-only
+    // community data, filtered out by the vote/format quality gates) --
+    // fill any remaining slots with this show's own genre-affinity
+    // matches, same fallback concept as the main tab's "Overall taste"
+    // section, just scoped to this one show's genres instead of an
+    // aggregate taste profile.
+    if (similar.length < 6 && (item.genres || []).length) {
+      const usedIds = new Set(similar.map(c => externalIdFor(c)));
+      const fillCandidates = await fetchGenreAffinityCandidates(item.genres.slice(0, 3), type, (6 - similar.length) + usedIds.size + 5);
+      if (fillCandidates) {
+        for (const candidate of fillCandidates) {
+          if (similar.length >= 6) break;
+          if (candidateMatchesAny(candidate, alreadyHave) || !isFreshFranchiseEntry(candidate, alreadyHave)) continue;
+          const id = externalIdFor(candidate);
+          if (usedIds.has(id)) continue;
+          usedIds.add(id);
+          similar.push(candidate);
+        }
+      }
+    }
     if (!similar.length) {
       similarGrid.innerHTML = `<p style="font-size:0.7rem; color:var(--muted)">Nothing found.</p>`;
       return;
@@ -3587,6 +3612,31 @@
       .filter(Boolean);
   }
 
+  // PREQUEL-only, separate from extractRelatedTitles' combined PREQUEL+
+  // SEQUEL list -- used to detect "this candidate is a later installment
+  // of a franchise" specifically, so isFreshFranchiseEntry (below) can
+  // require the earlier installment to be something already tracked.
+  function extractPrequelTitles(relationsField) {
+    const edges = relationsField?.edges || [];
+    return edges
+      .filter(e => e.relationType === 'PREQUEL')
+      .map(e => e.node?.title?.english || e.node?.title?.romaji)
+      .filter(Boolean);
+  }
+
+  // A candidate that IS a later installment (has a PREQUEL edge) is only
+  // a reasonable recommendation if that earlier installment is something
+  // already tracked -- otherwise it's recommending the ending of a story
+  // the viewer has never started (e.g. Gintama's finale, or "Fruits
+  // Basket: The Final Season", when neither earlier Gintama nor earlier
+  // Fruits Basket is tracked at all). A candidate with NO prequel edge is
+  // always a fresh, valid starting point.
+  function isFreshFranchiseEntry(candidate, alreadyHave) {
+    const prequels = candidate.prequelTitles || [];
+    if (!prequels.length) return true;
+    return prequels.some(p => titleOverlapsAny(normalizeTitle(p), alreadyHave));
+  }
+
   // AniList always pads a show's recommendations list out to `perPage`
   // entries regardless of how many the community actually endorses --
   // spot-checked live against Frieren (a mega-popular show): its top 10
@@ -3658,6 +3708,7 @@
       coverUrl: m.coverImage?.large || null,
       studio: m.studios?.nodes?.[0]?.name || null,
       relatedTitles: extractRelatedTitles(m.relations),
+      prequelTitles: extractPrequelTitles(m.relations),
       score: m.averageScore ?? null,
     }));
   }
@@ -3773,6 +3824,7 @@
             coverUrl: m.coverImage?.large || null,
             studio: m.studios?.nodes?.[0]?.name || null,
             relatedTitles: extractRelatedTitles(m.relations),
+            prequelTitles: extractPrequelTitles(m.relations),
             score: m.averageScore ?? null,
           });
         });
@@ -3805,7 +3857,7 @@
   // Same return-value contract as fetchGenreAffinityCandidates: `null`
   // means the request itself failed, `[]` means it succeeded and
   // (in practice, essentially never) found nothing.
-  const PEAK_MIN_POPULARITY = 30000;
+  const PEAK_MIN_POPULARITY = 15000;
 
   async function fetchPeakUnseenCandidates(type, count) {
     if (count <= 0) return [];
@@ -3837,6 +3889,7 @@
           coverUrl: m.coverImage?.large || null,
           studio: m.studios?.nodes?.[0]?.name || null,
           relatedTitles: extractRelatedTitles(m.relations),
+          prequelTitles: extractPrequelTitles(m.relations),
           score: m.averageScore ?? null,
         }));
     } catch (e) {
@@ -3953,6 +4006,7 @@
         // a word-boundary extension of it is caught here without a
         // separate seed-specific check.
         if (candidateMatchesAny(candidate, alreadyHave)) return;
+        if (!isFreshFranchiseEntry(candidate, alreadyHave)) return;
         const titleKey = normalizeTitle(candidate.title);
         if (dismissed.has(externalIdFor(candidate))) return;
         const existing = bySeedTitle.get(titleKey);
@@ -3965,23 +4019,36 @@
       });
     });
 
-    // Greedily fill the section in ranked order, but cap how many
-    // recommendations any single seed can contribute (MAX_PER_SEED) --
-    // otherwise a couple of seeds whose own AniList recommendations
-    // happen to be richer/more numerous (typically the most mainstream,
-    // best-connected shows) can crowd out the other seeds entirely, even
-    // though pickRecommendationSeeds already deliberately diversified
-    // which shows got seeded from in the first place.
+    // Fill per-TIER quotas (mirroring SEED_TIER_WEIGHTS' shares) so the
+    // final CARD mix actually reflects the requested rating-tier split
+    // (30% from 5-star seeds / 40% from 4.5-star / 30% from 4-star),
+    // not just which shows got queried as seeds. Without this, a
+    // candidate's tier is its `bestSeedRating` (which seed tier
+    // recommended it) -- a couple of well-connected 5-star seeds could
+    // still dominate the OUTPUT even though seed SELECTION was already
+    // tier-balanced, simply because those seeds' AniList data is
+    // richer/more numerous. MAX_PER_SEED still caps how many cards any
+    // single seed contributes within its own tier, for diversity across
+    // individual shows too. A tier with too few candidates just
+    // contributes fewer cards -- no backfill from other tiers, same
+    // philosophy as pickRecommendationSeeds' own tier-fill.
     const MAX_PER_SEED = 2;
     const seedContributionCount = new Map();
     const becauseYouLiked = [];
-    for (const r of [...bySeedTitle.values()].sort((a, b) => (b.seedCount - a.seedCount) || (b.bestSeedRating - a.bestSeedRating))) {
-      if (becauseYouLiked.length >= REC_SECTION_CAP) break;
-      const count = seedContributionCount.get(r.seedTitle) || 0;
-      if (count >= MAX_PER_SEED) continue;
-      seedContributionCount.set(r.seedTitle, count + 1);
-      becauseYouLiked.push({ ...r.item, reason: 'because_rated', reasonDetail: r.seedTitle, sourceRating: r.bestSeedRating });
-    }
+    const sortedBySeedCount = [...bySeedTitle.values()].sort((a, b) => (b.seedCount - a.seedCount) || (b.bestSeedRating - a.bestSeedRating));
+    SEED_TIER_WEIGHTS.forEach(({ rating, share }) => {
+      const tierQuota = Math.round(REC_SECTION_CAP * share);
+      let addedForTier = 0;
+      for (const r of sortedBySeedCount) {
+        if (addedForTier >= tierQuota || becauseYouLiked.length >= REC_SECTION_CAP) break;
+        if (r.bestSeedRating !== rating) continue;
+        const count = seedContributionCount.get(r.seedTitle) || 0;
+        if (count >= MAX_PER_SEED) continue;
+        seedContributionCount.set(r.seedTitle, count + 1);
+        becauseYouLiked.push({ ...r.item, reason: 'because_rated', reasonDetail: r.seedTitle, sourceRating: r.bestSeedRating });
+        addedForTier++;
+      }
+    });
     becauseYouLiked.forEach(item => candidateTitleKeys(item).forEach(k => usedTitles.add(k)));
 
     const affinity = computeAffinity(rows);
@@ -3994,6 +4061,7 @@
       for (const candidate of genreCandidates) {
         if (overallTaste.length >= REC_SECTION_CAP) break;
         if (candidateMatchesAny(candidate, alreadyHave) || candidateMatchesAny(candidate, usedTitles)) continue;
+        if (!isFreshFranchiseEntry(candidate, alreadyHave)) continue;
         if (dismissed.has(externalIdFor(candidate))) continue;
         candidateTitleKeys(candidate).forEach(k => usedTitles.add(k));
         overallTaste.push({ ...candidate, reason: 'affinity', reasonDetail: topGenres.slice(0, 2).join('/'), sourceRating: null });
@@ -4007,6 +4075,7 @@
       for (const candidate of peakCandidates) {
         if (peakUnseen.length >= REC_SECTION_CAP) break;
         if (candidateMatchesAny(candidate, alreadyHave) || candidateMatchesAny(candidate, usedTitles)) continue;
+        if (!isFreshFranchiseEntry(candidate, alreadyHave)) continue;
         if (dismissed.has(externalIdFor(candidate))) continue;
         candidateTitleKeys(candidate).forEach(k => usedTitles.add(k));
         peakUnseen.push({ ...candidate, reason: 'popular', reasonDetail: null, sourceRating: null });
