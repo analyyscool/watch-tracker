@@ -4043,6 +4043,67 @@
     return anySucceeded ? results : null;
   }
 
+  // ── Recommendations: TMDB fetch ──
+  // Same "seed a specific title, fetch what TMDB recommends alongside it"
+  // idea as fetchAniListRecommendationsFor, but for Western TV/movies.
+  // TMDB's /search endpoint can return multiple same-named results (a
+  // remake, an unrelated foreign film with the same title) -- picking the
+  // highest-`popularity` hit is the same disambiguation strategy already
+  // used for AniList seeds and for this file's existing TMDB lookups
+  // (searchTMDBCovers, checkWesternSeason).
+  async function fetchTMDBRecommendationsFor(title, mediaType) {
+    try {
+      const searchRes = await fetch(`https://api.themoviedb.org/3/search/${mediaType}?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(title)}`);
+      const searchJson = await searchRes.json();
+      const results = searchJson.results || [];
+      if (!results.length) return null;
+      const best = results.reduce((a, b) => (b.popularity > a.popularity ? b : a));
+      const recRes = await fetch(`https://api.themoviedb.org/3/${mediaType}/${best.id}/recommendations?api_key=${TMDB_API_KEY}`);
+      const recJson = await recRes.json();
+      const recResults = recJson.results || [];
+      return recResults.map(r => tmdbResultToCandidate(r, mediaType));
+    } catch (e) {
+      console.warn('TMDB recommendation search failed for', title, e);
+      return null;
+    }
+  }
+
+  // Shared TMDB result -> candidate shape across all three TMDB fetch
+  // functions (seed-based, genre-affinity, peak-unseen), mirroring how
+  // fetchAniListRecommendationsFor/fetchGenreAffinityCandidates/
+  // fetchPeakUnseenCandidates all build the same candidate shape for
+  // AniList. `title`/`name` differs between /movie and /tv responses;
+  // `belongs_to_collection` only exists on /movie responses (used by the
+  // Task 2 franchise check, ignored for TV).
+  function tmdbResultToCandidate(r, mediaType) {
+    return {
+      tmdbId: r.id,
+      title: mediaType === 'movie' ? r.title : r.name,
+      genres: (r.genre_ids || []).map(id => TMDB_GENRE_NAMES[id]).filter(Boolean),
+      coverUrl: r.poster_path ? `https://image.tmdb.org/t/p/w342${r.poster_path}` : null,
+      score: r.vote_average != null ? Math.round(r.vote_average * 10) : null,
+      collectionId: r.belongs_to_collection?.id ?? null,
+      isTV: mediaType === 'tv',
+    };
+  }
+
+  // TMDB's /search and /discover responses only give genre IDs, not
+  // names (unlike AniList, which returns genre strings directly) --
+  // this is TMDB's own official, stable ID->name mapping (documented at
+  // https://developer.themoviedb.org/reference/genre-movie-list and
+  // .../genre-tv-list), merged into one lookup since a handful of ids
+  // (e.g. 10759 "Action & Adventure") are TV-only and don't collide with
+  // movie ids in practice.
+  const TMDB_GENRE_NAMES = {
+    28: 'Action', 12: 'Adventure', 16: 'Animation', 35: 'Comedy', 80: 'Crime',
+    99: 'Documentary', 18: 'Drama', 10751: 'Family', 14: 'Fantasy', 36: 'History',
+    27: 'Horror', 10402: 'Music', 9648: 'Mystery', 10749: 'Romance',
+    878: 'Science Fiction', 10770: 'TV Movie', 53: 'Thriller', 10752: 'War',
+    37: 'Western', 10759: 'Action & Adventure', 10762: 'Kids', 10763: 'News',
+    10764: 'Reality', 10765: 'Sci-Fi & Fantasy', 10766: 'Soap', 10767: 'Talk',
+    10768: 'War & Politics',
+  };
+
   // ── Recommendations: orchestration, cache, dismissal ──
   const REC_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
