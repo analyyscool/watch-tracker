@@ -11,10 +11,22 @@ Look up the exact episode count before writing the entry:
   genres coverImage{extraLarge}}`) — first-party API (not a proxy scraping
   MAL like Jikan is), so it doesn't inherit MAL's frequent outages. Gives
   episode count, status, main studio, genres, and cover art in one call, no
-  key needed. Jikan (`https://api.jikan.moe/v4/anime?q=<title>&limit=1`) is
-  the fallback if AniList doesn't have a title — check with `curl -s -o
-  /dev/null -w '%{http_code}' 'https://api.jikan.moe/v4/anime?q=test&limit=1'`
-  first (a 504 means MAL itself is down, not just Jikan).
+  key needed. In practice AniList itself is also frequently down (a 429 with
+  a Cloudflare challenge page, not a normal per-key rate limit — check with
+  `curl -s -o /dev/null -w '%{http_code}' -X POST https://graphql.anilist.co
+  -H "Content-Type: application/json" -d
+  '{"query":"query($s:String){Media(search:$s,type:ANIME){episodes}}","variables":{"s":"test"}}'`),
+  so there are two fallbacks, tried in order:
+  1. Jikan (`https://api.jikan.moe/v4/anime?q=<title>&limit=1`) — check with
+     `curl -s -o /dev/null -w '%{http_code}'
+     'https://api.jikan.moe/v4/anime?q=test&limit=1'` first (a 504 means MAL
+     itself is down, not just Jikan, so this fallback is dead too).
+  2. Kitsu (`https://kitsu.io/api/edge/anime?filter[text]=<title>&page[limit]=1`,
+     URL-encode the brackets) — no key needed, gives episode count, status,
+     and cover art (`attributes.posterImage.original`), but no studio field;
+     genres need a second call to the `categories` relationship link in the
+     response. Note the studio manually or leave it blank when falling back
+     to Kitsu.
 - Live-action: TMDB (`https://www.themoviedb.org/tv/<id>-<slug>`) for
   episode/season counts, poster, network, and genres.
 
