@@ -2425,12 +2425,40 @@
   // heuristics alone can never catch this class of case.
   function candidateTitleKeys(candidate) {
     const keys = [normalizeTitle(candidate.title)];
+    // AniList's english and romaji titles for the same media can differ
+    // stylistically (e.g. english "HAIKYU!!" vs romaji "Haikyuu!!") --
+    // `title` above only ever holds whichever one `english || romaji`
+    // picked, so a tracked title matching the OTHER variant would
+    // otherwise never dedupe. Checking both closes that gap generally,
+    // not just for this one show.
+    (candidate.altTitles || []).forEach(t => keys.push(normalizeTitle(t)));
     (candidate.relatedTitles || []).forEach(t => keys.push(normalizeTitle(t)));
     return keys;
   }
 
+  // Exact match, OR a word-boundary PREFIX match in either direction --
+  // catches cases the relations check alone misses because AniList's
+  // relations graph only links ADJACENT entries, not back to a distant
+  // ancestor. E.g. "Attack on Titan Season 3 Part 2"'s own relations
+  // point to "Season 3 Part 1" and "Final Season", never directly back
+  // to the tracked title "Attack on Titan" -- but "attack on titan
+  // season 3 part 2" DOES start with "attack on titan " (note the
+  // trailing space in the check, so "Attack on Titans" -- a different,
+  // unrelated show -- would not false-positive against "Attack on
+  // Titan"). This also incidentally fixes a stored title that's an
+  // abbreviation of AniList's full title (e.g. stored "Re:ZERO" vs
+  // AniList's "Re:ZERO -Starting Life in Another World- Season 4").
+  function titleOverlapsAny(key, titleSet) {
+    for (const t of titleSet) {
+      if (key === t) return true;
+      if (key.length > t.length && key.startsWith(t + ' ')) return true;
+      if (t.length > key.length && t.startsWith(key + ' ')) return true;
+    }
+    return false;
+  }
+
   function candidateMatchesAny(candidate, titleSet) {
-    return candidateTitleKeys(candidate).some(k => titleSet.has(k));
+    return candidateTitleKeys(candidate).some(k => titleOverlapsAny(k, titleSet));
   }
 
   function buildAlreadyHaveTitles(rows) {
@@ -3498,6 +3526,7 @@
       anilistId: m.id,
       malId: null,
       title: m.title.english || m.title.romaji,
+      altTitles: [m.title.english, m.title.romaji].filter(Boolean),
       genres: m.genres || [],
       coverUrl: m.coverImage?.large || null,
       studio: m.studios?.nodes?.[0]?.name || null,
@@ -3612,6 +3641,7 @@
             anilistId: m.id,
             malId: null,
             title: m.title.english || m.title.romaji,
+            altTitles: [m.title.english, m.title.romaji].filter(Boolean),
             genres: m.genres || [],
             coverUrl: m.coverImage?.large || null,
             studio: m.studios?.nodes?.[0]?.name || null,
@@ -3632,17 +3662,30 @@
     return merged;
   }
 
-  // Non-personalized "peak stuff you haven't seen" section -- AniList's
-  // overall most popular/highest-scored catalog, no genre/seed filter at
-  // all. Same return-value contract as fetchGenreAffinityCandidates:
-  // `null` means the request itself failed, `[]` means it succeeded and
+  // Non-personalized "peak stuff you haven't seen" section -- highest
+  // AVERAGE SCORE (not raw popularity) among anime with at least
+  // PEAK_MIN_POPULARITY list-additions, so a single-episode OVA with a
+  // 95% score from 40 raters can't outrank something broadly loved and
+  // proven. `popularity` on AniList roughly tracks how many users have
+  // it on a list -- ranges from a few hundred for genuine obscurities to
+  // hundreds of thousands/millions for mainstream hits (spot-checked
+  // live: top-scored anime cluster in the 50k-700k+ range). 30,000 is a
+  // deliberately generous floor: it excludes true one-off obscurities
+  // while still allowing a legitimately good but slightly-niche show
+  // through, rather than only ever surfacing the same handful of
+  // blockbuster titles. Over-fetches (3x `count`) since the popularity
+  // filter runs client-side after the sorted-by-score fetch.
+  // Same return-value contract as fetchGenreAffinityCandidates: `null`
+  // means the request itself failed, `[]` means it succeeded and
   // (in practice, essentially never) found nothing.
+  const PEAK_MIN_POPULARITY = 30000;
+
   async function fetchPeakUnseenCandidates(type, count) {
     if (count <= 0) return [];
     const query = `query ($type: MediaType, $perPage: Int) {
       Page(perPage: $perPage) {
-        media(type: $type, sort: [POPULARITY_DESC, SCORE_DESC]) {
-          id title { romaji english } genres coverImage { large } studios(isMain: true) { nodes { name } } averageScore ${RELATION_FIELDS}
+        media(type: $type, sort: SCORE_DESC) {
+          id title { romaji english } genres coverImage { large } studios(isMain: true) { nodes { name } } averageScore popularity ${RELATION_FIELDS}
         }
       }
     }`;
@@ -3650,21 +3693,25 @@
       const res = await fetch('https://graphql.anilist.co', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query, variables: { type, perPage: count } })
+        body: JSON.stringify({ query, variables: { type, perPage: count * 3 } })
       });
       const json = await res.json();
       if (!res.ok || json.errors) { console.warn('Peak-unseen recommendation search failed', res.status, json.errors); return null; }
       const media = json?.data?.Page?.media || [];
-      return media.map(m => ({
-        anilistId: m.id,
-        malId: null,
-        title: m.title.english || m.title.romaji,
-        genres: m.genres || [],
-        coverUrl: m.coverImage?.large || null,
-        studio: m.studios?.nodes?.[0]?.name || null,
-        relatedTitles: extractRelatedTitles(m.relations),
-        score: m.averageScore ?? null,
-      }));
+      return media
+        .filter(m => (m.popularity || 0) >= PEAK_MIN_POPULARITY)
+        .slice(0, count)
+        .map(m => ({
+          anilistId: m.id,
+          malId: null,
+          title: m.title.english || m.title.romaji,
+          altTitles: [m.title.english, m.title.romaji].filter(Boolean),
+          genres: m.genres || [],
+          coverUrl: m.coverImage?.large || null,
+          studio: m.studios?.nodes?.[0]?.name || null,
+          relatedTitles: extractRelatedTitles(m.relations),
+          score: m.averageScore ?? null,
+        }));
     } catch (e) {
       console.warn('Peak-unseen recommendation search failed', e);
       return null;
@@ -3770,24 +3817,16 @@
     seedResults.forEach((candidates, i) => {
       if (!candidates) return; // this seed's fetch failed outright -- skip, don't treat as "found nothing"
       const seed = seeds[i];
-      const seedKey = normalizeTitle(seed.title);
       candidates.forEach(candidate => {
+        // candidateMatchesAny's prefix check (see titleOverlapsAny)
+        // already covers "AniList recommended a sibling cour of the seed
+        // itself" (e.g. seeding "Bleach: Thousand-Year Blood War"
+        // surfacing "...- The Conflict") -- the seed's own title is
+        // always a member of alreadyHave, so a candidate whose title is
+        // a word-boundary extension of it is caught here without a
+        // separate seed-specific check.
         if (candidateMatchesAny(candidate, alreadyHave)) return;
         const titleKey = normalizeTitle(candidate.title);
-        // A candidate whose (normalized) title contains the seed's own
-        // title, or vice versa, is almost always AniList recommending a
-        // sibling cour/arc of the exact show that was searched (e.g.
-        // seeding "Bleach: Thousand-Year Blood War" surfaces "Bleach:
-        // Thousand-Year Blood War - The Conflict" as a "recommendation"
-        // of itself) -- these cours are linked to EACH OTHER in AniList's
-        // relations graph, not back to a shared base title, so the
-        // relations check above can't catch this case. A direct
-        // substring check against the specific seed that produced this
-        // candidate is safe here (unlike a substring check against the
-        // whole alreadyHave set, which would risk false positives on
-        // short titles) because we know exactly which seed this
-        // candidate came from.
-        if (titleKey.includes(seedKey) || seedKey.includes(titleKey)) return;
         if (dismissed.has(externalIdFor(candidate))) return;
         const existing = bySeedTitle.get(titleKey);
         if (existing) {
@@ -3799,10 +3838,23 @@
       });
     });
 
-    const becauseYouLiked = [...bySeedTitle.values()]
-      .sort((a, b) => (b.seedCount - a.seedCount) || (b.bestSeedRating - a.bestSeedRating))
-      .slice(0, REC_SECTION_CAP)
-      .map(r => ({ ...r.item, reason: 'because_rated', reasonDetail: r.seedTitle, sourceRating: r.bestSeedRating }));
+    // Greedily fill the section in ranked order, but cap how many
+    // recommendations any single seed can contribute (MAX_PER_SEED) --
+    // otherwise a couple of seeds whose own AniList recommendations
+    // happen to be richer/more numerous (typically the most mainstream,
+    // best-connected shows) can crowd out the other seeds entirely, even
+    // though pickRecommendationSeeds already deliberately diversified
+    // which shows got seeded from in the first place.
+    const MAX_PER_SEED = 2;
+    const seedContributionCount = new Map();
+    const becauseYouLiked = [];
+    for (const r of [...bySeedTitle.values()].sort((a, b) => (b.seedCount - a.seedCount) || (b.bestSeedRating - a.bestSeedRating))) {
+      if (becauseYouLiked.length >= REC_SECTION_CAP) break;
+      const count = seedContributionCount.get(r.seedTitle) || 0;
+      if (count >= MAX_PER_SEED) continue;
+      seedContributionCount.set(r.seedTitle, count + 1);
+      becauseYouLiked.push({ ...r.item, reason: 'because_rated', reasonDetail: r.seedTitle, sourceRating: r.bestSeedRating });
+    }
     becauseYouLiked.forEach(item => candidateTitleKeys(item).forEach(k => usedTitles.add(k)));
 
     const affinity = computeAffinity(rows);
