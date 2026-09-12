@@ -3695,26 +3695,41 @@
       .filter(Boolean);
   }
 
-  // PREQUEL, plus an ALTERNATIVE edge pointing at a TV/TV_SHORT entry --
-  // separate from extractRelatedTitles' combined PREQUEL+SEQUEL list --
-  // used to detect "this candidate depends on an earlier installment"
-  // specifically, so isFreshFranchiseEntry (below) can require that
-  // earlier installment to be something already tracked. ALTERNATIVE
-  // (AniList's tag for "a different version of the same work" -- a
-  // director's cut, a remake, a nostalgia-retelling movie) is included
-  // because it carries the same "you need the original's context" implication
-  // as a PREQUEL in practice -- confirmed live: "Gintama the Movie 2026:
-  // Yoshiwara in Flames" retells an arc from the original TV series and is
-  // linked to it via ALTERNATIVE (not PREQUEL, since it isn't chronologically
-  // after it), so the PREQUEL-only check let it through as a "fresh" pick for
-  // someone who's never seen any Gintama. Scoped to TV/TV_SHORT targets only
-  // -- an ALTERNATIVE pointing at a MANGA/other source format is just AniList
-  // linking the adaptation back to its source material, not a "watch this
-  // first" dependency.
+  // PREQUEL-only, separate from extractRelatedTitles' combined PREQUEL+
+  // SEQUEL list -- used to detect "this candidate is a later installment
+  // of a franchise" specifically, so isFreshFranchiseEntry (below) can
+  // require the earlier installment to be something already tracked.
+  //
+  // Tried extending this to ALTERNATIVE edges too (catching "Gintama the
+  // Movie 2026: Yoshiwara in Flames", a nostalgia-retelling movie linked
+  // to the original TV series via ALTERNATIVE rather than PREQUEL) --
+  // reverted after it immediately caught a much worse false positive
+  // against real data: "Fullmetal Alchemist: Brotherhood" (the mainstream,
+  // fully standalone remake) has an ALTERNATIVE edge to the older 2003
+  // "Fullmetal Alchemist" TV series, which made it look like Brotherhood
+  // needed the 2003 version watched first -- it doesn't; ALTERNATIVE on
+  // AniList covers both "needs the same context" (rare) and "independent
+  // remake of the same source" (common, and usually the BETTER-known
+  // entry), with no reliable way to tell them apart from relationType
+  // alone. Blocking a major standalone remake is worse than occasionally
+  // recommending a context-dependent nostalgia movie, so this stays
+  // PREQUEL-only.
+  //
+  // A PREQUEL edge pointing at a MOVIE is excluded from gating -- confirmed
+  // live: "Legend of the Galactic Heroes" (the mainstream, 110-episode
+  // OVA -- popularity 85k, score 88) has a real PREQUEL edge to "...: My
+  // Conquest Is the Sea of Stars", an obscure bonus/side movie most
+  // viewers don't treat as required viewing, which was wrongly gating the
+  // far more significant main series entirely out of every section. A
+  // TV/TV_SHORT/OVA/SPECIAL prequel is much more likely to be genuine
+  // serialized story content actually worth "watch this first" gating
+  // (confirmed against the two known-good exclusion cases: Fruits
+  // Basket's gating prequel is TV, Gintama's finale movie's is SPECIAL --
+  // neither is a MOVIE, so this stays narrow enough not to reopen those).
   function extractPrequelTitles(relationsField) {
     const edges = relationsField?.edges || [];
     return edges
-      .filter(e => e.relationType === 'PREQUEL' || (e.relationType === 'ALTERNATIVE' && ['TV', 'TV_SHORT'].includes(e.node?.format)))
+      .filter(e => e.relationType === 'PREQUEL' && e.node?.format !== 'MOVIE')
       .map(e => e.node?.title?.english || e.node?.title?.romaji)
       .filter(Boolean);
   }
