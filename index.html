@@ -883,6 +883,19 @@
     overflow-wrap: break-word;
   }
 
+  .rec-watchlist-tag {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.55rem;
+    font-weight: 400;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 3px;
+    padding: 0.05rem 0.3rem;
+    vertical-align: middle;
+  }
+
   .rec-card-h-meta .rec-score-inline { color: var(--accent); }
 
   .rec-card-h-reason {
@@ -2558,6 +2571,18 @@
     return new Set(rows.map(r => normalizeTitle(r.title)));
   }
 
+  // Finds the actual watchlist ROW behind a candidateMatchesAny hit (not
+  // just the boolean) so the card can show that row's own `tags` -- e.g. a
+  // show bumped to a later season via the "New Seasons" banner's "Add to
+  // Watchlist" action keeps a "Season 2"-style tag on the row, but a
+  // recommendation candidate matches it by bare title, so without this the
+  // card would just say "Kaiju No. 8" with no way to tell it's not
+  // recommending the untouched Season 1 the viewer's already watched.
+  function findWatchlistMatch(candidate, watchlistRows) {
+    const keys = candidateTitleKeys(candidate);
+    return watchlistRows.find(r => keys.some(k => titleOverlapsAny(k, [normalizeTitle(r.title)]))) || null;
+  }
+
   // Picks up to `limit` seed items rated >= minRating, weighted by rating
   // tier (30% from 5-star items, 30% from 4.5-star, 40% from 4-star, of
   // `limit`) rather than simply taking the top N by rating -- otherwise a
@@ -3038,7 +3063,7 @@
     // card can grey out the redundant "+ Watchlist" button.
     const isWatchlistStatus = category === 'anime' ? (s) => s === 'watchlist' : (s) => s === 'plan_to_read';
     const alreadyHave = buildAlreadyHaveTitles(allRows.filter(r => !isWatchlistStatus(r.listStatus)));
-    const onWatchlist = buildAlreadyHaveTitles(allRows.filter(r => isWatchlistStatus(r.listStatus)));
+    const watchlistRows = allRows.filter(r => isWatchlistStatus(r.listStatus));
     const candidates = await fetchRecommendationsForSeed({ title: item.title }, type);
 
     // Modal may have been closed (or reopened for a different item) while
@@ -3079,23 +3104,27 @@
       similarGrid.innerHTML = `<p style="font-size:0.7rem; color:var(--muted)">Nothing found.</p>`;
       return;
     }
-    similarGrid.innerHTML = similar.map((c, idx) => `
+    similarGrid.innerHTML = similar.map((c, idx) => {
+      const watchlistMatch = findWatchlistMatch(c, watchlistRows);
+      const tagsHTML = watchlistMatch?.tags?.length ? ` <span class="rec-watchlist-tag">${watchlistMatch.tags.map(escapeHTML).join(', ')}</span>` : '';
+      return `
       <div class="rec-card rec-card-h" data-idx="${idx}">
         <div class="rec-card-h-top">
           ${c.coverUrl ? `<img class="rec-card-h-img" src="${c.coverUrl}" alt="" onerror="this.remove()">` : `<div class="rec-card-h-img"></div>`}
           <div class="rec-card-h-body">
-            <div class="rec-card-h-title">${escapeHTML(c.title)}</div>
+            <div class="rec-card-h-title">${escapeHTML(c.title)}${tagsHTML}</div>
             <div class="rec-card-h-meta">${(c.genres || []).map(g => escapeHTML(g)).join(', ')}${recScoreBadgeHTML(c.score)}</div>
           </div>
         </div>
         <div class="rec-card-actions">
-          ${candidateMatchesAny(c, onWatchlist)
+          ${watchlistMatch
             ? `<button class="btn" disabled title="Already on your watchlist">On Watchlist</button>`
             : `<button class="btn rec-add-btn" title="Add to Watchlist">+ Watchlist</button>`}
           <button class="btn rec-start-btn" title="Start Watching Now">▶ Start Now</button>
         </div>
       </div>
-    `).join('');
+    `;
+    }).join('');
     similarGrid.querySelectorAll('.rec-start-btn').forEach(btn => {
       btn.addEventListener('click', async () => {
         const c = similar[Number(btn.closest('.rec-card').dataset.idx)];
@@ -3656,7 +3685,7 @@
   // it, but it DOES show up as a PREQUEL/SEQUEL edge on either side. This
   // adds no extra network round-trip -- it's the same query that was
   // already being made for each seed/genre/popularity candidate.
-  const RELATION_FIELDS = `relations { edges { relationType node { title { romaji english } } } }`;
+  const RELATION_FIELDS = `relations { edges { relationType node { title { romaji english } format } } }`;
 
   function extractRelatedTitles(relationsField) {
     const edges = relationsField?.edges || [];
@@ -3666,14 +3695,26 @@
       .filter(Boolean);
   }
 
-  // PREQUEL-only, separate from extractRelatedTitles' combined PREQUEL+
-  // SEQUEL list -- used to detect "this candidate is a later installment
-  // of a franchise" specifically, so isFreshFranchiseEntry (below) can
-  // require the earlier installment to be something already tracked.
+  // PREQUEL, plus an ALTERNATIVE edge pointing at a TV/TV_SHORT entry --
+  // separate from extractRelatedTitles' combined PREQUEL+SEQUEL list --
+  // used to detect "this candidate depends on an earlier installment"
+  // specifically, so isFreshFranchiseEntry (below) can require that
+  // earlier installment to be something already tracked. ALTERNATIVE
+  // (AniList's tag for "a different version of the same work" -- a
+  // director's cut, a remake, a nostalgia-retelling movie) is included
+  // because it carries the same "you need the original's context" implication
+  // as a PREQUEL in practice -- confirmed live: "Gintama the Movie 2026:
+  // Yoshiwara in Flames" retells an arc from the original TV series and is
+  // linked to it via ALTERNATIVE (not PREQUEL, since it isn't chronologically
+  // after it), so the PREQUEL-only check let it through as a "fresh" pick for
+  // someone who's never seen any Gintama. Scoped to TV/TV_SHORT targets only
+  // -- an ALTERNATIVE pointing at a MANGA/other source format is just AniList
+  // linking the adaptation back to its source material, not a "watch this
+  // first" dependency.
   function extractPrequelTitles(relationsField) {
     const edges = relationsField?.edges || [];
     return edges
-      .filter(e => e.relationType === 'PREQUEL')
+      .filter(e => e.relationType === 'PREQUEL' || (e.relationType === 'ALTERNATIVE' && ['TV', 'TV_SHORT'].includes(e.node?.format)))
       .map(e => e.node?.title?.english || e.node?.title?.romaji)
       .filter(Boolean);
   }
@@ -4061,7 +4102,6 @@
     const isWatchlistStatus = category === 'anime' ? (s) => s === 'watchlist' : (s) => s === 'plan_to_read';
     const watchlistRows = allRows.filter(r => isWatchlistStatus(r.listStatus));
     const alreadyHave = buildAlreadyHaveTitles(allRows.filter(r => !isWatchlistStatus(r.listStatus)));
-    const onWatchlist = buildAlreadyHaveTitles(watchlistRows);
     const dismissed = await getDismissedRecommendationIds(scope, category);
     const seeds = pickRecommendationSeeds(rows, { scope });
     // Cross-section dedup keyed by NORMALIZED TITLE, not AniList id --
@@ -4148,7 +4188,8 @@
         const count = seedContributionCount.get(r.seedTitle) || 0;
         if (count >= MAX_PER_SEED) continue;
         seedContributionCount.set(r.seedTitle, count + 1);
-        becauseYouLiked.push({ ...r.item, reason: 'because_rated', reasonDetail: r.seedTitle, sourceRating: r.bestSeedRating, alreadyOnWatchlist: candidateMatchesAny(r.item, onWatchlist) });
+        const watchlistMatch = findWatchlistMatch(r.item, watchlistRows);
+        becauseYouLiked.push({ ...r.item, reason: 'because_rated', reasonDetail: r.seedTitle, sourceRating: r.bestSeedRating, alreadyOnWatchlist: !!watchlistMatch, watchlistTags: watchlistMatch?.tags || [] });
         addedForTier++;
       }
     });
@@ -4167,7 +4208,8 @@
         if (!isFreshFranchiseEntry(candidate, alreadyHave)) continue;
         if (dismissed.has(externalIdFor(candidate))) continue;
         candidateTitleKeys(candidate).forEach(k => usedTitles.add(k));
-        overallTaste.push({ ...candidate, reason: 'affinity', reasonDetail: topGenres.slice(0, 2).join('/'), sourceRating: null, alreadyOnWatchlist: candidateMatchesAny(candidate, onWatchlist) });
+        const watchlistMatch = findWatchlistMatch(candidate, watchlistRows);
+        overallTaste.push({ ...candidate, reason: 'affinity', reasonDetail: topGenres.slice(0, 2).join('/'), sourceRating: null, alreadyOnWatchlist: !!watchlistMatch, watchlistTags: watchlistMatch?.tags || [] });
       }
     }
 
@@ -4181,7 +4223,8 @@
         if (!isFreshFranchiseEntry(candidate, alreadyHave)) continue;
         if (dismissed.has(externalIdFor(candidate))) continue;
         candidateTitleKeys(candidate).forEach(k => usedTitles.add(k));
-        peakUnseen.push({ ...candidate, reason: 'popular', reasonDetail: null, sourceRating: null, alreadyOnWatchlist: candidateMatchesAny(candidate, onWatchlist) });
+        const watchlistMatch = findWatchlistMatch(candidate, watchlistRows);
+        peakUnseen.push({ ...candidate, reason: 'popular', reasonDetail: null, sourceRating: null, alreadyOnWatchlist: !!watchlistMatch, watchlistTags: watchlistMatch?.tags || [] });
       }
     }
 
@@ -7274,7 +7317,7 @@
         <div class="rec-card-h-top">
           ${item.coverUrl ? `<img class="rec-card-h-img" src="${item.coverUrl}" alt="" onerror="this.remove()">` : `<div class="rec-card-h-img"></div>`}
           <div class="rec-card-h-body">
-            <div class="rec-card-h-title">${escapeHTML(item.title)}</div>
+            <div class="rec-card-h-title">${escapeHTML(item.title)}${item.watchlistTags?.length ? ` <span class="rec-watchlist-tag">${item.watchlistTags.map(escapeHTML).join(', ')}</span>` : ''}</div>
             <div class="rec-card-h-meta">${genresText}${recScoreBadgeHTML(item.score)}</div>
             <div class="rec-card-h-reason">${reasonHTML}</div>
           </div>
