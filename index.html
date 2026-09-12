@@ -2237,6 +2237,7 @@
       chapterSyncedFromAnime: m.chapter_synced_from_anime, seriesStatus: m.series_status,
       rating: currentProfile ? m.ratings.find(r => r.user_id === currentProfile.id)?.rating ?? null : null,
       note: currentProfile ? m.ratings.find(r => r.user_id === currentProfile.id)?.note ?? null : null,
+      allRatings: m.ratings,
     }));
     writtenMediaCache = { key, rows };
     return rows;
@@ -3240,21 +3241,37 @@
   // Tries AniList first; on failure, falls back to Jikan. Never blends
   // both -- a successful AniList result is authoritative. Mirrors
   // checkAnimeSequel's fallback pattern.
+  //
+  // Return-value contract (load-bearing for computeRecommendations' outage
+  // detection): `[]` means a source was actually reached and genuinely had
+  // no recommendations for this seed -- a normal, non-failure outcome.
+  // `null` means BOTH AniList and the Jikan fallback failed outright (threw)
+  // for this seed -- a real failure, distinguishable from "found nothing".
   async function fetchRecommendationsForSeed(seed, type) {
     try {
       return await fetchAniListRecommendationsFor(seed.title, type);
     } catch (e) {
       console.warn('AniList recommendations failed for', seed.title, '— falling back to Jikan', e);
       const kind = type === 'ANIME' ? 'anime' : 'manga';
-      return await fetchJikanRecommendationsFor(seed.title, kind).catch(() => []);
+      try {
+        return await fetchJikanRecommendationsFor(seed.title, kind);
+      } catch (e2) {
+        console.warn('Jikan recommendations fallback also failed for', seed.title, e2);
+        return null;
+      }
     }
   }
 
   // Fills remaining recommendation slots once the recommendations-field
   // pass doesn't produce enough candidates -- searches AniList's overall
-  // catalog for popular titles in the given genres. Best-effort: a failed
-  // or empty response here just means fewer recommendations shown, not a
-  // hard error, so failures return [] rather than throwing.
+  // catalog for popular titles in the given genres. Best-effort in the
+  // sense that the caller never has to special-case it beyond checking
+  // the return value: `[]` means the request succeeded and genuinely
+  // found nothing (or there was nothing to search for -- no genres, or
+  // no slots needed); `null` means the request itself failed (network
+  // error, non-2xx, or a GraphQL `errors` array) -- distinct from a
+  // legitimate empty result, load-bearing for computeRecommendations'
+  // outage detection.
   async function fetchGenreAffinityCandidates(genres, type, count) {
     if (!genres.length || count <= 0) return [];
     const query = `query ($genres: [String], $type: MediaType, $perPage: Int) {
@@ -3271,7 +3288,7 @@
         body: JSON.stringify({ query, variables: { genres, type, perPage: count } })
       });
       const json = await res.json();
-      if (!res.ok || json.errors) return [];
+      if (!res.ok || json.errors) { console.warn('Genre-affinity recommendation search failed', res.status, json.errors); return null; }
       const media = json?.data?.Page?.media || [];
       return media.map(m => ({
         anilistId: m.id,
@@ -3283,7 +3300,7 @@
       }));
     } catch (e) {
       console.warn('Genre-affinity recommendation search failed', e);
-      return [];
+      return null;
     }
   }
 
@@ -3301,30 +3318,61 @@
     return `title:${item.title.toLowerCase().trim()}`;
   }
 
-  async function getDismissedRecommendationIds(scope) {
-    const { data, error } = await supabase.from('dismissed_recommendations').select('external_id').eq('scope', scope);
+  // `category` is required (not just `scope`) because AniList uses separate
+  // id namespaces for ANIME and MANGA -- the same numeric id can name two
+  // unrelated titles across the two types, so a dismissal must be scoped
+  // to (scope, category, external_id) or it can cross-suppress.
+  async function getDismissedRecommendationIds(scope, category) {
+    const { data, error } = await supabase.from('dismissed_recommendations').select('external_id').eq('scope', scope).eq('category', category);
     if (error) { console.error(error); return new Set(); }
     return new Set(data.map(d => d.external_id));
   }
 
-  async function dismissRecommendation(scope, item) {
+  // Upsert (not insert) tolerating a duplicate (scope, category,
+  // external_id): the same item can get dismissed twice (e.g. it
+  // resurfaced from a stale cache before the cache-hit filtering below
+  // existed, or a double-click), and a plain insert's duplicate-key
+  // violation used to leave the card stuck in the DOM even though it was
+  // conceptually already dismissed.
+  async function dismissRecommendation(scope, category, item) {
     const { error } = await supabase.from('dismissed_recommendations')
-      .insert({ scope, external_id: externalIdFor(item) });
+      .upsert({ scope, category, external_id: externalIdFor(item) }, { onConflict: 'scope,category,external_id', ignoreDuplicates: true });
     return !checkWriteError(error);
   }
 
   // Builds the ranked, deduped recommendation list for one scope+category
-  // and writes it to recommendations_cache. `rows` is the full shows or
-  // written_media list for the scope (any status) -- caller fetches it.
-  async function computeRecommendations(scope, category, rows) {
+  // and writes it to recommendations_cache. `rows` is the category-filtered
+  // shows/written_media list for the scope (used for seeding + affinity --
+  // an anime search should only seed off anime rows). `allRows` is the
+  // FULL unfiltered list for the scope (any category, any status), used
+  // only for the "already have" dedup set -- a title tracked under a
+  // different category (e.g. an anime film stored as category:'movie')
+  // must still count as "already have" so it isn't recommended back.
+  async function computeRecommendations(scope, category, rows, allRows) {
     const type = category === 'anime' ? 'ANIME' : 'MANGA';
-    const alreadyHave = buildAlreadyHaveTitles(rows);
-    const dismissed = await getDismissedRecommendationIds(scope);
+    const alreadyHave = buildAlreadyHaveTitles(allRows);
+    const dismissed = await getDismissedRecommendationIds(scope, category);
     const seeds = pickRecommendationSeeds(rows, { scope });
 
-    const seedResults = await Promise.all(seeds.map(seed => fetchRecommendationsForSeed(seed, type)));
+    // Sequential, not Promise.all -- mirrors checkNewSeasons/checkNewChapters'
+    // established pattern for batching calls to these rate-limited,
+    // documented-flaky external APIs (up to 10 concurrent AniList/Jikan
+    // requests risks tripping exactly the outage conditions this function
+    // needs to detect below).
+    const seedResults = [];
+    for (const seed of seeds) {
+      seedResults.push(await fetchRecommendationsForSeed(seed, type));
+    }
+    // `null` (as opposed to `[]`) means that seed's fetch genuinely failed
+    // (both AniList and the Jikan fallback threw) rather than succeeding
+    // with no results. Only meaningful as a signal if there WERE seeds to
+    // begin with -- an empty seed list is a legitimate "nothing to do",
+    // not a failure.
+    const allSeedsFailed = seeds.length > 0 && seedResults.every(r => r === null);
+
     const bySeedCount = new Map();
     seedResults.forEach((candidates, i) => {
+      if (!candidates) return; // this seed's fetch failed outright -- skip, don't treat as "found nothing"
       const seed = seeds[i];
       candidates.forEach(candidate => {
         if (alreadyHave.has(candidate.title.toLowerCase().trim())) return;
@@ -3345,20 +3393,37 @@
       .slice(0, 15)
       .map(r => ({ ...r.item, reason: 'because_rated', reasonDetail: r.seedTitle, sourceRating: r.bestSeedRating }));
 
+    let genreFallbackFailed = false;
     if (ranked.length < 15) {
       const affinity = computeAffinity(rows);
       const topGenres = Object.entries(affinity.genreAvg).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([g]) => g);
       const rankedIds = new Set(ranked.map(r => externalIdFor(r)));
       const need = 15 - ranked.length;
       const fillCandidates = await fetchGenreAffinityCandidates(topGenres, type, need + rankedIds.size);
-      for (const candidate of fillCandidates) {
-        if (ranked.length >= 15) break;
-        if (alreadyHave.has(candidate.title.toLowerCase().trim())) continue;
-        const id = externalIdFor(candidate);
-        if (dismissed.has(id) || rankedIds.has(id)) continue;
-        rankedIds.add(id);
-        ranked.push({ ...candidate, reason: 'affinity', reasonDetail: topGenres.slice(0, 2).join('/'), sourceRating: null });
+      if (fillCandidates === null) {
+        genreFallbackFailed = true;
+      } else {
+        for (const candidate of fillCandidates) {
+          if (ranked.length >= 15) break;
+          if (alreadyHave.has(candidate.title.toLowerCase().trim())) continue;
+          const id = externalIdFor(candidate);
+          if (dismissed.has(id) || rankedIds.has(id)) continue;
+          rankedIds.add(id);
+          ranked.push({ ...candidate, reason: 'affinity', reasonDetail: topGenres.slice(0, 2).join('/'), sourceRating: null });
+        }
       }
+    }
+
+    // Total outage: every seed's fetch genuinely failed AND the
+    // genre-affinity fallback also genuinely failed -- throw so
+    // loadRecommendations' catch block falls back to the last good cache
+    // (`stale: true`) instead of upserting this empty `ranked` over it.
+    // A legitimately empty `ranked` (no seeds at all, or every fetch
+    // above succeeded but simply found nothing) is NOT a failure and
+    // still gets cached as-is -- only a real fetch-layer failure skips
+    // the upsert and throws.
+    if (allSeedsFailed && genreFallbackFailed) {
+      throw new Error('computeRecommendations: all seed fetches and the genre-affinity fallback failed');
     }
 
     const { error } = await supabase.from('recommendations_cache')
@@ -3371,23 +3436,29 @@
   // throttle age, otherwise recomputes. `force` (the manual Refresh
   // button, added in Task 6) skips the age check. On a total recompute
   // failure, falls back to the last cached list rather than showing
-  // nothing (`stale: true` signals the UI to show a notice).
-  async function loadRecommendations(scope, category, rows, { force = false } = {}) {
+  // nothing (`stale: true` signals the UI to show a notice). Both the
+  // cache-hit path and the stale-fallback path filter out anything the
+  // user has since dismissed -- otherwise a dismissed item can resurface
+  // for up to 7 days (the cache's own age, independent of the dismissal).
+  async function loadRecommendations(scope, category, rows, allRows, { force = false } = {}) {
     if (!force) {
       const { data, error } = await supabase.from('recommendations_cache')
         .select('data, updated_at').eq('scope', scope).eq('category', category).maybeSingle();
       if (!error && data && (Date.now() - new Date(data.updated_at).getTime()) < REC_CACHE_MAX_AGE_MS) {
-        return { list: data.data, stale: false };
+        const dismissed = await getDismissedRecommendationIds(scope, category);
+        return { list: data.data.filter(item => !dismissed.has(externalIdFor(item))), stale: false };
       }
     }
     try {
-      const list = await computeRecommendations(scope, category, rows);
+      const list = await computeRecommendations(scope, category, rows, allRows);
       return { list, stale: false };
     } catch (e) {
       console.warn('Recommendations recompute failed, falling back to last cache', e);
       const { data } = await supabase.from('recommendations_cache')
         .select('data').eq('scope', scope).eq('category', category).maybeSingle();
-      return { list: data?.data || [], stale: true };
+      const dismissed = await getDismissedRecommendationIds(scope, category);
+      const list = (data?.data || []).filter(item => !dismissed.has(externalIdFor(item)));
+      return { list, stale: true };
     }
   }
 
@@ -6361,7 +6432,7 @@
     }
 
     grid.innerHTML = `<p style="font-size:0.7rem; color:var(--muted)">Loading recommendations…</p>`;
-    const { list, stale } = await loadRecommendations(activeScope, activeRecCategory, rows, { force });
+    const { list, stale } = await loadRecommendations(activeScope, activeRecCategory, rows, allRows, { force });
 
     const staleNote = document.getElementById('rec-stale-note');
     if (stale) {
@@ -6393,7 +6464,7 @@
 
     grid.querySelectorAll('.rec-dismiss-btn').forEach((btn, i) => {
       btn.addEventListener('click', async () => {
-        const ok = await dismissRecommendation(activeScope, list[i]);
+        const ok = await dismissRecommendation(activeScope, activeRecCategory, list[i]);
         if (!ok) return;
         btn.closest('.rec-card').remove();
       });

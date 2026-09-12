@@ -20,12 +20,19 @@ create table recommendations_cache (
 
 create table dismissed_recommendations (
   scope show_scope not null,
+  -- 'anime' or 'manga' -- required because AniList uses separate id
+  -- namespaces per MediaType: the same numeric id can name two unrelated
+  -- titles across ANIME and MANGA, so external_id alone is not a safe
+  -- dismissal key. Without this column, dismissing a manga recommendation
+  -- could silently suppress an unrelated anime recommendation sharing the
+  -- same id.
+  category text not null,
   -- AniList media id when available; falls back to "mal:<id>" or
   -- "title:<normalized title>" when a recommendation came from the Jikan
   -- fallback path (Jikan has no AniList id) -- see externalIdFor() in
   -- index.html, added in Task 5.
   external_id text not null,
-  primary key (scope, external_id)
+  primary key (scope, category, external_id)
 );
 
 alter table recommendations_cache enable row level security;
