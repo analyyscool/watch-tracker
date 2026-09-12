@@ -3061,7 +3061,7 @@
     // Same watchlist-vs-"already have" split as computeRecommendations --
     // a watchlist-only entry can still surface here, just flagged so the
     // card can grey out the redundant "+ Watchlist" button.
-    const isWatchlistStatus = category === 'anime' ? (s) => s === 'watchlist' : (s) => s === 'plan_to_read';
+    const isWatchlistStatus = category === 'manga' ? (s) => s === 'plan_to_read' : (s) => s === 'watchlist';
     const alreadyHave = buildAlreadyHaveTitles(allRows.filter(r => !isWatchlistStatus(r.listStatus)));
     const watchlistRows = allRows.filter(r => isWatchlistStatus(r.listStatus));
     const candidates = await fetchRecommendationsForSeed({ title: item.title }, type);
@@ -4338,7 +4338,7 @@
     const type = source.mediaType;
     // Shows use list_status 'watchlist'; written_media uses 'plan_to_read'
     // for the equivalent "want to but haven't started" status.
-    const isWatchlistStatus = category === 'anime' ? (s) => s === 'watchlist' : (s) => s === 'plan_to_read';
+    const isWatchlistStatus = category === 'manga' ? (s) => s === 'plan_to_read' : (s) => s === 'watchlist';
     const watchlistRows = allRows.filter(r => isWatchlistStatus(r.listStatus));
     const alreadyHave = buildAlreadyHaveTitles(allRows.filter(r => !isWatchlistStatus(r.listStatus)));
     const dismissed = await getDismissedRecommendationIds(scope, category);
@@ -7629,15 +7629,16 @@
 
   async function renderRecommendationsTab({ force = false } = {}) {
     const container = document.getElementById('view-recommendations');
-    const allRows = activeRecCategory === 'anime' ? await fetchShows(activeScope) : await fetchWrittenMedia(activeScope);
+    const isShowsCategory = activeRecCategory === 'anime' || activeRecCategory === 'western' || activeRecCategory === 'movie';
+    const allRows = isShowsCategory ? await fetchShows(activeScope) : await fetchWrittenMedia(activeScope);
     // Restrict to the domain-appropriate rows for BOTH seed selection and
     // dedup -- otherwise a highly-rated western show would become a
     // wasted seed for an AniList `type: ANIME` search (it simply returns
     // no match, but it's still an unnecessary network call), mirroring
     // how computeAffinity is already called separately per-domain
     // elsewhere in this file (shows vs. written_media, never merged).
-    const rows = activeRecCategory === 'anime'
-      ? allRows.filter(s => s.category === 'anime')
+    const rows = isShowsCategory
+      ? allRows.filter(s => s.category === activeRecCategory)
       : allRows.filter(m => m.category === 'manga' || m.category === 'manhwa');
     const ratedCount = rows.filter(r => r.rating != null).length;
     const belowThreshold = ratedCount < MIN_RATED_FOR_AFFINITY;
@@ -7649,6 +7650,8 @@
       <div class="tabs sub-tabs">
         <button class="tab-btn sub-tab-btn${activeRecCategory === 'anime' ? ' active' : ''}" onclick="setRecCategory('anime')">Anime</button>
         <button class="tab-btn sub-tab-btn${activeRecCategory === 'manga' ? ' active' : ''}" onclick="setRecCategory('manga')">Manga / Manhwa</button>
+        <button class="tab-btn sub-tab-btn${activeRecCategory === 'western' ? ' active' : ''}" onclick="setRecCategory('western')">Western</button>
+        <button class="tab-btn sub-tab-btn${activeRecCategory === 'movie' ? ' active' : ''}" onclick="setRecCategory('movie')">Movies</button>
         <button class="btn" id="rec-refresh-btn" style="margin-left:auto">Refresh</button>
       </div>
       <div id="rec-stale-note" style="display:none; font-size:0.65rem; color:var(--muted); margin:0.5rem 0"></div>
