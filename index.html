@@ -834,6 +834,25 @@
     overflow-wrap: break-word;
   }
 
+  .rec-score {
+    font-size: 0.6rem;
+    color: var(--accent);
+    margin-top: 0.3rem;
+    letter-spacing: 0.03em;
+  }
+
+  /* Recommendation card titles wrap fully instead of the default
+     single-line ellipsis truncation used on show-tracking cards --
+     there's no fixed metadata (episode count, % complete) sharing the
+     header row here, so there's room, and a truncated title is a worse
+     tradeoff than a two-line one for a card you're deciding whether to
+     add. */
+  .rec-card .card-title {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+  }
+
   .rec-card-actions {
     display: flex;
     flex-wrap: wrap;
@@ -1194,6 +1213,19 @@
     width: min(700px, 90vw);
     max-height: 85vh;
     overflow-y: auto;
+  }
+
+  .show-detail-cover {
+    display: block;
+    max-width: 160px;
+    border-radius: 6px;
+    margin-bottom: 1rem;
+  }
+
+  .show-detail-ratings .star-rating {
+    transform: scale(1.35);
+    transform-origin: left center;
+    margin-left: 0.35rem;
   }
 
   .modal-close { width: 100%; text-align: center; }
@@ -2086,9 +2118,11 @@
 </div>
 
 <div class="modal-backdrop" id="show-detail-modal">
-  <div class="modal modal-wide">
+  <div class="modal modal-wide" style="position:relative">
+    <button class="modal-x-close" id="show-detail-x-close" aria-label="Close">&times;</button>
+    <img id="show-detail-cover" class="show-detail-cover" alt="" style="display:none" onerror="this.style.display='none'">
     <h2 id="show-detail-title">Show</h2>
-    <div id="show-detail-ratings"></div>
+    <div id="show-detail-ratings" class="show-detail-ratings"></div>
     <textarea id="show-detail-note" placeholder="What did you think?"></textarea>
     <div class="modal-actions">
       <button class="btn" id="show-detail-close">Close</button>
@@ -2367,12 +2401,36 @@
       .toLowerCase()
       .trim()
       .replace(/×/g, 'x')
+      .replace(/[‘’′]/g, "'") // smart/curly apostrophe variants -> straight
       .replace(/[:\-–—]/g, ' ')
+      // A fan-cut/recut is the same underlying show -- strip that
+      // parenthetical wherever it falls in the title, not just at the
+      // end, since "Dragon Ball Z Kai (Recut) Part 1" has more text
+      // (the part number) trailing after it.
+      .replace(/\s*\(\s*(fan cut|recut)[^)]*\)\s*/gi, ' ')
       .replace(/\s*\(\s*\d{4}\s*\)\s*$/, '')
-      .replace(/\s*\(\s*(fan cut|recut)[^)]*\)\s*$/i, '')
       .replace(/\s+(final season|(?:\d+(?:st|nd|rd|th)?\s+)?season\s*\d*|part\s*\d+|cour\s*\d+)\s*$/i, '')
       .replace(/\s+/g, ' ')
       .trim();
+  }
+
+  // A candidate's dedup identity is its own normalized title PLUS its
+  // known PREQUEL/SEQUEL relation titles (see RELATION_FIELDS/
+  // extractRelatedTitles, added to every candidate-listing AniList
+  // query). Checking relations, not just the candidate's own title text,
+  // catches a sequel whose arc-name subtitle shares no text at all with
+  // the base show (e.g. "Bleach: Thousand-Year Blood War - The
+  // Separation" has no textual overlap with "Bleach: Thousand-Year Blood
+  // War", but IS linked to it via a SEQUEL/PREQUEL edge) -- title-string
+  // heuristics alone can never catch this class of case.
+  function candidateTitleKeys(candidate) {
+    const keys = [normalizeTitle(candidate.title)];
+    (candidate.relatedTitles || []).forEach(t => keys.push(normalizeTitle(t)));
+    return keys;
+  }
+
+  function candidateMatchesAny(candidate, titleSet) {
+    return candidateTitleKeys(candidate).some(k => titleSet.has(k));
   }
 
   function buildAlreadyHaveTitles(rows) {
@@ -2814,6 +2872,10 @@
     document.getElementById('show-detail-title').textContent = item.title;
     document.getElementById('show-detail-note').value = item.note || '';
 
+    const coverEl = document.getElementById('show-detail-cover');
+    const coverUrl = kind === 'show' ? item.posterUrl : item.coverUrl;
+    if (coverUrl) { coverEl.src = coverUrl; coverEl.style.display = ''; } else { coverEl.style.display = 'none'; }
+
     const ratingsEl = document.getElementById('show-detail-ratings');
     if (kind === 'show' && activeScope === 'together') {
       const profiles = await getAllProfiles();
@@ -2861,7 +2923,7 @@
       similarGrid.innerHTML = `<p style="font-size:0.7rem; color:var(--muted)">Couldn't load similar titles right now.</p>`;
       return;
     }
-    const similar = candidates.filter(c => !alreadyHave.has(normalizeTitle(c.title))).slice(0, 5);
+    const similar = candidates.filter(c => !candidateMatchesAny(c, alreadyHave)).slice(0, 6);
     if (!similar.length) {
       similarGrid.innerHTML = `<p style="font-size:0.7rem; color:var(--muted)">Nothing found.</p>`;
       return;
@@ -2872,6 +2934,7 @@
         <div class="card-body">
           <div class="card-title">${escapeHTML(c.title)}</div>
           ${(c.genres || []).length ? `<div class="card-tags">${(c.genres || []).map(g => escapeHTML(g)).join(', ')}</div>` : ''}
+          ${recScoreBadgeHTML(c.score)}
           <div class="rec-card-actions">
             <button class="btn rec-add-btn" title="Add to Watchlist">+ Watchlist</button>
             <button class="btn rec-start-btn" title="Start Watching Now">▶ Start Now</button>
@@ -2902,6 +2965,7 @@
   }
 
   document.getElementById('show-detail-close').addEventListener('click', closeShowDetailModal);
+  document.getElementById('show-detail-x-close').addEventListener('click', closeShowDetailModal);
   document.getElementById('show-detail-modal').addEventListener('click', e => {
     if (e.target === e.currentTarget) closeShowDetailModal();
   });
@@ -3394,11 +3458,29 @@
   // Resolves `title` to an AniList id AND fetches its `recommendations`
   // field in a single round-trip (Media(search:) already returns the
   // matched entry's id, so a separate id-lookup call isn't needed).
+  // `relations` is requested here (a franchise's own prequels/sequels)
+  // purely so computeRecommendations can dedupe by relation, not just by
+  // title string -- a sequel with a wholly different arc-name subtitle
+  // (e.g. "Bleach: Thousand-Year Blood War - The Separation") shares no
+  // text with the base title, so title-normalization alone can't catch
+  // it, but it DOES show up as a PREQUEL/SEQUEL edge on either side. This
+  // adds no extra network round-trip -- it's the same query that was
+  // already being made for each seed/genre/popularity candidate.
+  const RELATION_FIELDS = `relations { edges { relationType node { title { romaji english } } } }`;
+
+  function extractRelatedTitles(relationsField) {
+    const edges = relationsField?.edges || [];
+    return edges
+      .filter(e => e.relationType === 'PREQUEL' || e.relationType === 'SEQUEL')
+      .map(e => e.node?.title?.english || e.node?.title?.romaji)
+      .filter(Boolean);
+  }
+
   async function fetchAniListRecommendationsFor(title, type) {
     const query = `query ($s: String, $type: MediaType) { Media(search: $s, type: $type) {
       id
       recommendations(sort: RATING_DESC, perPage: 10) {
-        nodes { mediaRecommendation { id title { romaji english } genres coverImage { large } studios(isMain: true) { nodes { name } } } }
+        nodes { mediaRecommendation { id title { romaji english } genres coverImage { large } studios(isMain: true) { nodes { name } } averageScore ${RELATION_FIELDS} } }
       }
     } }`;
     const res = await fetch('https://graphql.anilist.co', {
@@ -3419,6 +3501,8 @@
       genres: m.genres || [],
       coverUrl: m.coverImage?.large || null,
       studio: m.studios?.nodes?.[0]?.name || null,
+      relatedTitles: extractRelatedTitles(m.relations),
+      score: m.averageScore ?? null,
     }));
   }
 
@@ -3484,36 +3568,68 @@
   // error, non-2xx, or a GraphQL `errors` array) -- distinct from a
   // legitimate empty result, load-bearing for computeRecommendations'
   // outage detection.
+  // AniList's `genre_in` is AND, not OR -- media must carry EVERY listed
+  // genre simultaneously. Passing all 5 of a viewer's top genres in one
+  // `genre_in` array (the original implementation) demands a show that is
+  // simultaneously e.g. Mecha AND Drama AND Psychological AND Slice of
+  // Life AND Thriller, which reliably matches nothing -- confirmed live
+  // against the real API (5-genre query: 0 results; 1-2 genre queries:
+  // real results), which is why this section was silently always empty
+  // in production. Fixed by querying each of the top genres SEPARATELY
+  // (one media(genre_in: [g]) call per genre) and merging/deduping the
+  // results -- this is the actual "OR across my favorite genres" a
+  // taste-affinity search should mean.
   async function fetchGenreAffinityCandidates(genres, type, count) {
     if (!genres.length || count <= 0) return [];
-    const query = `query ($genres: [String], $type: MediaType, $perPage: Int) {
+    const perGenreCount = Math.max(5, Math.ceil(count / Math.min(genres.length, 3)));
+    const query = `query ($genre: String, $type: MediaType, $perPage: Int) {
       Page(perPage: $perPage) {
-        media(genre_in: $genres, type: $type, sort: SCORE_DESC) {
-          id title { romaji english } genres coverImage { large } studios(isMain: true) { nodes { name } }
+        media(genre_in: [$genre], type: $type, sort: SCORE_DESC) {
+          id title { romaji english } genres coverImage { large } studios(isMain: true) { nodes { name } } averageScore ${RELATION_FIELDS}
         }
       }
     }`;
-    try {
-      const res = await fetch('https://graphql.anilist.co', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query, variables: { genres, type, perPage: count } })
-      });
-      const json = await res.json();
-      if (!res.ok || json.errors) { console.warn('Genre-affinity recommendation search failed', res.status, json.errors); return null; }
-      const media = json?.data?.Page?.media || [];
-      return media.map(m => ({
-        anilistId: m.id,
-        malId: null,
-        title: m.title.english || m.title.romaji,
-        genres: m.genres || [],
-        coverUrl: m.coverImage?.large || null,
-        studio: m.studios?.nodes?.[0]?.name || null,
-      }));
-    } catch (e) {
-      console.warn('Genre-affinity recommendation search failed', e);
-      return null;
+    const seenIds = new Set();
+    const merged = [];
+    let anySucceeded = false;
+    // Sequential, not Promise.all -- same rate-limit discipline as the
+    // seed-fetch loop in computeRecommendations.
+    for (const genre of genres.slice(0, 3)) {
+      try {
+        const res = await fetch('https://graphql.anilist.co', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query, variables: { genre, type, perPage: perGenreCount } })
+        });
+        const json = await res.json();
+        if (!res.ok || json.errors) { console.warn('Genre-affinity recommendation search failed for genre', genre, res.status, json.errors); continue; }
+        anySucceeded = true;
+        const media = json?.data?.Page?.media || [];
+        media.forEach(m => {
+          if (seenIds.has(m.id)) return;
+          seenIds.add(m.id);
+          merged.push({
+            anilistId: m.id,
+            malId: null,
+            title: m.title.english || m.title.romaji,
+            genres: m.genres || [],
+            coverUrl: m.coverImage?.large || null,
+            studio: m.studios?.nodes?.[0]?.name || null,
+            relatedTitles: extractRelatedTitles(m.relations),
+            score: m.averageScore ?? null,
+          });
+        });
+      } catch (e) {
+        console.warn('Genre-affinity recommendation search failed for genre', genre, e);
+      }
     }
+    // Only a genuine total failure (every genre's request errored) should
+    // return null and count toward computeRecommendations' outage
+    // detection -- a query that ran fine but the genre combination just
+    // didn't turn up much is a legitimate (if now much rarer) empty/small
+    // result, not a failure.
+    if (!anySucceeded) return null;
+    return merged;
   }
 
   // Non-personalized "peak stuff you haven't seen" section -- AniList's
@@ -3526,7 +3642,7 @@
     const query = `query ($type: MediaType, $perPage: Int) {
       Page(perPage: $perPage) {
         media(type: $type, sort: [POPULARITY_DESC, SCORE_DESC]) {
-          id title { romaji english } genres coverImage { large } studios(isMain: true) { nodes { name } }
+          id title { romaji english } genres coverImage { large } studios(isMain: true) { nodes { name } } averageScore ${RELATION_FIELDS}
         }
       }
     }`;
@@ -3546,6 +3662,8 @@
         genres: m.genres || [],
         coverUrl: m.coverImage?.large || null,
         studio: m.studios?.nodes?.[0]?.name || null,
+        relatedTitles: extractRelatedTitles(m.relations),
+        score: m.averageScore ?? null,
       }));
     } catch (e) {
       console.warn('Peak-unseen recommendation search failed', e);
@@ -3652,9 +3770,24 @@
     seedResults.forEach((candidates, i) => {
       if (!candidates) return; // this seed's fetch failed outright -- skip, don't treat as "found nothing"
       const seed = seeds[i];
+      const seedKey = normalizeTitle(seed.title);
       candidates.forEach(candidate => {
+        if (candidateMatchesAny(candidate, alreadyHave)) return;
         const titleKey = normalizeTitle(candidate.title);
-        if (alreadyHave.has(titleKey)) return;
+        // A candidate whose (normalized) title contains the seed's own
+        // title, or vice versa, is almost always AniList recommending a
+        // sibling cour/arc of the exact show that was searched (e.g.
+        // seeding "Bleach: Thousand-Year Blood War" surfaces "Bleach:
+        // Thousand-Year Blood War - The Conflict" as a "recommendation"
+        // of itself) -- these cours are linked to EACH OTHER in AniList's
+        // relations graph, not back to a shared base title, so the
+        // relations check above can't catch this case. A direct
+        // substring check against the specific seed that produced this
+        // candidate is safe here (unlike a substring check against the
+        // whole alreadyHave set, which would risk false positives on
+        // short titles) because we know exactly which seed this
+        // candidate came from.
+        if (titleKey.includes(seedKey) || seedKey.includes(titleKey)) return;
         if (dismissed.has(externalIdFor(candidate))) return;
         const existing = bySeedTitle.get(titleKey);
         if (existing) {
@@ -3670,7 +3803,7 @@
       .sort((a, b) => (b.seedCount - a.seedCount) || (b.bestSeedRating - a.bestSeedRating))
       .slice(0, REC_SECTION_CAP)
       .map(r => ({ ...r.item, reason: 'because_rated', reasonDetail: r.seedTitle, sourceRating: r.bestSeedRating }));
-    becauseYouLiked.forEach(item => usedTitles.add(normalizeTitle(item.title)));
+    becauseYouLiked.forEach(item => candidateTitleKeys(item).forEach(k => usedTitles.add(k)));
 
     const affinity = computeAffinity(rows);
     const topGenres = Object.entries(affinity.genreAvg).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([g]) => g);
@@ -3681,10 +3814,9 @@
     if (genreCandidates) {
       for (const candidate of genreCandidates) {
         if (overallTaste.length >= REC_SECTION_CAP) break;
-        const titleKey = normalizeTitle(candidate.title);
-        if (alreadyHave.has(titleKey) || usedTitles.has(titleKey)) continue;
+        if (candidateMatchesAny(candidate, alreadyHave) || candidateMatchesAny(candidate, usedTitles)) continue;
         if (dismissed.has(externalIdFor(candidate))) continue;
-        usedTitles.add(titleKey);
+        candidateTitleKeys(candidate).forEach(k => usedTitles.add(k));
         overallTaste.push({ ...candidate, reason: 'affinity', reasonDetail: topGenres.slice(0, 2).join('/'), sourceRating: null });
       }
     }
@@ -3695,10 +3827,9 @@
     if (peakCandidates) {
       for (const candidate of peakCandidates) {
         if (peakUnseen.length >= REC_SECTION_CAP) break;
-        const titleKey = normalizeTitle(candidate.title);
-        if (alreadyHave.has(titleKey) || usedTitles.has(titleKey)) continue;
+        if (candidateMatchesAny(candidate, alreadyHave) || candidateMatchesAny(candidate, usedTitles)) continue;
         if (dismissed.has(externalIdFor(candidate))) continue;
-        usedTitles.add(titleKey);
+        candidateTitleKeys(candidate).forEach(k => usedTitles.add(k));
         peakUnseen.push({ ...candidate, reason: 'popular', reasonDetail: null, sourceRating: null });
       }
     }
@@ -6759,6 +6890,14 @@
     return true;
   }
 
+  // AniList's averageScore is a 0-100 community score -- deliberately
+  // labeled "AniList" rather than shown as stars, so it isn't confused
+  // with this app's own 0-5 star ratings on the same card.
+  function recScoreBadgeHTML(score) {
+    if (score == null) return '';
+    return `<div class="rec-score">AniList ${score}%</div>`;
+  }
+
   // Renders one section's grid (cards + dismiss/add handlers) into the
   // given container id. `list` is that section's array of recommendation
   // objects. Shared by all three sections in renderRecommendationsTab so
@@ -6784,6 +6923,7 @@
         <div class="card-body">
           <div class="card-title">${escapeHTML(item.title)}</div>
           ${(item.genres || []).length ? `<div class="card-tags">${(item.genres || []).map(g => escapeHTML(g)).join(', ')}</div>` : ''}
+          ${recScoreBadgeHTML(item.score)}
           <div class="rec-reason">${reasonHTML}</div>
           <div class="rec-card-actions">
             <button class="btn rec-add-btn" title="Add to Watchlist">+ Watchlist</button>
