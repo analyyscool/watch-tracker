@@ -814,7 +814,7 @@
 
   .rec-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
     gap: 1rem;
   }
 
@@ -822,6 +822,7 @@
     font-size: 0.62rem;
     color: var(--muted);
     margin: 0.4rem 0;
+    overflow-wrap: break-word;
   }
 
   .rec-card-actions {
@@ -829,6 +830,15 @@
     align-items: center;
     gap: 0.6rem;
     margin-top: 0.5rem;
+  }
+
+  .rec-add-btn {
+    flex: 1;
+    padding: 0.4rem 0.6rem;
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .rec-dismiss-btn {
@@ -2300,30 +2310,75 @@
   }
 
   // ── Recommendation seed selection ──
-  // Dedup key is the lowercased/trimmed title -- our rows don't store an
-  // AniList id today, so title matching is the only key we have (same
-  // caveat already accepted for sequel detection elsewhere in this file).
-  function buildAlreadyHaveTitles(rows) {
-    return new Set(rows.map(r => r.title.toLowerCase().trim()));
+  // Dedup key is a normalized title -- our rows don't store an AniList id
+  // today, so title matching is the only key we have (same caveat already
+  // accepted for sequel detection elsewhere in this file). Beyond plain
+  // lowercase/trim, this also strips two known sources of false negatives
+  // caught in practice: (1) an edition/year suffix on our own stored title
+  // that AniList's recommendation text doesn't carry (e.g. our "Hunter ×
+  // Hunter (2011)" vs. AniList's "Hunter x Hunter"), and (2) AniList
+  // storing each season as a separate Media entry with its own title
+  // (e.g. "Attack on Titan: Final Season") while this app tracks one
+  // cumulative row per show. Season/part stripping is deliberately
+  // keyword-gated (only fires on "season"/"part"/"cour" + a number or
+  // "final") rather than stripping bare trailing numbers, since several
+  // real titles in this app ARE just numbers (e.g. "86", "91 Days") and a
+  // blind trailing-digit strip would corrupt those. This remains a known,
+  // accepted limitation for a sequel with a wholly different subtitle
+  // that doesn't follow a "Season N"/"Part N" pattern -- same class of
+  // tradeoff already documented for this project's sequel detection.
+  function normalizeTitle(title) {
+    return title
+      .toLowerCase()
+      .trim()
+      .replace(/×/g, 'x')
+      .replace(/[:\-–—]/g, ' ')
+      .replace(/\s*\(\s*\d{4}\s*\)\s*$/, '')
+      .replace(/\s*\(\s*(fan cut|recut)[^)]*\)\s*$/i, '')
+      .replace(/\s+(final season|(?:\d+(?:st|nd|rd|th)?\s+)?season\s*\d*|part\s*\d+|cour\s*\d+)\s*$/i, '')
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
-  // Picks up to `limit` seed items rated >= minRating, highest first. For
-  // scope === 'together', averages every rater's score per item first
-  // (rows carry `allRatings`, an array of { user_id, rating, note }) so a
-  // show only one partner loved doesn't get treated as a shared favorite.
+  function buildAlreadyHaveTitles(rows) {
+    return new Set(rows.map(r => normalizeTitle(r.title)));
+  }
+
+  // Picks up to `limit` seed items rated >= minRating, weighted by rating
+  // tier (40% from 5-star items, 40% from 4.5-star, 20% from 4-star, of
+  // `limit`) rather than simply taking the top N by rating -- otherwise a
+  // handful of 5-star ratings would crowd out 4/4.5-star taste entirely.
+  // A tier with fewer items than its share just contributes what it has;
+  // slots aren't backfilled from other tiers. For scope === 'together',
+  // averages every rater's score per item first (rows carry `allRatings`,
+  // an array of { user_id, rating, note }) so a show only one partner
+  // loved doesn't get treated as a shared favorite -- the averaged score
+  // is rounded to the nearest 0.5 before bucketing so it still lands in
+  // one of the three tiers.
+  const SEED_TIER_WEIGHTS = [
+    { rating: 5.0, share: 0.4 },
+    { rating: 4.5, share: 0.4 },
+    { rating: 4.0, share: 0.2 },
+  ];
+
   function pickRecommendationSeeds(rows, { scope, limit = 10, minRating = 4.0 } = {}) {
     const withEffectiveRating = rows.map(r => {
       let effectiveRating = r.rating;
       if (scope === 'together' && r.allRatings && r.allRatings.length) {
         const values = r.allRatings.map(x => x.rating).filter(v => v != null);
-        effectiveRating = values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
+        effectiveRating = values.length ? Math.round((values.reduce((a, b) => a + b, 0) / values.length) * 2) / 2 : null;
       }
       return { ...r, effectiveRating };
     });
-    return withEffectiveRating
-      .filter(r => r.effectiveRating != null && r.effectiveRating >= minRating)
-      .sort((a, b) => b.effectiveRating - a.effectiveRating)
-      .slice(0, limit);
+    const eligible = withEffectiveRating.filter(r => r.effectiveRating != null && r.effectiveRating >= minRating);
+
+    const seeds = [];
+    SEED_TIER_WEIGHTS.forEach(({ rating, share }) => {
+      const tierLimit = Math.round(limit * share);
+      const tierItems = eligible.filter(r => r.effectiveRating === rating).slice(0, tierLimit);
+      seeds.push(...tierItems);
+    });
+    return seeds.slice(0, limit);
   }
 
   // Shared write-error guard for Supabase mutations. Call sites destructure
@@ -3315,7 +3370,7 @@
   function externalIdFor(item) {
     if (item.anilistId) return String(item.anilistId);
     if (item.malId) return `mal:${item.malId}`;
-    return `title:${item.title.toLowerCase().trim()}`;
+    return `title:${normalizeTitle(item.title)}`;
   }
 
   // `category` is required (not just `scope`) because AniList uses separate
@@ -3378,7 +3433,7 @@
       if (!candidates) return; // this seed's fetch failed outright -- skip, don't treat as "found nothing"
       const seed = seeds[i];
       candidates.forEach(candidate => {
-        if (alreadyHave.has(candidate.title.toLowerCase().trim())) return;
+        if (alreadyHave.has(normalizeTitle(candidate.title))) return;
         const id = externalIdFor(candidate);
         if (dismissed.has(id)) return;
         const existing = bySeedCount.get(id);
@@ -3408,7 +3463,7 @@
       } else {
         for (const candidate of fillCandidates) {
           if (ranked.length >= 15) break;
-          if (alreadyHave.has(candidate.title.toLowerCase().trim())) continue;
+          if (alreadyHave.has(normalizeTitle(candidate.title))) continue;
           const id = externalIdFor(candidate);
           if (dismissed.has(id) || rankedIds.has(id)) continue;
           rankedIds.add(id);
