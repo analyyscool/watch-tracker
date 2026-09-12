@@ -3486,6 +3486,7 @@
 
   async function checkAnimeSequel(show) {
     const query = `query ($s: String) { Media(search: $s, type: ANIME) {
+      episodes
       relations { edges { relationType node { title { romaji english } format episodes } } }
     } }`;
     try {
@@ -3499,14 +3500,30 @@
       // issues" outage still returns 200 with a GraphQL `errors` array
       // rather than a non-2xx status, so both must be checked to detect it.
       if (!res.ok || json.errors) throw new Error(`AniList error ${res.status}`);
-      const edges = json?.data?.Media?.relations?.edges || [];
+      const media = json?.data?.Media;
+      const edges = media?.relations?.edges || [];
       const sequel = edges.find(e => e.relationType === 'SEQUEL' && ['TV', 'TV_SHORT'].includes(e.node.format));
       if (!sequel) return null;
+      // The row's stored total_episodes is one cumulative number across
+      // every season merged into it (see the architecture note above), but
+      // AniList's search always resolves to the franchise's Season 1 entry
+      // and that entry's SEQUEL edge never goes away once it exists -- so
+      // without this guard, a franchise whose next season is ALREADY merged
+      // into the stored total (or was deliberately never extended, e.g. a
+      // dropped show) would re-flag as "new" forever. If the stored total
+      // already exceeds what Season 1 alone accounts for, later seasons are
+      // presumed already reflected (or deliberately not being tracked
+      // further) and there's nothing new to surface. Skipped when AniList
+      // doesn't report Season 1's own episode count (still-airing edge case)
+      // since there's nothing to safely compare against.
+      if (media.episodes != null && show.totalEpisodes > media.episodes) return null;
       return buildSeasonNotice(show, sequel.node.title.english || sequel.node.title.romaji, sequel.node.episodes);
     } catch (e) {
       console.warn('AniList sequel check failed for', show.title, '— falling back to Jikan', e);
       const fallback = await fetchJikanAnimeSequel(show.title).catch(() => null);
-      return fallback ? buildSeasonNotice(show, fallback.title, fallback.episodes) : null;
+      if (!fallback) return null;
+      if (fallback.baseEpisodes != null && show.totalEpisodes > fallback.baseEpisodes) return null;
+      return buildSeasonNotice(show, fallback.title, fallback.episodes);
     }
   }
 
@@ -3534,7 +3551,10 @@
     const detailJson = await detailRes.json();
     const d = detailJson.data;
     if (!d || d.type !== 'TV') return null;
-    return { title: d.title_english || d.title, episodes: d.episodes || 0 };
+    // anime.episodes is Season 1's own count, used the same way as AniList's
+    // media.episodes above to guard against re-flagging an already-merged
+    // (or deliberately dropped) season.
+    return { title: d.title_english || d.title, episodes: d.episodes || 0, baseEpisodes: anime.episodes ?? null };
   }
 
   async function checkWesternSeason(show) {
