@@ -3138,6 +3138,79 @@
     });
   }
 
+  // ── Recommendations: AniList + Jikan fetch ──
+  // Resolves `title` to an AniList id AND fetches its `recommendations`
+  // field in a single round-trip (Media(search:) already returns the
+  // matched entry's id, so a separate id-lookup call isn't needed).
+  async function fetchAniListRecommendationsFor(title, type) {
+    const query = `query ($s: String, $type: MediaType) { Media(search: $s, type: $type) {
+      id
+      recommendations(sort: RATING_DESC, perPage: 10) {
+        nodes { mediaRecommendation { id title { romaji english } genres coverImage { large } studios(isMain: true) { nodes { name } } } }
+      }
+    } }`;
+    const res = await fetch('https://graphql.anilist.co', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, variables: { s: title, type } })
+    });
+    const json = await res.json();
+    // AniList's recurring "temporarily disabled due to severe stability
+    // issues" outage still returns 200 with a GraphQL `errors` array
+    // rather than a non-2xx status, so both must be checked.
+    if (!res.ok || json.errors) throw new Error(`AniList error ${res.status}`);
+    const nodes = json?.data?.Media?.recommendations?.nodes || [];
+    return nodes.map(n => n.mediaRecommendation).filter(Boolean).map(m => ({
+      anilistId: m.id,
+      malId: null,
+      title: m.title.english || m.title.romaji,
+      genres: m.genres || [],
+      coverUrl: m.coverImage?.large || null,
+      studio: m.studios?.nodes?.[0]?.name || null,
+    }));
+  }
+
+  // Fallback when AniList fails wholesale for a seed -- same MAL-search-
+  // then-detail approach as fetchJikanAnimeSequel/fetchJikanMangaSequel,
+  // pulling the /recommendations endpoint instead of /relations. Jikan
+  // has no AniList id, so anilistId stays null here -- externalIdFor()
+  // (Task 5) falls back to a "mal:<id>" key for dedup/dismissal instead.
+  async function fetchJikanRecommendationsFor(title, kind) {
+    const searchRes = await fetch(`https://api.jikan.moe/v4/${kind}?q=${encodeURIComponent(title)}&limit=5`);
+    const searchJson = await searchRes.json();
+    const results = searchJson.data || [];
+    if (!results.length) return [];
+    const exact = results.find(r => {
+      const variants = [r.title, r.title_english, r.title_japanese, ...(r.titles || []).map(t => t.title)];
+      return variants.some(v => (v || '').toLowerCase().trim() === title.toLowerCase().trim());
+    });
+    const match = exact || results[0];
+    const recRes = await fetch(`https://api.jikan.moe/v4/${kind}/${match.mal_id}/recommendations`);
+    const recJson = await recRes.json();
+    const entries = recJson.data || [];
+    return entries.slice(0, 10).map(e => ({
+      anilistId: null,
+      malId: e.entry.mal_id,
+      title: e.entry.title,
+      genres: [],
+      coverUrl: e.entry.images?.jpg?.image_url || null,
+      studio: null,
+    }));
+  }
+
+  // Tries AniList first; on failure, falls back to Jikan. Never blends
+  // both -- a successful AniList result is authoritative. Mirrors
+  // checkAnimeSequel's fallback pattern.
+  async function fetchRecommendationsForSeed(seed, type) {
+    try {
+      return await fetchAniListRecommendationsFor(seed.title, type);
+    } catch (e) {
+      console.warn('AniList recommendations failed for', seed.title, '— falling back to Jikan', e);
+      const kind = type === 'ANIME' ? 'anime' : 'manga';
+      return await fetchJikanRecommendationsFor(seed.title, kind).catch(() => []);
+    }
+  }
+
   async function searchTMDBCovers(title, kind) {
     const res = await fetch(`https://api.themoviedb.org/3/search/${kind}?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(title)}`);
     const json = await res.json();
