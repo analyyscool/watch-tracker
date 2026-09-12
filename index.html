@@ -4104,6 +4104,66 @@
     10768: 'War & Politics',
   };
 
+  const TMDB_GENRE_IDS = Object.fromEntries(Object.entries(TMDB_GENRE_NAMES).map(([id, name]) => [name, id]));
+
+  async function fetchTMDBGenreAffinityCandidates(genreNames, mediaType, count) {
+    const genreIds = genreNames.map(g => TMDB_GENRE_IDS[g]).filter(Boolean);
+    if (!genreIds.length || count <= 0) return [];
+    const results = [];
+    let anySucceeded = false;
+    // TMDB caps /discover at 20 results/page -- paginate the same way
+    // fetchTMDBPeakUnseenCandidates does (see below), stopping once
+    // there's a healthy buffer (2x count) for the caller's own filtering.
+    for (let page = 1; page <= 4 && results.length < count * 2; page++) {
+      try {
+        const res = await fetch(`https://api.themoviedb.org/3/discover/${mediaType}?api_key=${TMDB_API_KEY}&with_genres=${genreIds.join('|')}&sort_by=vote_average.desc&vote_count.gte=200&page=${page}`);
+        const json = await res.json();
+        if (!res.ok) { console.warn('TMDB genre-affinity search failed', res.status); break; }
+        anySucceeded = true;
+        const pageResults = json.results || [];
+        pageResults.forEach(r => results.push(tmdbResultToCandidate(r, mediaType)));
+        if (page >= (json.total_pages || 1)) break;
+      } catch (e) {
+        console.warn('TMDB genre-affinity search failed', e);
+        break;
+      }
+    }
+    return anySucceeded ? results : null;
+  }
+
+  // TMDB's vote_count is the closest analogue to AniList's `popularity`
+  // floor (PEAK_MIN_POPULARITY) -- 200 is a starting point, NOT verified
+  // against TMDB's real vote-count distribution the way 15000 was
+  // spot-checked live for AniList. Spot-check this during Task 6's
+  // end-to-end verification (e.g. fetch the top 50 by vote_average with
+  // no floor and eyeball where genuinely-obscure titles start
+  // outnumbering broadly-known ones) and adjust before shipping.
+  const TMDB_MIN_VOTE_COUNT = 200;
+
+  async function fetchTMDBPeakUnseenCandidates(mediaType, count) {
+    if (count <= 0) return [];
+    const results = [];
+    let anySucceeded = false;
+    for (let page = 1; page <= 4 && results.length < count * 2; page++) {
+      try {
+        const res = await fetch(`https://api.themoviedb.org/3/discover/${mediaType}?api_key=${TMDB_API_KEY}&sort_by=vote_average.desc&vote_count.gte=${TMDB_MIN_VOTE_COUNT}&page=${page}`);
+        const json = await res.json();
+        if (!res.ok) { console.warn('TMDB peak-unseen search failed', res.status); break; }
+        anySucceeded = true;
+        const pageResults = json.results || [];
+        pageResults.forEach(r => results.push(tmdbResultToCandidate(r, mediaType)));
+        if (page >= (json.total_pages || 1)) break;
+      } catch (e) {
+        console.warn('TMDB peak-unseen search failed', e);
+        break;
+      }
+    }
+    // Deliberately NOT sliced to `count` -- see the identical comment on
+    // fetchPeakUnseenCandidates for why (the caller's own already-have/
+    // franchise/dismissed filtering needs real headroom to work with).
+    return anySucceeded ? results : null;
+  }
+
   // ── Recommendations: orchestration, cache, dismissal ──
   const REC_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
