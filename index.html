@@ -3504,11 +3504,31 @@
       .filter(Boolean);
   }
 
+  // AniList always pads a show's recommendations list out to `perPage`
+  // entries regardless of how many the community actually endorses --
+  // spot-checked live against Frieren (a mega-popular show): its top 10
+  // "recommendations" carry only 23/8/3/3/2/2/2/1/0 votes AND every
+  // single one is format ONA/SPECIAL/TV_SHORT (shorts, chibi spinoffs,
+  // promotional minis) -- zero real TV series or movies. Compare a
+  // blockbuster like One Piece or Attack on Titan, whose WEAKEST top-10
+  // entry still carries 90+ votes. So the fix is two quality gates, not
+  // one: MIN_RECOMMENDATION_VOTES catches near-zero-engagement noise,
+  // and the ANIME_RECOMMENDATION_FORMATS filter excludes short-form
+  // content that isn't a comparable full series -- a real editorial
+  // tradeoff, not just a bug fix: a well-connected blockbuster will
+  // still offer several qualifying picks, but a less-discussed show (or
+  // one whose only "recommendations" are spinoff shorts) may
+  // legitimately contribute zero "because you liked X" entries rather
+  // than padding the list with junk. Manga has no TV_SHORT/OVA-style
+  // format distinction, so the format filter only applies to ANIME.
+  const MIN_RECOMMENDATION_VOTES = 3;
+  const ANIME_RECOMMENDATION_FORMATS = new Set(['TV', 'MOVIE']);
+
   async function fetchAniListRecommendationsFor(title, type) {
     const query = `query ($s: String, $type: MediaType) { Media(search: $s, type: $type) {
       id
       recommendations(sort: RATING_DESC, perPage: 10) {
-        nodes { mediaRecommendation { id title { romaji english } genres coverImage { large } studios(isMain: true) { nodes { name } } averageScore ${RELATION_FIELDS} } }
+        nodes { rating mediaRecommendation { id format title { romaji english } genres coverImage { large } studios(isMain: true) { nodes { name } } averageScore ${RELATION_FIELDS} } }
       }
     } }`;
     const res = await fetch('https://graphql.anilist.co', {
@@ -3521,7 +3541,11 @@
     // issues" outage still returns 200 with a GraphQL `errors` array
     // rather than a non-2xx status, so both must be checked.
     if (!res.ok || json.errors) throw new Error(`AniList error ${res.status}`);
-    const nodes = json?.data?.Media?.recommendations?.nodes || [];
+    const nodes = (json?.data?.Media?.recommendations?.nodes || []).filter(n => {
+      if ((n.rating || 0) < MIN_RECOMMENDATION_VOTES) return false;
+      if (type === 'ANIME' && !ANIME_RECOMMENDATION_FORMATS.has(n.mediaRecommendation?.format)) return false;
+      return true;
+    });
     return nodes.map(n => n.mediaRecommendation).filter(Boolean).map(m => ({
       anilistId: m.id,
       malId: null,
