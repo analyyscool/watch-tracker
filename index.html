@@ -1252,18 +1252,37 @@
     overflow-y: auto;
   }
 
+  .show-detail-header {
+    display: flex;
+    gap: 1.25rem;
+    align-items: flex-start;
+    margin-bottom: 1rem;
+  }
+
   .show-detail-cover {
     display: block;
     max-width: 160px;
     border-radius: 6px;
-    margin-bottom: 1rem;
+    flex-shrink: 0;
   }
 
-  .show-detail-ratings .star-rating {
-    transform: scale(2);
-    transform-origin: left center;
-    margin-left: 0.6rem;
+  .show-detail-header-info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding-top: 0.25rem;
   }
+
+  .show-detail-header-info h2 { margin: 0; }
+
+  /* Sized directly (rather than transform: scale(), which enlarges the
+     stars visually without growing the box the layout reserves for them)
+     so sibling rating rows and the textarea below are pushed down instead
+     of overlapping the oversized stars. */
+  .show-detail-ratings .star-rating { gap: 2px; margin-left: 0.6rem; }
+  .show-detail-ratings .star-slot { width: 1.6rem; height: 1.5rem; font-size: 1.6rem; }
 
   .modal-close { width: 100%; text-align: center; }
 
@@ -2165,9 +2184,13 @@
 <div class="modal-backdrop" id="show-detail-modal">
   <div class="modal modal-wide" style="position:relative">
     <button class="modal-x-close" id="show-detail-x-close" aria-label="Close">&times;</button>
-    <img id="show-detail-cover" class="show-detail-cover" alt="" style="display:none" onerror="this.style.display='none'">
-    <h2 id="show-detail-title">Show</h2>
-    <div id="show-detail-ratings" class="show-detail-ratings"></div>
+    <div class="show-detail-header">
+      <img id="show-detail-cover" class="show-detail-cover" alt="" style="display:none" onerror="this.style.display='none'">
+      <div class="show-detail-header-info">
+        <h2 id="show-detail-title">Show</h2>
+        <div id="show-detail-ratings" class="show-detail-ratings"></div>
+      </div>
+    </div>
     <textarea id="show-detail-note" placeholder="What did you think?"></textarea>
     <div class="modal-actions">
       <button class="btn" id="show-detail-close">Close</button>
