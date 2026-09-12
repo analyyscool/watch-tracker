@@ -4201,6 +4201,28 @@
     }
   }
 
+  // TV has no structured relation-to-parent-show data on TMDB at all --
+  // verified live against a known real spin-off pair (Better Call Saul ->
+  // Breaking Bad): the show's full detail response has no field
+  // connecting them, only generic keyword tags with no reference to
+  // WHICH show they're a spin-off/prequel of. So unlike isFreshMovieEntry
+  // (which can check "is the earlier entry tracked"), this can only
+  // blanket-exclude -- a spin-off/prequel-tagged show never surfaces,
+  // regardless of whether its (unidentifiable) parent is tracked. Explicit
+  // user decision (2026-09-13), not a default -- the alternative (skip TV
+  // franchise-checking entirely) was the original recommendation.
+  async function isTVSpinoffOrPrequel(candidate) {
+    try {
+      const res = await fetch(`https://api.themoviedb.org/3/tv/${candidate.tmdbId}/keywords?api_key=${TMDB_API_KEY}`);
+      const json = await res.json();
+      const keywords = (json.results || []).map(k => k.name.toLowerCase());
+      return keywords.includes('spin off') || keywords.includes('prequel');
+    } catch (e) {
+      console.warn('TMDB keywords lookup failed for candidate', candidate.title, e);
+      return false; // fail open, same posture as isFreshMovieEntry
+    }
+  }
+
   // ── Recommendations: orchestration, cache, dismissal ──
   const REC_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
