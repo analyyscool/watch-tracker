@@ -3113,7 +3113,7 @@
           ${c.coverUrl ? `<img class="rec-card-h-img" src="${c.coverUrl}" alt="" onerror="this.remove()">` : `<div class="rec-card-h-img"></div>`}
           <div class="rec-card-h-body">
             <div class="rec-card-h-title">${escapeHTML(c.title)}${tagsHTML}</div>
-            <div class="rec-card-h-meta">${(c.genres || []).map(g => escapeHTML(g)).join(', ')}${recScoreBadgeHTML(c.score)}</div>
+            <div class="rec-card-h-meta">${(c.genres || []).map(g => escapeHTML(g)).join(', ')}${recScoreBadgeHTML(c)}</div>
           </div>
         </div>
         <div class="rec-card-actions">
@@ -7589,9 +7589,14 @@
   // AniList's averageScore is a 0-100 community score -- deliberately
   // labeled "AniList" rather than shown as stars, so it isn't confused
   // with this app's own 0-5 star ratings on the same card.
-  function recScoreBadgeHTML(score) {
-    if (score == null) return '';
-    return ` · <span class="rec-score-inline">AniList ${score}%</span>`;
+  // Label reflects which source actually produced the score -- AniList
+  // for anime/manga candidates, TMDB for western/movie ones (identified
+  // by the presence of tmdbId, the same field externalIdFor already uses
+  // to tell the two candidate shapes apart).
+  function recScoreBadgeHTML(item) {
+    if (item.score == null) return '';
+    const source = item.tmdbId ? 'TMDB' : 'AniList';
+    return ` · <span class="rec-score-inline">${source} ${item.score}%</span>`;
   }
 
   // Renders one section's grid (cards + dismiss/add handlers) into the
@@ -7620,7 +7625,7 @@
           ${item.coverUrl ? `<img class="rec-card-h-img" src="${item.coverUrl}" alt="" onerror="this.remove()">` : `<div class="rec-card-h-img"></div>`}
           <div class="rec-card-h-body">
             <div class="rec-card-h-title">${escapeHTML(item.title)}${item.watchlistTags?.length ? ` <span class="rec-watchlist-tag">${item.watchlistTags.map(escapeHTML).join(', ')}</span>` : ''}</div>
-            <div class="rec-card-h-meta">${genresText}${recScoreBadgeHTML(item.score)}</div>
+            <div class="rec-card-h-meta">${genresText}${recScoreBadgeHTML(item)}</div>
             <div class="rec-card-h-reason">${reasonHTML}</div>
           </div>
         </div>
