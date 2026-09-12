@@ -3959,6 +3959,60 @@
   // total_chapters to the live value (rather than just showing a banner)
   // is what prevents re-notifying for the same new chapters on the next
   // check.
+  // MangaDex's raw top relevance hit is often a colorized/spinoff edition
+  // (e.g. "Hunter x Hunter (Official Colored)" outranks the base "Hunter x
+  // Hunter") that lags far behind the real release — prefer an exact title
+  // match over the top hit. Checking only title.en missed real matches
+  // whose primary MangaDex title is in another language (e.g. Vinland Saga
+  // stored under 'ja-ro') and fell through to a wrong top hit instead —
+  // check every title variant (all languages) plus altTitles.
+  async function fetchMangaDexLatestChapter(title) {
+    const searchRes = await fetch(`https://api.mangadex.org/manga?title=${encodeURIComponent(title)}&limit=10`);
+    const searchJson = await searchRes.json();
+    const candidatesList = searchJson.data || [];
+    if (!candidatesList.length) return 0;
+    const exact = candidatesList.find(c => {
+      const variants = [c.attributes.title, ...(c.attributes.altTitles || [])].flatMap(t => Object.values(t || {}));
+      return variants.some(v => (v || '').toLowerCase().trim() === title.toLowerCase().trim());
+    });
+    const manga = exact || candidatesList[0];
+    const aggRes = await fetch(`https://api.mangadex.org/manga/${manga.id}/aggregate?translatedLanguage[]=en`);
+    const aggJson = await aggRes.json();
+    let maxChapter = 0;
+    Object.values(aggJson.volumes || {}).forEach(vol => {
+      Object.keys(vol.chapters || {}).forEach(chNum => {
+        const n = parseFloat(chNum);
+        if (!isNaN(n) && n > maxChapter) maxChapter = n;
+      });
+    });
+    return maxChapter;
+  }
+
+  // MangaUpdates tracks release metadata (not scanlations), so it still has
+  // a current chapter count for titles MangaDex drops once they're licensed
+  // and officially published. Free, no API key. Same exact-title-match
+  // caution as MangaDex — its search ranks by relevance, not by match
+  // quality, so a plain top hit can be a same-named unrelated series.
+  async function fetchMangaUpdatesLatestChapter(title) {
+    const searchRes = await fetch('https://api.mangaupdates.com/v1/series/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ search: title, perpage: 10 }),
+    });
+    const searchJson = await searchRes.json();
+    const results = searchJson.results || [];
+    if (!results.length) return 0;
+    const exact = results.find(r => {
+      const variants = [r.record.title, ...(r.record.associated || []).map(a => a.title)];
+      return variants.some(v => (v || '').toLowerCase().trim() === title.toLowerCase().trim());
+    });
+    const seriesId = (exact || results[0]).record.series_id;
+    const detailRes = await fetch(`https://api.mangaupdates.com/v1/series/${seriesId}`);
+    const detailJson = await detailRes.json();
+    const n = parseFloat(detailJson.latest_chapter);
+    return isNaN(n) ? 0 : n;
+  }
+
   async function checkNewChapters() {
     const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
     const lastCheck = parseInt(localStorage.getItem('lastChapterCheck') || '0', 10);
@@ -3985,32 +4039,17 @@
     const updates = [];
     for (const m of candidates) {
       try {
-        const searchRes = await fetch(`https://api.mangadex.org/manga?title=${encodeURIComponent(m.title)}&limit=10`);
-        const searchJson = await searchRes.json();
-        const candidatesList = searchJson.data || [];
-        if (!candidatesList.length) continue;
-        // MangaDex's raw top relevance hit is often a colorized/spinoff
-        // edition (e.g. "Hunter x Hunter (Official Colored)" outranks the
-        // base "Hunter x Hunter") that lags far behind the real release —
-        // prefer an exact title match over the top hit. Checking only
-        // title.en missed real matches whose primary MangaDex title is in
-        // another language (e.g. Vinland Saga stored under 'ja-ro') and
-        // fell through to a wrong top hit instead — check every title
-        // variant (all languages) plus altTitles.
-        const exact = candidatesList.find(c => {
-          const variants = [c.attributes.title, ...(c.attributes.altTitles || [])].flatMap(t => Object.values(t || {}));
-          return variants.some(v => (v || '').toLowerCase().trim() === m.title.toLowerCase().trim());
-        });
-        const manga = exact || candidatesList[0];
-        const aggRes = await fetch(`https://api.mangadex.org/manga/${manga.id}/aggregate?translatedLanguage[]=en`);
-        const aggJson = await aggRes.json();
-        let maxChapter = 0;
-        Object.values(aggJson.volumes || {}).forEach(vol => {
-          Object.keys(vol.chapters || {}).forEach(chNum => {
-            const n = parseFloat(chNum);
-            if (!isNaN(n) && n > maxChapter) maxChapter = n;
-          });
-        });
+        const [mangaDexChapter, mangaUpdatesChapter] = await Promise.all([
+          fetchMangaDexLatestChapter(m.title),
+          fetchMangaUpdatesLatestChapter(m.title),
+        ]);
+        // MangaDex only indexes scanlations, so licensed titles pulled from
+        // its catalog once officially published (Vinland Saga, One Piece,
+        // etc.) silently stop updating there — MangaUpdates tracks release
+        // metadata instead of hosting scans, so it still has these. Take
+        // whichever source reports the higher chapter rather than picking
+        // one, since neither covers every title.
+        const maxChapter = Math.max(mangaDexChapter, mangaUpdatesChapter);
         if (maxChapter && maxChapter > m.totalChapters) {
           updates.push({
             id: m.id, title: m.title, delta: Math.round(maxChapter - m.totalChapters), newTotal: Math.round(maxChapter),
