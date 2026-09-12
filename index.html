@@ -2442,17 +2442,29 @@
   // ancestor. E.g. "Attack on Titan Season 3 Part 2"'s own relations
   // point to "Season 3 Part 1" and "Final Season", never directly back
   // to the tracked title "Attack on Titan" -- but "attack on titan
-  // season 3 part 2" DOES start with "attack on titan " (note the
-  // trailing space in the check, so "Attack on Titans" -- a different,
-  // unrelated show -- would not false-positive against "Attack on
-  // Titan"). This also incidentally fixes a stored title that's an
-  // abbreviation of AniList's full title (e.g. stored "Re:ZERO" vs
-  // AniList's "Re:ZERO -Starting Life in Another World- Season 4").
+  // season 3 part 2" DOES start with "attack on titan" at a word
+  // boundary, so "Attack on Titans" -- a different, unrelated show --
+  // would not false-positive against "Attack on Titan". This also
+  // incidentally fixes a stored title that's an abbreviation of
+  // AniList's full title (e.g. stored "Re:ZERO" vs AniList's "Re:ZERO
+  // -Starting Life in Another World- Season 4").
+  //
+  // "Word boundary" here means the next character is NOT a letter or
+  // digit -- deliberately broader than just "a space", since a plain
+  // space-only check missed a real case: stored "Omniscient Reader's
+  // Viewpoint" vs a candidate titled "Omniscient Reader" wasn't caught
+  // because the character right after "reader" is an apostrophe, not a
+  // space.
+  function isWordBoundary(str, index) {
+    if (index >= str.length) return true;
+    return !/[a-z0-9]/i.test(str[index]);
+  }
+
   function titleOverlapsAny(key, titleSet) {
     for (const t of titleSet) {
       if (key === t) return true;
-      if (key.length > t.length && key.startsWith(t + ' ')) return true;
-      if (t.length > key.length && t.startsWith(key + ' ')) return true;
+      if (key.length > t.length && key.startsWith(t) && isWordBoundary(key, t.length)) return true;
+      if (t.length > key.length && t.startsWith(key) && isWordBoundary(t, key.length)) return true;
     }
     return false;
   }
