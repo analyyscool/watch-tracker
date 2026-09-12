@@ -1189,6 +1189,12 @@
     margin-bottom: 1.25rem;
   }
 
+  .modal-wide {
+    width: min(700px, 90vw);
+    max-height: 85vh;
+    overflow-y: auto;
+  }
+
   .modal-close { width: 100%; text-align: center; }
 
   .modal-x-close {
@@ -1494,6 +1500,9 @@
     color: var(--text);
     line-height: 1.3;
   }
+
+  .movie-card-title.clickable { cursor: pointer; }
+  .movie-card-title.clickable:hover { color: var(--accent); }
 
   .movie-card-rating {
     display: flex;
@@ -2071,6 +2080,22 @@
     <div class="modal-actions">
       <button class="btn" id="finish-modal-skip">Skip</button>
       <button class="btn btn-primary" id="finish-modal-save">Save</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="show-detail-modal">
+  <div class="modal modal-wide">
+    <h2 id="show-detail-title">Show</h2>
+    <div id="show-detail-ratings"></div>
+    <textarea id="show-detail-note" placeholder="What did you think?"></textarea>
+    <div class="modal-actions">
+      <button class="btn" id="show-detail-close">Close</button>
+      <button class="btn btn-primary" id="show-detail-save">Save Note</button>
+    </div>
+    <div id="show-detail-similar-section" style="display:none">
+      <div class="rec-section-title">Similar to this</div>
+      <div id="show-detail-similar-grid" class="rec-grid"></div>
     </div>
   </div>
 </div>
@@ -2762,6 +2787,120 @@
     if (text) await setNote(finishModalId, text, finishModalKind);
     showToast('Saved');
     closeFinishModal();
+  });
+
+  // ── Show detail modal (Ratings / Reading Ratings tabs) ──
+  // Opened by clicking a title in either ratings tab. Shows the rating(s)
+  // + note for this item (reusing the same star widget/note-save plumbing
+  // as everywhere else), plus an on-demand "Similar to this" list -- a
+  // single AniList (Jikan-fallback) seed fetch for just this one title,
+  // not cached/throttled like the full Recommendations tab since it's one
+  // cheap call. Only anime/manga/manhwa have an AniList entry to search;
+  // western/movie/book/webnovel items just show rating+note, no similar
+  // section (western/movie recommendations are a separate, not-yet-built
+  // feature -- see Batch D).
+  let showDetailItemId = null;
+  let showDetailKind = 'show';
+
+  function showDetailAniListType(item, kind) {
+    if (kind === 'show') return item.category === 'anime' ? 'ANIME' : null;
+    return (item.category === 'manga' || item.category === 'manhwa') ? 'MANGA' : null;
+  }
+
+  async function openShowDetailModal(item, kind = 'show') {
+    showDetailItemId = item.id;
+    showDetailKind = kind;
+    document.getElementById('show-detail-title').textContent = item.title;
+    document.getElementById('show-detail-note').value = item.note || '';
+
+    const ratingsEl = document.getElementById('show-detail-ratings');
+    if (kind === 'show' && activeScope === 'together') {
+      const profiles = await getAllProfiles();
+      ratingsEl.innerHTML = profiles.map(p => {
+        const entry = (item.allRatings || []).find(rt => rt.user_id === p.id);
+        const val = entry?.rating ?? null;
+        const isMine = currentProfile && p.id === currentProfile.id;
+        return `
+          <div class="movie-card-rating">
+            <span class="rating-person">${escapeHTML(p.display_name)}</span>
+            ${isMine ? renderStars(item.id, val, kind) : staticStarsHTML(val)}
+            <span class="rating-label">${val || '—'}</span>
+          </div>`;
+      }).join('');
+    } else {
+      ratingsEl.innerHTML = `
+        <div class="movie-card-rating">
+          ${renderStars(item.id, item.rating, kind)}
+          <span class="rating-label">${item.rating || '—'}</span>
+        </div>`;
+    }
+
+    document.getElementById('show-detail-modal').classList.add('open');
+
+    const similarSection = document.getElementById('show-detail-similar-section');
+    const similarGrid = document.getElementById('show-detail-similar-grid');
+    const type = showDetailAniListType(item, kind);
+    if (!type) {
+      similarSection.style.display = 'none';
+      return;
+    }
+    similarSection.style.display = '';
+    similarGrid.innerHTML = `<p style="font-size:0.7rem; color:var(--muted)">Loading…</p>`;
+
+    const allRows = kind === 'show' ? await fetchShows(activeScope) : await fetchWrittenMedia(activeScope);
+    const alreadyHave = buildAlreadyHaveTitles(allRows);
+    const candidates = await fetchRecommendationsForSeed({ title: item.title }, type);
+    const category = kind === 'show' ? 'anime' : 'manga';
+
+    // Modal may have been closed (or reopened for a different item) while
+    // this fetch was in flight -- don't clobber whatever's showing now.
+    if (showDetailItemId !== item.id) return;
+
+    if (!candidates) {
+      similarGrid.innerHTML = `<p style="font-size:0.7rem; color:var(--muted)">Couldn't load similar titles right now.</p>`;
+      return;
+    }
+    const similar = candidates.filter(c => !alreadyHave.has(normalizeTitle(c.title))).slice(0, 5);
+    if (!similar.length) {
+      similarGrid.innerHTML = `<p style="font-size:0.7rem; color:var(--muted)">Nothing found.</p>`;
+      return;
+    }
+    similarGrid.innerHTML = similar.map(c => `
+      <div class="card rec-card">
+        ${c.coverUrl ? `<img class="card-poster" src="${c.coverUrl}" alt="" onerror="this.remove()">` : ''}
+        <div class="card-body">
+          <div class="card-title">${escapeHTML(c.title)}</div>
+          ${(c.genres || []).length ? `<div class="card-tags">${(c.genres || []).map(g => escapeHTML(g)).join(', ')}</div>` : ''}
+          <div class="rec-card-actions">
+            <button class="btn rec-add-btn" style="flex:1">+ Add to Watchlist</button>
+          </div>
+        </div>
+      </div>
+    `).join('');
+    similarGrid.querySelectorAll('.rec-add-btn').forEach((btn, i) => {
+      btn.addEventListener('click', async () => {
+        const ok = await addRecommendationItemToWatchlist(similar[i], category, activeScope);
+        if (!ok) return;
+        btn.closest('.rec-card').remove();
+      });
+    });
+  }
+
+  function closeShowDetailModal() {
+    document.getElementById('show-detail-modal').classList.remove('open');
+    showDetailItemId = null;
+    showDetailKind = 'show';
+  }
+
+  document.getElementById('show-detail-close').addEventListener('click', closeShowDetailModal);
+  document.getElementById('show-detail-modal').addEventListener('click', e => {
+    if (e.target === e.currentTarget) closeShowDetailModal();
+  });
+  document.getElementById('show-detail-save').addEventListener('click', async () => {
+    if (!showDetailItemId) return;
+    const text = document.getElementById('show-detail-note').value.trim();
+    await setNote(showDetailItemId, text, showDetailKind);
+    showToast(text ? 'Note saved' : 'Note cleared');
   });
 
   // Event delegation for every .note-btn on the page — cards, chips, movie
@@ -6293,10 +6432,11 @@
       card.innerHTML = `
         ${show.posterUrl ? `<img src="${show.posterUrl}" alt="" onerror="this.remove()">` : ''}
         <div class="movie-card-body">
-          <div class="movie-card-title">${escapeHTML(show.title)}</div>
+          <div class="movie-card-title clickable">${escapeHTML(show.title)}</div>
           ${ratingBlock}
         </div>
       `;
+      card.querySelector('.movie-card-title').addEventListener('click', () => openShowDetailModal(show, 'show'));
       grid.appendChild(card);
     });
   }
@@ -6352,7 +6492,7 @@
       card.innerHTML = `
         ${m.coverUrl ? `<img src="${m.coverUrl}" alt="" onerror="this.remove()">` : ''}
         <div class="movie-card-body">
-          <div class="movie-card-title">${escapeHTML(m.title)}</div>
+          <div class="movie-card-title clickable">${escapeHTML(m.title)}</div>
           <div class="movie-card-rating">
             ${renderStars(m.id, r, 'media')}
             <span class="rating-label">${r || '—'}</span>
@@ -6360,6 +6500,7 @@
           ${noteButtonHTML(m.id, m.title, '', m.note, 'media')}
         </div>
       `;
+      card.querySelector('.movie-card-title').addEventListener('click', () => openShowDetailModal(m, 'media'));
       grid.appendChild(card);
     });
   }
@@ -6548,6 +6689,32 @@
   // given container id. `list` is that section's array of recommendation
   // objects. Shared by all three sections in renderRecommendationsTab so
   // the card markup/behavior stays identical across them.
+  // Shared by the Recommendations tab's sections and the show-detail
+  // modal's "Similar to this" list -- inserts a recommended item as a
+  // watchlist/to-read entry. `category` is 'anime' or 'manga' (manga
+  // covers manhwa too, same convention as elsewhere in this feature).
+  // Returns true on success (caller removes the card), false on a write
+  // failure (checkWriteError already showed the toast).
+  async function addRecommendationItemToWatchlist(item, category, scope) {
+    if (!canWriteScope(scope)) return false;
+    if (category === 'anime') {
+      const { error } = await supabase.from('shows').insert({
+        id: `rec-${externalIdFor(item)}-${Date.now()}`, title: item.title, category: 'anime', scope,
+        poster_url: item.coverUrl, studio: item.studio, genres: item.genres, list_status: 'watchlist', in_tier_pool: false,
+      });
+      if (checkWriteError(error)) return false;
+      invalidateShowsCache();
+    } else {
+      const { error } = await supabase.from('written_media').insert({
+        title: item.title, category: 'manga', scope, cover_url: item.coverUrl, genres: item.genres, list_status: 'plan_to_read',
+      });
+      if (checkWriteError(error)) return false;
+      invalidateWrittenMediaCache();
+    }
+    showToast(`Added "${item.title}" to your watchlist`);
+    return true;
+  }
+
   function renderRecSectionGrid(gridId, list) {
     const grid = document.getElementById(gridId);
     if (!list.length) {
@@ -6589,23 +6756,8 @@
 
     grid.querySelectorAll('.rec-add-btn').forEach((btn, i) => {
       btn.addEventListener('click', async () => {
-        const item = list[i];
-        if (!canWriteScope(activeScope)) return;
-        if (activeRecCategory === 'anime') {
-          const { error } = await supabase.from('shows').insert({
-            id: `rec-${externalIdFor(item)}-${Date.now()}`, title: item.title, category: 'anime', scope: activeScope,
-            poster_url: item.coverUrl, studio: item.studio, genres: item.genres, list_status: 'watchlist', in_tier_pool: false,
-          });
-          if (checkWriteError(error)) return;
-          invalidateShowsCache();
-        } else {
-          const { error } = await supabase.from('written_media').insert({
-            title: item.title, category: 'manga', scope: activeScope, cover_url: item.coverUrl, genres: item.genres, list_status: 'plan_to_read',
-          });
-          if (checkWriteError(error)) return;
-          invalidateWrittenMediaCache();
-        }
-        showToast(`Added "${item.title}" to your watchlist`);
+        const ok = await addRecommendationItemToWatchlist(list[i], activeRecCategory, activeScope);
+        if (!ok) return;
         btn.closest('.rec-card').remove();
       });
     });
