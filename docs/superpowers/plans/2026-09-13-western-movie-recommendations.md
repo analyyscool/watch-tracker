@@ -27,7 +27,7 @@
 
 **Interfaces:**
 - Consumes: `TMDB_API_KEY` (existing constant, `index.html:3467`).
-- Produces: `async function fetchTMDBRecommendationsFor(title, mediaType)` — `mediaType` is `'movie'` or `'tv'`. Returns an array of candidate objects shaped `{ tmdbId, title, genres, coverUrl, score, collectionId, isTV }` on success, `[]` if the title resolves but has no recommendations, or `null` if the fetch itself failed (search 0 results, or a network/HTTP error) — same three-way contract as `fetchAniListRecommendationsFor`/`fetchRecommendationsForSeed`.
+- Produces: `async function fetchTMDBRecommendationsFor(title, mediaType)` — `mediaType` is `'movie'` or `'tv'`. Returns an array of candidate objects shaped `{ tmdbId, title, genres, coverUrl, score, collectionId, isTV }` on success, `[]` if the title resolves but has no recommendations, or `null` if the fetch itself failed (search 0 results, or a network/HTTP error) — same three-way contract as `fetchAniListRecommendationsFor`/`fetchRecommendationsForSeed`. **Note (ruled during Task 3's execution):** `collectionId` will always be `null` here in practice — `belongs_to_collection` isn't present on list-endpoint responses, only on `/movie/{id}` detail. The field stays in the shape for consistency but Task 3 does its own detail-endpoint lookup rather than relying on it. See Task 3's "PLAN CORRECTION" note.
 
 - [ ] **Step 1: Write the function**
 
@@ -108,7 +108,10 @@ Then in a Playwright/browser console against `http://localhost:8791/index.html`:
 await fetchTMDBRecommendationsFor('Breaking Bad', 'tv')
 // Expect: an array of candidate objects, each with tmdbId/title/genres/coverUrl/score, isTV: true
 await fetchTMDBRecommendationsFor('Toy Story 3', 'movie')
-// Expect: an array where at least one candidate has a non-null collectionId
+// Expect: an array of candidate objects, each with tmdbId/title/genres/coverUrl/score.
+// collectionId will be null on every entry here -- confirmed live (ruled during
+// Task 3's execution) that belongs_to_collection isn't present on this list
+// endpoint's response shape, only on /movie/{id} detail. Not a bug in this task.
 await fetchTMDBRecommendationsFor('zzzznonexistentshow12345', 'tv')
 // Expect: null (search resolves to 0 results)
 ```
@@ -223,11 +226,13 @@ git commit -m "feat: add TMDB genre-affinity and peak-unseen fetch functions"
 
 ### Task 3: Movie franchise-tail check (collection-based)
 
+**PLAN CORRECTION (ruled during execution, 2026-09-13):** the original version of this task assumed `candidate.collectionId` (populated by Task 1's `tmdbResultToCandidate` from `r.belongs_to_collection?.id`) would be usable directly. Verified live against real TMDB responses during Task 1's review that this is wrong: `belongs_to_collection` is **only present on the `/movie/{id}` detail endpoint**, never on `/movie/{id}/recommendations`, `/discover/movie`, or `/search/movie` list responses (confirmed: Toy Story 3's own recommendations-list entry and its /discover entries both omit the field entirely, while `/movie/10193` — the detail endpoint — has it). Task 1's code is UNCHANGED (already reviewed and committed) — its `collectionId` field stays in `tmdbResultToCandidate` but will always be `null` in practice; simply don't rely on it. Instead, `isFreshMovieEntry` below fetches the candidate's own detail endpoint first to get `belongs_to_collection`, then proceeds to the collection lookup — two calls instead of one, only for the small set of finalists (per Task 5's "check only after quotas fill" pattern, same cost-control philosophy as Task 4's TV keyword check), never per-raw-candidate.
+
 **Files:**
 - Modify: `index.html` — add after Task 2's functions.
 
 **Interfaces:**
-- Consumes: `candidate.collectionId` (Task 1's `tmdbResultToCandidate`), `buildAlreadyHaveTitles`/`titleOverlapsAny`/`normalizeTitle` (existing, shared dedup helpers).
+- Consumes: `candidate.tmdbId` (Task 1's `tmdbResultToCandidate` — `collectionId` is NOT used, see correction above), `buildAlreadyHaveTitles`/`titleOverlapsAny`/`normalizeTitle` (existing, shared dedup helpers).
 - Produces: `async function isFreshMovieEntry(candidate, alreadyHave)` — returns `true` if the candidate has no collection, or if at least one earlier-released (by `release_date`) collection part is in `alreadyHave`; `false` otherwise. Used only for `category === 'movie'`.
 
 - [ ] **Step 1: Write the function**
@@ -237,13 +242,21 @@ git commit -m "feat: add TMDB genre-affinity and peak-unseen fetch functions"
   // belongs_to_collection -- structured, reliable data (unlike AniList's
   // relationType, whose ALTERNATIVE-edge extension was tried and reverted
   // today after it wrongly gated Fullmetal Alchemist: Brotherhood -- see
-  // extractPrequelTitles' comment). A collection's `parts` array isn't
-  // guaranteed to arrive pre-sorted, so this sorts by release_date itself
-  // before deciding what counts as "earlier".
+  // extractPrequelTitles' comment).
+  //
+  // belongs_to_collection only exists on TMDB's /movie/{id} DETAIL
+  // endpoint, never on the /recommendations, /discover, or /search LIST
+  // endpoints a candidate was built from (verified live) -- so this always
+  // fetches the candidate's own detail endpoint first. A collection's
+  // `parts` array isn't guaranteed to arrive pre-sorted, so this sorts by
+  // release_date itself before deciding what counts as "earlier".
   async function isFreshMovieEntry(candidate, alreadyHave) {
-    if (!candidate.collectionId) return true;
     try {
-      const res = await fetch(`https://api.themoviedb.org/3/collection/${candidate.collectionId}?api_key=${TMDB_API_KEY}`);
+      const detailRes = await fetch(`https://api.themoviedb.org/3/movie/${candidate.tmdbId}?api_key=${TMDB_API_KEY}`);
+      const detail = await detailRes.json();
+      const collectionId = detail.belongs_to_collection?.id;
+      if (!collectionId) return true;
+      const res = await fetch(`https://api.themoviedb.org/3/collection/${collectionId}?api_key=${TMDB_API_KEY}`);
       const json = await res.json();
       const parts = (json.parts || []).slice().sort((a, b) => (a.release_date || '9999').localeCompare(b.release_date || '9999'));
       const candidateIndex = parts.findIndex(p => p.id === candidate.tmdbId);
@@ -272,6 +285,11 @@ const candidates = await fetchTMDBRecommendationsFor('Toy Story', 'movie');
 const toyStory3 = candidates.find(c => /toy story 3/i.test(c.title));
 console.log(await isFreshMovieEntry(toyStory3, alreadyHaveEmpty)); // Expect: false
 console.log(await isFreshMovieEntry(toyStory3, alreadyHaveWithToyStory)); // Expect: true
+// Also verify the detail-endpoint round trip actually returns a real
+// collectionId for a known franchise movie (sanity check the plan
+// correction itself, not just the end-to-end gating behavior):
+const detailCheck = await fetch(`https://api.themoviedb.org/3/movie/${toyStory3.tmdbId}?api_key=${TMDB_API_KEY}`).then(r => r.json());
+console.log(detailCheck.belongs_to_collection); // Expect: { id: ..., name: "Toy Story Collection", ... }, not null
 ```
 
 - [ ] **Step 3: Commit**
