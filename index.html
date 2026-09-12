@@ -3248,6 +3248,110 @@
     }
   }
 
+  // ── Recommendations: orchestration, cache, dismissal ──
+  const REC_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+  // Stable dedup/dismissal key across sources: AniList id when we have
+  // one, else a MAL-id key (Jikan fallback), else a normalized-title key
+  // as a last resort (genre-affinity results always have an anilistId,
+  // so this only applies to a Jikan result with a missing malId, which
+  // shouldn't happen in practice but keeps the function total).
+  function externalIdFor(item) {
+    if (item.anilistId) return String(item.anilistId);
+    if (item.malId) return `mal:${item.malId}`;
+    return `title:${item.title.toLowerCase().trim()}`;
+  }
+
+  async function getDismissedRecommendationIds(scope) {
+    const { data, error } = await supabase.from('dismissed_recommendations').select('external_id').eq('scope', scope);
+    if (error) { console.error(error); return new Set(); }
+    return new Set(data.map(d => d.external_id));
+  }
+
+  async function dismissRecommendation(scope, item) {
+    const { error } = await supabase.from('dismissed_recommendations')
+      .insert({ scope, external_id: externalIdFor(item) });
+    return !checkWriteError(error);
+  }
+
+  // Builds the ranked, deduped recommendation list for one scope+category
+  // and writes it to recommendations_cache. `rows` is the full shows or
+  // written_media list for the scope (any status) -- caller fetches it.
+  async function computeRecommendations(scope, category, rows) {
+    const type = category === 'anime' ? 'ANIME' : 'MANGA';
+    const alreadyHave = buildAlreadyHaveTitles(rows);
+    const dismissed = await getDismissedRecommendationIds(scope);
+    const seeds = pickRecommendationSeeds(rows, { scope });
+
+    const seedResults = await Promise.all(seeds.map(seed => fetchRecommendationsForSeed(seed, type)));
+    const bySeedCount = new Map();
+    seedResults.forEach((candidates, i) => {
+      const seed = seeds[i];
+      candidates.forEach(candidate => {
+        if (alreadyHave.has(candidate.title.toLowerCase().trim())) return;
+        const id = externalIdFor(candidate);
+        if (dismissed.has(id)) return;
+        const existing = bySeedCount.get(id);
+        if (existing) {
+          existing.seedCount += 1;
+          existing.bestSeedRating = Math.max(existing.bestSeedRating, seed.effectiveRating);
+        } else {
+          bySeedCount.set(id, { item: candidate, seedCount: 1, bestSeedRating: seed.effectiveRating, seedTitle: seed.title });
+        }
+      });
+    });
+
+    let ranked = [...bySeedCount.values()]
+      .sort((a, b) => (b.seedCount - a.seedCount) || (b.bestSeedRating - a.bestSeedRating))
+      .slice(0, 15)
+      .map(r => ({ ...r.item, reason: 'because_rated', reasonDetail: r.seedTitle, sourceRating: r.bestSeedRating }));
+
+    if (ranked.length < 15) {
+      const affinity = computeAffinity(rows);
+      const topGenres = Object.entries(affinity.genreAvg).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([g]) => g);
+      const rankedIds = new Set(ranked.map(r => externalIdFor(r)));
+      const need = 15 - ranked.length;
+      const fillCandidates = await fetchGenreAffinityCandidates(topGenres, type, need + rankedIds.size);
+      for (const candidate of fillCandidates) {
+        if (ranked.length >= 15) break;
+        if (alreadyHave.has(candidate.title.toLowerCase().trim())) continue;
+        const id = externalIdFor(candidate);
+        if (dismissed.has(id) || rankedIds.has(id)) continue;
+        rankedIds.add(id);
+        ranked.push({ ...candidate, reason: 'affinity', reasonDetail: topGenres.slice(0, 2).join('/'), sourceRating: null });
+      }
+    }
+
+    const { error } = await supabase.from('recommendations_cache')
+      .upsert({ scope, category, data: ranked, updated_at: new Date().toISOString() }, { onConflict: 'scope,category' });
+    checkWriteError(error);
+    return ranked;
+  }
+
+  // Cache-first loader: returns the cached list if it's under the
+  // throttle age, otherwise recomputes. `force` (the manual Refresh
+  // button, added in Task 6) skips the age check. On a total recompute
+  // failure, falls back to the last cached list rather than showing
+  // nothing (`stale: true` signals the UI to show a notice).
+  async function loadRecommendations(scope, category, rows, { force = false } = {}) {
+    if (!force) {
+      const { data, error } = await supabase.from('recommendations_cache')
+        .select('data, updated_at').eq('scope', scope).eq('category', category).maybeSingle();
+      if (!error && data && (Date.now() - new Date(data.updated_at).getTime()) < REC_CACHE_MAX_AGE_MS) {
+        return { list: data.data, stale: false };
+      }
+    }
+    try {
+      const list = await computeRecommendations(scope, category, rows);
+      return { list, stale: false };
+    } catch (e) {
+      console.warn('Recommendations recompute failed, falling back to last cache', e);
+      const { data } = await supabase.from('recommendations_cache')
+        .select('data').eq('scope', scope).eq('category', category).maybeSingle();
+      return { list: data?.data || [], stale: true };
+    }
+  }
+
   async function searchTMDBCovers(title, kind) {
     const res = await fetch(`https://api.themoviedb.org/3/search/${kind}?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(title)}`);
     const json = await res.json();
