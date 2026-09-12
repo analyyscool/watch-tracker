@@ -822,7 +822,7 @@
 
   .rec-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
     gap: 1rem;
     margin-bottom: 1rem;
   }
@@ -836,15 +836,16 @@
 
   .rec-card-actions {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 0.6rem;
+    gap: 0.5rem;
     margin-top: 0.5rem;
   }
 
-  .rec-add-btn {
-    flex: 1;
-    padding: 0.4rem 0.6rem;
-    letter-spacing: 0.05em;
+  .rec-add-btn, .rec-start-btn {
+    flex: 1 1 90px;
+    padding: 0.4rem 0.5rem;
+    letter-spacing: 0.03em;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -2872,11 +2873,19 @@
           <div class="card-title">${escapeHTML(c.title)}</div>
           ${(c.genres || []).length ? `<div class="card-tags">${(c.genres || []).map(g => escapeHTML(g)).join(', ')}</div>` : ''}
           <div class="rec-card-actions">
-            <button class="btn rec-add-btn" style="flex:1">+ Add to Watchlist</button>
+            <button class="btn rec-add-btn" title="Add to Watchlist">+ Watchlist</button>
+            <button class="btn rec-start-btn" title="Start Watching Now">▶ Start Now</button>
           </div>
         </div>
       </div>
     `).join('');
+    similarGrid.querySelectorAll('.rec-start-btn').forEach((btn, i) => {
+      btn.addEventListener('click', async () => {
+        const ok = await startRecommendationItemNow(similar[i], category, activeScope);
+        if (!ok) return;
+        btn.closest('.rec-card').remove();
+      });
+    });
     similarGrid.querySelectorAll('.rec-add-btn').forEach((btn, i) => {
       btn.addEventListener('click', async () => {
         const ok = await addRecommendationItemToWatchlist(similar[i], category, activeScope);
@@ -3607,7 +3616,14 @@
     const alreadyHave = buildAlreadyHaveTitles(allRows);
     const dismissed = await getDismissedRecommendationIds(scope, category);
     const seeds = pickRecommendationSeeds(rows, { scope });
-    const usedIds = new Set(); // cross-section dedup -- nothing appears in more than one section
+    // Cross-section dedup keyed by NORMALIZED TITLE, not AniList id --
+    // AniList stores each season/part of a show as a separate Media
+    // entry with its own id (e.g. "Attack on Titan" and "Attack on
+    // Titan: Final Season" are different ids), so id-based dedup alone
+    // would let two seasons of the same show both surface as if they
+    // were unrelated recommendations. Title-based dedup collapses them
+    // to one entry, same normalization used against "already have".
+    const usedTitles = new Set();
 
     // Sequential, not Promise.all -- mirrors checkNewSeasons/checkNewChapters'
     // established pattern for batching calls to these rate-limited,
@@ -3628,57 +3644,61 @@
     // whether or not there happened to be any seeds to try first.
     const becauseYouLikedFailed = seedResults.length === 0 || seedResults.every(r => r === null);
 
-    const bySeedCount = new Map();
+    // Keyed by normalized title (see usedTitles comment above) -- two
+    // seeds recommending different seasons of the same show now merge
+    // into one entry and combine their seedCount, instead of the earlier
+    // season landing in the list as a second, seemingly-unrelated card.
+    const bySeedTitle = new Map();
     seedResults.forEach((candidates, i) => {
       if (!candidates) return; // this seed's fetch failed outright -- skip, don't treat as "found nothing"
       const seed = seeds[i];
       candidates.forEach(candidate => {
-        if (alreadyHave.has(normalizeTitle(candidate.title))) return;
-        const id = externalIdFor(candidate);
-        if (dismissed.has(id)) return;
-        const existing = bySeedCount.get(id);
+        const titleKey = normalizeTitle(candidate.title);
+        if (alreadyHave.has(titleKey)) return;
+        if (dismissed.has(externalIdFor(candidate))) return;
+        const existing = bySeedTitle.get(titleKey);
         if (existing) {
           existing.seedCount += 1;
           existing.bestSeedRating = Math.max(existing.bestSeedRating, seed.effectiveRating);
         } else {
-          bySeedCount.set(id, { item: candidate, seedCount: 1, bestSeedRating: seed.effectiveRating, seedTitle: seed.title });
+          bySeedTitle.set(titleKey, { item: candidate, seedCount: 1, bestSeedRating: seed.effectiveRating, seedTitle: seed.title });
         }
       });
     });
 
-    const becauseYouLiked = [...bySeedCount.values()]
+    const becauseYouLiked = [...bySeedTitle.values()]
       .sort((a, b) => (b.seedCount - a.seedCount) || (b.bestSeedRating - a.bestSeedRating))
       .slice(0, REC_SECTION_CAP)
       .map(r => ({ ...r.item, reason: 'because_rated', reasonDetail: r.seedTitle, sourceRating: r.bestSeedRating }));
-    becauseYouLiked.forEach(item => usedIds.add(externalIdFor(item)));
+    becauseYouLiked.forEach(item => usedTitles.add(normalizeTitle(item.title)));
 
     const affinity = computeAffinity(rows);
     const topGenres = Object.entries(affinity.genreAvg).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([g]) => g);
     // Over-fetch to survive dedup filtering below.
-    const genreCandidates = await fetchGenreAffinityCandidates(topGenres, type, REC_SECTION_CAP + usedIds.size + 10);
+    const genreCandidates = await fetchGenreAffinityCandidates(topGenres, type, REC_SECTION_CAP + usedTitles.size + 10);
     const overallTasteFailed = genreCandidates === null;
     const overallTaste = [];
     if (genreCandidates) {
       for (const candidate of genreCandidates) {
         if (overallTaste.length >= REC_SECTION_CAP) break;
-        if (alreadyHave.has(normalizeTitle(candidate.title))) continue;
-        const id = externalIdFor(candidate);
-        if (dismissed.has(id) || usedIds.has(id)) continue;
-        usedIds.add(id);
+        const titleKey = normalizeTitle(candidate.title);
+        if (alreadyHave.has(titleKey) || usedTitles.has(titleKey)) continue;
+        if (dismissed.has(externalIdFor(candidate))) continue;
+        usedTitles.add(titleKey);
         overallTaste.push({ ...candidate, reason: 'affinity', reasonDetail: topGenres.slice(0, 2).join('/'), sourceRating: null });
       }
     }
 
-    const peakCandidates = await fetchPeakUnseenCandidates(type, REC_SECTION_CAP + usedIds.size + 10);
+    const peakCandidates = await fetchPeakUnseenCandidates(type, REC_SECTION_CAP + usedTitles.size + 10);
     const peakUnseenFailed = peakCandidates === null;
     const peakUnseen = [];
     if (peakCandidates) {
       for (const candidate of peakCandidates) {
         if (peakUnseen.length >= REC_SECTION_CAP) break;
-        if (alreadyHave.has(normalizeTitle(candidate.title))) continue;
-        const id = externalIdFor(candidate);
-        if (dismissed.has(id) || usedIds.has(id)) continue;
-        usedIds.add(id);
+        const titleKey = normalizeTitle(candidate.title);
+        if (alreadyHave.has(titleKey) || usedTitles.has(titleKey)) continue;
+        if (dismissed.has(externalIdFor(candidate))) continue;
+        usedTitles.add(titleKey);
         peakUnseen.push({ ...candidate, reason: 'popular', reasonDetail: null, sourceRating: null });
       }
     }
@@ -6685,10 +6705,6 @@
     `;
   }
 
-  // Renders one section's grid (cards + dismiss/add handlers) into the
-  // given container id. `list` is that section's array of recommendation
-  // objects. Shared by all three sections in renderRecommendationsTab so
-  // the card markup/behavior stays identical across them.
   // Shared by the Recommendations tab's sections and the show-detail
   // modal's "Similar to this" list -- inserts a recommended item as a
   // watchlist/to-read entry. `category` is 'anime' or 'manga' (manga
@@ -6715,6 +6731,38 @@
     return true;
   }
 
+  // Same as addRecommendationItemToWatchlist but inserts already
+  // in-progress (list_status: 'watching'/'reading', zeroed episode/
+  // chapter counters) instead of onto the watchlist -- for someone who
+  // wants to start right away rather than queue it.
+  async function startRecommendationItemNow(item, category, scope) {
+    if (!canWriteScope(scope)) return false;
+    if (category === 'anime') {
+      const { error } = await supabase.from('shows').insert({
+        id: `rec-${externalIdFor(item)}-${Date.now()}`, title: item.title, category: 'anime', scope,
+        poster_url: item.coverUrl, studio: item.studio, genres: item.genres,
+        list_status: 'watching', current_episode: 0, season_episode: 0, current_season: 1, in_tier_pool: false,
+        last_updated: new Date().toISOString().slice(0, 10),
+      });
+      if (checkWriteError(error)) return false;
+      invalidateShowsCache();
+    } else {
+      const { error } = await supabase.from('written_media').insert({
+        title: item.title, category: 'manga', scope, cover_url: item.coverUrl, genres: item.genres,
+        list_status: 'reading', current_chapter: 0,
+        last_updated: new Date().toISOString().slice(0, 10),
+      });
+      if (checkWriteError(error)) return false;
+      invalidateWrittenMediaCache();
+    }
+    showToast(`Started "${item.title}"`);
+    return true;
+  }
+
+  // Renders one section's grid (cards + dismiss/add handlers) into the
+  // given container id. `list` is that section's array of recommendation
+  // objects. Shared by all three sections in renderRecommendationsTab so
+  // the card markup/behavior stays identical across them.
   function renderRecSectionGrid(gridId, list) {
     const grid = document.getElementById(gridId);
     if (!list.length) {
@@ -6738,7 +6786,8 @@
           ${(item.genres || []).length ? `<div class="card-tags">${(item.genres || []).map(g => escapeHTML(g)).join(', ')}</div>` : ''}
           <div class="rec-reason">${reasonHTML}</div>
           <div class="rec-card-actions">
-            <button class="btn rec-add-btn">+ Add to Watchlist</button>
+            <button class="btn rec-add-btn" title="Add to Watchlist">+ Watchlist</button>
+            <button class="btn rec-start-btn" title="Start Watching Now">▶ Start Now</button>
             <button class="rec-dismiss-btn" title="Dismiss">✕</button>
           </div>
         </div>
@@ -6749,6 +6798,14 @@
     grid.querySelectorAll('.rec-dismiss-btn').forEach((btn, i) => {
       btn.addEventListener('click', async () => {
         const ok = await dismissRecommendation(activeScope, activeRecCategory, list[i]);
+        if (!ok) return;
+        btn.closest('.rec-card').remove();
+      });
+    });
+
+    grid.querySelectorAll('.rec-start-btn').forEach((btn, i) => {
+      btn.addEventListener('click', async () => {
+        const ok = await startRecommendationItemNow(list[i], activeRecCategory, activeScope);
         if (!ok) return;
         btn.closest('.rec-card').remove();
       });
