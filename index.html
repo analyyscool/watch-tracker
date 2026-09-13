@@ -4078,6 +4078,19 @@
   // highest-`popularity` hit is the same disambiguation strategy already
   // used for AniList seeds and for this file's existing TMDB lookups
   // (searchTMDBCovers, checkWesternSeason).
+  // Unlike fetchTMDBGenreAffinityCandidates/fetchTMDBPeakUnseenCandidates
+  // (both sort by vote_average and apply TMDB_MIN_VOTE_COUNT via their
+  // /discover query itself), TMDB's /recommendations endpoint isn't
+  // quality-sorted or filtered at all -- it can surface a barely-known,
+  // near-zero-vote title right alongside well-regarded ones. Confirmed
+  // live: "Avatar Aang: The Last Airbender" (an unreleased 2026 movie,
+  // effectively zero votes) showed up here unfiltered. TMDB_SEED_MIN_SCORE
+  // is deliberately more lenient than a "safe pick" bar (Karl's own first
+  // instinct, matching AniList's vote-count gate at ~70%, was flagged as
+  // too harsh on reflection) -- this only needs to catch "nobody's seen
+  // this yet," not "this is merely mediocre."
+  const TMDB_SEED_MIN_SCORE = 5.5; // 0-10 scale, i.e. 55/100 on this app's display scale
+
   async function fetchTMDBRecommendationsFor(title, mediaType) {
     try {
       const searchRes = await fetch(`https://api.themoviedb.org/3/search/${mediaType}?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(title)}`);
@@ -4088,7 +4101,9 @@
       const recRes = await fetch(`https://api.themoviedb.org/3/${mediaType}/${best.id}/recommendations?api_key=${TMDB_API_KEY}`);
       const recJson = await recRes.json();
       const recResults = recJson.results || [];
-      return recResults.map(r => tmdbResultToCandidate(r, mediaType));
+      return recResults
+        .filter(r => (r.vote_count || 0) >= TMDB_MIN_VOTE_COUNT && (r.vote_average || 0) >= TMDB_SEED_MIN_SCORE)
+        .map(r => tmdbResultToCandidate(r, mediaType));
     } catch (e) {
       console.warn('TMDB recommendation search failed for', title, e);
       return null;
