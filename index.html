@@ -2998,18 +2998,22 @@
   // Opened by clicking a title in either ratings tab. Shows the rating(s)
   // + note for this item (reusing the same star widget/note-save plumbing
   // as everywhere else), plus an on-demand "Similar to this" list -- a
-  // single AniList (Jikan-fallback) seed fetch for just this one title,
-  // not cached/throttled like the full Recommendations tab since it's one
-  // cheap call. Only anime/manga/manhwa have an AniList entry to search;
-  // western/movie/book/webnovel items just show rating+note, no similar
-  // section (western/movie recommendations are a separate, not-yet-built
-  // feature -- see Batch D).
+  // single seed fetch (AniList/Jikan for anime/manga, TMDB for western/
+  // movie) for just this one title, not cached/throttled like the full
+  // Recommendations tab since it's one cheap call. Only categories with a
+  // RECOMMENDATION_SOURCES entry have anything to search against; book/
+  // webnovel items just show rating+note, no similar section.
   let showDetailItemId = null;
   let showDetailKind = 'show';
 
-  function showDetailAniListType(item, kind) {
-    if (kind === 'show') return item.category === 'anime' ? 'ANIME' : null;
-    return (item.category === 'manga' || item.category === 'manhwa') ? 'MANGA' : null;
+  // Returns the RECOMMENDATION_SOURCES key for this item, or null if this
+  // kind/category combination has no recommendation source at all (books,
+  // webnovels). Named for the recommendation CATEGORY rather than an
+  // AniList-specific type now that western/movie (TMDB-backed) share this
+  // modal too.
+  function showDetailRecCategory(item, kind) {
+    if (kind === 'show') return RECOMMENDATION_SOURCES[item.category] ? item.category : null;
+    return (item.category === 'manga' || item.category === 'manhwa') ? 'manga' : null;
   }
 
   async function openShowDetailModal(item, kind = 'show') {
@@ -3048,23 +3052,24 @@
 
     const similarSection = document.getElementById('show-detail-similar-section');
     const similarGrid = document.getElementById('show-detail-similar-grid');
-    const type = showDetailAniListType(item, kind);
-    if (!type) {
+    const category = showDetailRecCategory(item, kind);
+    if (!category) {
       similarSection.style.display = 'none';
       return;
     }
+    const source = RECOMMENDATION_SOURCES[category];
+    const type = source.mediaType;
     similarSection.style.display = '';
     similarGrid.innerHTML = `<p style="font-size:0.7rem; color:var(--muted)">Loading…</p>`;
 
     const allRows = kind === 'show' ? await fetchShows(activeScope) : await fetchWrittenMedia(activeScope);
-    const category = kind === 'show' ? 'anime' : 'manga';
     // Same watchlist-vs-"already have" split as computeRecommendations --
     // a watchlist-only entry can still surface here, just flagged so the
     // card can grey out the redundant "+ Watchlist" button.
     const isWatchlistStatus = category === 'manga' ? (s) => s === 'plan_to_read' : (s) => s === 'watchlist';
     const alreadyHave = buildAlreadyHaveTitles(allRows.filter(r => !isWatchlistStatus(r.listStatus)));
     const watchlistRows = allRows.filter(r => isWatchlistStatus(r.listStatus));
-    const candidates = await fetchRecommendationsForSeed({ title: item.title }, type);
+    const candidates = await source.fetchSeed({ title: item.title }, type);
 
     // Modal may have been closed (or reopened for a different item) while
     // this fetch was in flight -- don't clobber whatever's showing now.
@@ -3074,25 +3079,30 @@
       similarGrid.innerHTML = `<p style="font-size:0.7rem; color:var(--muted)">Couldn't load similar titles right now.</p>`;
       return;
     }
-    const similar = candidates
-      .filter(c => !candidateMatchesAny(c, alreadyHave) && isFreshFranchiseEntry(c, alreadyHave))
-      .slice(0, 6);
+    let similar = [];
+    for (const c of candidates) {
+      if (similar.length >= 6) break;
+      if (candidateMatchesAny(c, alreadyHave)) continue;
+      if (!(await source.isFreshEntry(c, alreadyHave))) continue;
+      similar.push(c);
+    }
 
     // The seed-based "if you liked X" pass can legitimately come up thin
     // (e.g. this exact show doesn't already track many of its own
-    // AniList-recommended titles) or empty (e.g. weak/spinoff-only
-    // community data, filtered out by the vote/format quality gates) --
-    // fill any remaining slots with this show's own genre-affinity
-    // matches, same fallback concept as the main tab's "Overall taste"
-    // section, just scoped to this one show's genres instead of an
-    // aggregate taste profile.
+    // recommended titles) or empty (e.g. weak/spinoff-only community
+    // data, filtered out by the vote/format quality gates) -- fill any
+    // remaining slots with this show's own genre-affinity matches, same
+    // fallback concept as the main tab's "Overall taste" section, just
+    // scoped to this one show's genres instead of an aggregate taste
+    // profile.
     if (similar.length < 6 && (item.genres || []).length) {
       const usedIds = new Set(similar.map(c => externalIdFor(c)));
-      const fillCandidates = await fetchGenreAffinityCandidates(item.genres.slice(0, 3), type, (6 - similar.length) + usedIds.size + 5);
+      const fillCandidates = await source.fetchGenreAffinity(item.genres.slice(0, 3), type, (6 - similar.length) + usedIds.size + 5);
       if (fillCandidates) {
         for (const candidate of fillCandidates) {
           if (similar.length >= 6) break;
-          if (candidateMatchesAny(candidate, alreadyHave) || !isFreshFranchiseEntry(candidate, alreadyHave)) continue;
+          if (candidateMatchesAny(candidate, alreadyHave)) continue;
+          if (!(await source.isFreshEntry(candidate, alreadyHave))) continue;
           const id = externalIdFor(candidate);
           if (usedIds.has(id)) continue;
           usedIds.add(id);
@@ -3100,6 +3110,23 @@
         }
       }
     }
+
+    // western/movie's isFreshEntry is a no-op here (same cost-control
+    // reasoning as computeRecommendations' post-pass -- see
+    // RECOMMENDATION_SOURCES.movie/western's comments) since this modal's
+    // candidate pool is already small (max ~11 before the slice above),
+    // the real franchise-tail/spin-off check runs directly against the
+    // final ~6 rather than needing a separate post-pass step.
+    if (category === 'western') {
+      const kept = [];
+      for (const c of similar) { if (!(await isTVSpinoffOrPrequel(c))) kept.push(c); }
+      similar = kept;
+    } else if (category === 'movie') {
+      const kept = [];
+      for (const c of similar) { if (await isFreshMovieEntry(c, alreadyHave)) kept.push(c); }
+      similar = kept;
+    }
+
     if (!similar.length) {
       similarGrid.innerHTML = `<p style="font-size:0.7rem; color:var(--muted)">Nothing found.</p>`;
       return;
