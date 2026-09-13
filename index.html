@@ -4528,6 +4528,7 @@
     if (item.anilistId) return String(item.anilistId);
     if (item.tmdbId) return `tmdb:${item.tmdbId}`;
     if (item.malId) return `mal:${item.malId}`;
+    if (item.olid) return `olid:${item.olid}`;
     return `title:${normalizeTitle(item.title)}`;
   }
 
@@ -4820,14 +4821,12 @@
   // a pre-Batch-B cache row (a flat array, from before sections existed)
   // by treating it as all three sections empty -- it'll just recompute
   // on the next refresh rather than throwing on stale-shaped data.
-  function filterDismissedSections(sections, dismissed) {
+  function filterDismissedSections(sections, dismissed, keys = ['becauseYouLiked', 'overallTaste', 'peakUnseen']) {
     const safe = Array.isArray(sections) || !sections ? {} : sections;
     const filterOne = (list) => (list || []).filter(item => !dismissed.has(externalIdFor(item)));
-    return {
-      becauseYouLiked: filterOne(safe.becauseYouLiked),
-      overallTaste: filterOne(safe.overallTaste),
-      peakUnseen: filterOne(safe.peakUnseen),
-    };
+    const result = {};
+    keys.forEach(key => { result[key] = filterOne(safe[key]); });
+    return result;
   }
 
   // Cache-first loader: returns the cached sections if under the
@@ -7847,7 +7846,7 @@
       invalidateShowsCache();
     } else {
       const { error } = await supabase.from('written_media').insert({
-        title: item.title, category: 'manga', scope, cover_url: item.coverUrl, genres: item.genres, list_status: 'plan_to_read',
+        title: item.title, category, scope, cover_url: item.coverUrl, genres: item.genres, author: item.author, list_status: 'plan_to_read',
       });
       if (checkWriteError(error)) return false;
       invalidateWrittenMediaCache();
@@ -7874,7 +7873,7 @@
       invalidateShowsCache();
     } else {
       const { error } = await supabase.from('written_media').insert({
-        title: item.title, category: 'manga', scope, cover_url: item.coverUrl, genres: item.genres,
+        title: item.title, category, scope, cover_url: item.coverUrl, genres: item.genres, author: item.author,
         list_status: 'reading', current_chapter: 0,
         last_updated: new Date().toISOString().slice(0, 10),
       });
@@ -7912,6 +7911,8 @@
       let reasonHTML;
       if (item.reason === 'because_rated') {
         reasonHTML = `Because you rated <strong>${escapeHTML(item.reasonDetail)}</strong>${item.sourceRating != null ? ` ★${item.sourceRating}` : ''}`;
+      } else if (item.reason === 'by_author') {
+        reasonHTML = `More by <strong>${escapeHTML(item.reasonDetail)}</strong>`;
       } else if (item.reason === 'affinity') {
         reasonHTML = `Matches your ${escapeHTML(item.reasonDetail)} taste`;
       } else {
