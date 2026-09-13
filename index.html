@@ -4488,7 +4488,12 @@
       if (!res.ok) return null;
       const json = await res.json();
       const docs = json.docs || [];
-      return docs.slice(0, count).map(d => openLibrarySearchDocToCandidate(d, authorName));
+      // Not sliced to `count` here -- the caller's own already-have/
+      // dedup/dismissed filtering (Fix 1 above) needs real headroom to
+      // work with, same "over-fetch, let the caller filter" convention
+      // fetchOpenLibrarySubjectCandidates and every AniList/TMDB
+      // genre-affinity/peak-unseen fetcher in this file already follow.
+      return docs.map(d => openLibrarySearchDocToCandidate(d, authorName));
     } catch (e) {
       console.warn('Open Library author search failed for', authorName, e);
       return null;
@@ -4496,8 +4501,8 @@
   }
 
   // Open Library subject slugs are lowercase with underscores, e.g.
-  // "Science Fiction" -> "science_fiction" (documented convention, see
-  // CLAUDE.md's book-lookup section).
+  // "Science Fiction" -> "science_fiction" -- reverse-engineered from
+  // Open Library's own subject-page URLs, not documented anywhere.
   function subjectSlug(genre) {
     return genre.toLowerCase().trim().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
   }
@@ -4505,6 +4510,12 @@
   async function fetchOpenLibrarySubjectCandidates(genre, count) {
     try {
       const res = await fetch(`https://openlibrary.org/subjects/${subjectSlug(genre)}.json?limit=${Math.max(count, 20)}`);
+      // A 404 means this specific genre has no Open Library subject page
+      // (not every genre string in this app's data maps to one) -- that's
+      // "no results for this genre", not a fetch outage, so it's treated
+      // as an empty success rather than folded into the same `null`
+      // failure signal a real network/5xx error uses.
+      if (res.status === 404) return [];
       if (!res.ok) return null;
       const json = await res.json();
       const works = json.works || [];
@@ -4831,6 +4842,14 @@
   // pass (seeded from your top-rated books' authors) and a subject-search
   // pass (seeded from your top-rated genres) -- see the design spec's
   // "Why this can't reuse computeRecommendations as-is" section.
+  // Books get their own, simpler orchestration instead of a branch inside
+  // computeRecommendations -- that function's tier-weighted seed quotas,
+  // cross-section franchise filtering, and three-section shape are all
+  // built around AniList/TMDB's per-title similarity + popularity data,
+  // neither of which Open Library has. Two sections only: an author-search
+  // pass (seeded from your top-rated books' authors) and a subject-search
+  // pass (seeded from your top-rated genres) -- see the design spec's
+  // "Why this can't reuse computeRecommendations as-is" section.
   async function computeBookRecommendations(scope, rows, allRows) {
     const alreadyHave = buildAlreadyHaveTitles(allRows.filter(r => r.listStatus !== 'plan_to_read'));
     const watchlistRows = allRows.filter(r => r.listStatus === 'plan_to_read');
@@ -4841,19 +4860,30 @@
     const seeds = pickRecommendationSeeds(rows, { scope });
     const seedAuthors = [...new Set(seeds.map(s => s.author).filter(Boolean))];
     let byAuthor = [];
-    let byAuthorFailed = seedAuthors.length === 0;
+    // Stays true (a real failure) unless at least one fetch actually
+    // succeeds -- zero seeds and "every fetch came back null" are both
+    // "nothing usable came back", the same single failure signal
+    // computeRecommendations' becauseYouLikedFailed treats as one case
+    // (see its own comment). Previously this was seeded FALSE whenever
+    // seeds existed and only ever cleared to false again, so an Open
+    // Library outage could never trip the throw below and would
+    // silently overwrite a good 7-day cache with empty sections.
+    let byAuthorFailed = true;
+    const MAX_PER_AUTHOR = 3; // per-author diversity cap, mirrors MAX_PER_SEED
     for (const author of seedAuthors) {
+      if (byAuthor.length >= REC_SECTION_CAP) break;
       const candidates = await fetchOpenLibraryAuthorCandidates(author, REC_SECTION_CAP);
       if (candidates !== null) {
         byAuthorFailed = false;
+        let addedForAuthor = 0;
         for (const candidate of candidates) {
-          if (byAuthor.length >= REC_SECTION_CAP) break;
-          if (candidateMatchesAny(candidate, alreadyHave)) continue;
-          const titleKey = normalizeTitle(candidate.title);
-          if (usedTitles.has(titleKey) || dismissed.has(externalIdFor(candidate))) continue;
-          usedTitles.add(titleKey);
+          if (byAuthor.length >= REC_SECTION_CAP || addedForAuthor >= MAX_PER_AUTHOR) break;
+          if (candidateMatchesAny(candidate, alreadyHave) || candidateMatchesAny(candidate, usedTitles)) continue;
+          if (dismissed.has(externalIdFor(candidate))) continue;
+          candidateTitleKeys(candidate).forEach(k => usedTitles.add(k));
           const watchlistMatch = findWatchlistMatch(candidate, watchlistRows);
           byAuthor.push({ ...candidate, sourceRating: null, alreadyOnWatchlist: !!watchlistMatch, watchlistTags: watchlistMatch?.tags || [] });
+          addedForAuthor++;
         }
       }
       await sleep(OPEN_LIBRARY_REQUEST_DELAY_MS);
@@ -4863,17 +4893,16 @@
     const affinity = computeAffinity(rows);
     const topGenres = Object.entries(affinity.genreAvg).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([g]) => g);
     let overallTaste = [];
-    let overallTasteFailed = topGenres.length === 0;
+    let overallTasteFailed = true;
     for (const genre of topGenres) {
       const candidates = await fetchOpenLibrarySubjectCandidates(genre, REC_SECTION_CAP);
       if (candidates !== null) {
         overallTasteFailed = false;
         for (const candidate of candidates) {
           if (overallTaste.length >= REC_SECTION_CAP) break;
-          if (candidateMatchesAny(candidate, alreadyHave)) continue;
-          const titleKey = normalizeTitle(candidate.title);
-          if (usedTitles.has(titleKey) || dismissed.has(externalIdFor(candidate))) continue;
-          usedTitles.add(titleKey);
+          if (candidateMatchesAny(candidate, alreadyHave) || candidateMatchesAny(candidate, usedTitles)) continue;
+          if (dismissed.has(externalIdFor(candidate))) continue;
+          candidateTitleKeys(candidate).forEach(k => usedTitles.add(k));
           const watchlistMatch = findWatchlistMatch(candidate, watchlistRows);
           overallTaste.push({ ...candidate, sourceRating: null, alreadyOnWatchlist: !!watchlistMatch, watchlistTags: watchlistMatch?.tags || [] });
         }
@@ -7951,9 +7980,12 @@
       if (checkWriteError(error)) return false;
       invalidateShowsCache();
     } else {
+      // Books track total_pages/current_page, not chapters (see CLAUDE.md)
+      // -- manga/manhwa/webnovel use current_chapter instead.
+      const progressField = category === 'book' ? { current_page: 0 } : { current_chapter: 0 };
       const { error } = await supabase.from('written_media').insert({
         title: item.title, category, scope, cover_url: item.coverUrl, genres: item.genres, author: item.author,
-        list_status: 'reading', current_chapter: 0,
+        list_status: 'reading', ...progressField,
         last_updated: new Date().toISOString().slice(0, 10),
       });
       if (checkWriteError(error)) return false;
@@ -8083,7 +8115,7 @@
         <button class="btn" id="rec-refresh-btn" style="margin-left:auto">Refresh</button>
       </div>
       <div id="rec-stale-note" style="display:none; font-size:0.65rem; color:var(--muted); margin:0.5rem 0"></div>
-      ${belowThreshold ? `<p style="font-size:0.75rem; color:var(--muted); margin-bottom:1rem">Rate a few more shows to unlock "Because you liked" and "Matches your taste" recommendations.</p>` : activeRecCategory === 'book' ? `
+      ${belowThreshold ? `<p style="font-size:0.75rem; color:var(--muted); margin-bottom:1rem">${activeRecCategory === 'book' ? 'Rate a few more books to unlock "More from authors you love" and "Matches your taste" recommendations.' : 'Rate a few more shows to unlock "Because you liked" and "Matches your taste" recommendations.'}</p>` : activeRecCategory === 'book' ? `
         <div class="rec-section-title">More from authors you love</div>
         <div id="rec-grid-author" class="rec-grid"><p style="font-size:0.7rem; color:var(--muted)">Loading…</p></div>
         <div class="rec-section-title">Matches your taste</div>
@@ -8102,7 +8134,16 @@
 
     document.getElementById('rec-refresh-btn').addEventListener('click', () => renderRecommendationsTab({ force: true }));
 
-    const { sections, stale } = await loadRecommendations(activeScope, activeRecCategory, rows, allRows, { force });
+    // Below the rating threshold, a book-category render shows only the
+    // gating message (see above) -- no grid elements exist to fill, so
+    // skip the network round-trip (and the 7-day cache write it would
+    // otherwise make from a deliberately-untrusted thin library) entirely.
+    // Every other category always has "Peak stuff" render unconditionally,
+    // so this skip is book-specific.
+    const skipBookLoad = activeRecCategory === 'book' && belowThreshold;
+    const { sections, stale } = skipBookLoad
+      ? { sections: { byAuthor: [], overallTaste: [] }, stale: false }
+      : await loadRecommendations(activeScope, activeRecCategory, rows, allRows, { force });
 
     const staleNote = document.getElementById('rec-stale-note');
     if (stale) {
