@@ -4816,6 +4816,82 @@
     return sections;
   }
 
+  // Small delay between sequential Open Library requests -- same
+  // rate-limit-friendly discipline as every other external-API loop in
+  // this file (checkNewSeasons, checkMangaSequels, computeRecommendations'
+  // own seed loop), even though Open Library has no documented rate limit
+  // as aggressive as AniList/Jikan's.
+  const OPEN_LIBRARY_REQUEST_DELAY_MS = 400;
+
+  // Books get their own, simpler orchestration instead of a branch inside
+  // computeRecommendations -- that function's tier-weighted seed quotas,
+  // cross-section franchise filtering, and three-section shape are all
+  // built around AniList/TMDB's per-title similarity + popularity data,
+  // neither of which Open Library has. Two sections only: an author-search
+  // pass (seeded from your top-rated books' authors) and a subject-search
+  // pass (seeded from your top-rated genres) -- see the design spec's
+  // "Why this can't reuse computeRecommendations as-is" section.
+  async function computeBookRecommendations(scope, rows, allRows) {
+    const alreadyHave = buildAlreadyHaveTitles(allRows.filter(r => r.listStatus !== 'plan_to_read'));
+    const watchlistRows = allRows.filter(r => r.listStatus === 'plan_to_read');
+    const dismissed = await getDismissedRecommendationIds(scope, 'book');
+    const usedTitles = new Set();
+
+    // ── More from authors you love ──
+    const seeds = pickRecommendationSeeds(rows, { scope });
+    const seedAuthors = [...new Set(seeds.map(s => s.author).filter(Boolean))];
+    let byAuthor = [];
+    let byAuthorFailed = seedAuthors.length === 0;
+    for (const author of seedAuthors) {
+      const candidates = await fetchOpenLibraryAuthorCandidates(author, REC_SECTION_CAP);
+      if (candidates !== null) {
+        byAuthorFailed = false;
+        for (const candidate of candidates) {
+          if (byAuthor.length >= REC_SECTION_CAP) break;
+          if (candidateMatchesAny(candidate, alreadyHave)) continue;
+          const titleKey = normalizeTitle(candidate.title);
+          if (usedTitles.has(titleKey) || dismissed.has(externalIdFor(candidate))) continue;
+          usedTitles.add(titleKey);
+          const watchlistMatch = findWatchlistMatch(candidate, watchlistRows);
+          byAuthor.push({ ...candidate, sourceRating: null, alreadyOnWatchlist: !!watchlistMatch, watchlistTags: watchlistMatch?.tags || [] });
+        }
+      }
+      await sleep(OPEN_LIBRARY_REQUEST_DELAY_MS);
+    }
+
+    // ── Matches your taste ──
+    const affinity = computeAffinity(rows);
+    const topGenres = Object.entries(affinity.genreAvg).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([g]) => g);
+    let overallTaste = [];
+    let overallTasteFailed = topGenres.length === 0;
+    for (const genre of topGenres) {
+      const candidates = await fetchOpenLibrarySubjectCandidates(genre, REC_SECTION_CAP);
+      if (candidates !== null) {
+        overallTasteFailed = false;
+        for (const candidate of candidates) {
+          if (overallTaste.length >= REC_SECTION_CAP) break;
+          if (candidateMatchesAny(candidate, alreadyHave)) continue;
+          const titleKey = normalizeTitle(candidate.title);
+          if (usedTitles.has(titleKey) || dismissed.has(externalIdFor(candidate))) continue;
+          usedTitles.add(titleKey);
+          const watchlistMatch = findWatchlistMatch(candidate, watchlistRows);
+          overallTaste.push({ ...candidate, sourceRating: null, alreadyOnWatchlist: !!watchlistMatch, watchlistTags: watchlistMatch?.tags || [] });
+        }
+      }
+      await sleep(OPEN_LIBRARY_REQUEST_DELAY_MS);
+    }
+
+    if (byAuthorFailed && overallTasteFailed) {
+      throw new Error('computeBookRecommendations: both sections failed to fetch');
+    }
+
+    const sections = { byAuthor, overallTaste };
+    const { error } = await supabase.from('recommendations_cache')
+      .upsert({ scope, category: 'book', data: sections, updated_at: new Date().toISOString() }, { onConflict: 'scope,category' });
+    checkWriteError(error);
+    return sections;
+  }
+
   // Filters every section of a cached {becauseYouLiked, overallTaste,
   // peakUnseen} object against the current dismissed-ids set. Tolerates
   // a pre-Batch-B cache row (a flat array, from before sections existed)
@@ -4838,23 +4914,26 @@
   // since dismissed -- otherwise a dismissed item can resurface for up
   // to 7 days (the cache's own age, independent of the dismissal).
   async function loadRecommendations(scope, category, rows, allRows, { force = false } = {}) {
+    const sectionKeys = category === 'book' ? ['byAuthor', 'overallTaste'] : ['becauseYouLiked', 'overallTaste', 'peakUnseen'];
     if (!force) {
       const { data, error } = await supabase.from('recommendations_cache')
         .select('data, updated_at').eq('scope', scope).eq('category', category).maybeSingle();
       if (!error && data && (Date.now() - new Date(data.updated_at).getTime()) < REC_CACHE_MAX_AGE_MS) {
         const dismissed = await getDismissedRecommendationIds(scope, category);
-        return { sections: filterDismissedSections(data.data, dismissed), stale: false };
+        return { sections: filterDismissedSections(data.data, dismissed, sectionKeys), stale: false };
       }
     }
     try {
-      const sections = await computeRecommendations(scope, category, rows, allRows);
+      const sections = category === 'book'
+        ? await computeBookRecommendations(scope, rows, allRows)
+        : await computeRecommendations(scope, category, rows, allRows);
       return { sections, stale: false };
     } catch (e) {
       console.warn('Recommendations recompute failed, falling back to last cache', e);
       const { data } = await supabase.from('recommendations_cache')
         .select('data').eq('scope', scope).eq('category', category).maybeSingle();
       const dismissed = await getDismissedRecommendationIds(scope, category);
-      return { sections: filterDismissedSections(data?.data, dismissed), stale: true };
+      return { sections: filterDismissedSections(data?.data, dismissed, sectionKeys), stale: true };
     }
   }
 
