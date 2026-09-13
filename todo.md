@@ -4,6 +4,13 @@ Open tasks queued for a future session. Newest at the top.
 
 ---
 
+## Book recommendations
+
+- Raised 2026-09-13: Karl asked whether book recommendations were possible, same as anime/manga (AniList) and Western/Movie (TMDB) already built. Researched live (web search, not just recall) — Open Library and Google Books still have no "similar books" endpoint (already known, re-confirmed). Found a genuine new option: **Big Book API** (`bigbookapi.com`) has a real `/​{id}/similar` endpoint plus genre-based `/search-books` — the actual missing piece. Real tradeoffs vs. AniList/TMDB's zero-friction access: requires Karl's own signup for a free API key (Claude can't do this on his behalf), a required backlink/attribution on the site for the free tier, and only 50 requests/day (workable given this app's existing 7-day recommendation cache, but tight — the heavy multi-seed/paginated fetch pattern used for anime/TMDB would need to be redesigned much more frugally for this quota, not just reused as-is).
+- Karl agreed to sign up for the key. **Next session**: get the key from him, decide backlink placement (proposed: small credit in the Reading tab footer, not yet confirmed), then resume the brainstorm — open design questions already identified: scope (book-only, since webnovels/manhwa without a published edition won't resolve, matching the existing cover-art lookup limitation already documented in `CLAUDE.md`), and how to redesign the 3-section computation to survive a 50/day cap (fewer seeds, no deep pagination, more conservative than the anime/TMDB pattern).
+
+---
+
 ## Tier list / rank order isn't cross-device (localStorage only)
 
 - Raised 2026-09-12 while designing the Recommendations feature: `watchTierState:<category>` and `watchRankOrder:<category>` are stored purely in `localStorage`, keyed per browser — tier placement and rank order don't sync across devices. The `shows` table already has unused `tier` and `rank` columns (mapped in `fetchShows` but never written to) — the schema support already exists, it's just not wired up. Deliberately deferred as its own bounded task, separate from the Recommendations work in progress.
