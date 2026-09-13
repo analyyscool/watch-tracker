@@ -1828,8 +1828,12 @@
     <div class="watchlist-add" id="watchlist-add" style="display:none">
       <input type="text" id="watchlist-add-title" placeholder="Title…">
       <input type="text" id="watchlist-add-tags" placeholder="tags, comma, separated">
+      <button type="button" class="btn" id="watchlist-add-find-cover">Find Cover</button>
       <button class="btn" id="watchlist-add-btn">+ Add</button>
     </div>
+    <p class="cover-search-status" id="watchlist-add-cover-status" style="display:none"></p>
+    <div class="cover-candidates" id="watchlist-add-cover-candidates"></div>
+    <p class="form-error" id="watchlist-add-duplicate-warning" style="display:none"></p>
     <input type="text" id="watchlist-search" class="search-input" placeholder="Filter watchlist…">
     <div id="watchlist"></div>
 
@@ -1939,8 +1943,12 @@
         <option value="webnovel">Webnovel</option>
       </select>
       <input type="text" id="to-read-add-tags" placeholder="tags, comma, separated">
+      <button type="button" class="btn" id="to-read-add-find-cover">Find Cover</button>
       <button class="btn" id="to-read-add-btn">+ Add</button>
     </div>
+    <p class="cover-search-status" id="to-read-add-cover-status" style="display:none"></p>
+    <div class="cover-candidates" id="to-read-add-cover-candidates"></div>
+    <p class="form-error" id="to-read-add-duplicate-warning" style="display:none"></p>
     <input type="text" id="to-read-search" class="search-input" placeholder="Filter to-read…">
     <div id="to-read-list"></div>
   </div>
@@ -3307,16 +3315,62 @@
     });
   }
 
+  // Holds whatever Find Cover auto-filled for the Watchlist quick-add row --
+  // there's no visible poster/genres/studio field here (unlike the full Add
+  // Show modal), so this is the only place that data lives between picking
+  // a candidate and clicking + Add. Reset after every successful add or
+  // fresh search so a stale pick can't attach itself to a different title.
+  let watchlistAddPicked = null;
+
+  async function findCoverForWatchlistAdd() {
+    const title = document.getElementById('watchlist-add-title').value.trim();
+    if (!title) return;
+    watchlistAddPicked = null;
+    const statusEl = document.getElementById('watchlist-add-cover-status');
+    document.getElementById('watchlist-add-cover-candidates').innerHTML = '';
+    statusEl.textContent = 'Searching…';
+    statusEl.style.display = '';
+    try {
+      const results = await searchAniListCovers(title, 'ANIME');
+      renderCoverCandidates('watchlist-add-cover-candidates', 'watchlist-add-cover-status', results, (c) => {
+        if (c.name) document.getElementById('watchlist-add-title').value = c.name;
+        watchlistAddPicked = { posterUrl: c.url, genres: c.genres || null, studio: c.studio || null };
+        checkWatchlistAddDuplicate();
+      });
+    } catch (e) {
+      statusEl.textContent = 'Search failed — try again.';
+    }
+  }
+  document.getElementById('watchlist-add-find-cover').addEventListener('click', findCoverForWatchlistAdd);
+
+  async function checkWatchlistAddDuplicate() {
+    const title = document.getElementById('watchlist-add-title').value;
+    const warningEl = document.getElementById('watchlist-add-duplicate-warning');
+    const match = await findExistingShow(title, activeScope);
+    warningEl.style.display = match ? '' : 'none';
+    if (match) warningEl.textContent = `Already in ${activeScope}'s list — adding again will be blocked.`;
+    return match;
+  }
+  document.getElementById('watchlist-add-title').addEventListener('blur', checkWatchlistAddDuplicate);
+
   document.getElementById('watchlist-add-btn').addEventListener('click', async () => {
     const title = document.getElementById('watchlist-add-title').value.trim();
     const tagsRaw = document.getElementById('watchlist-add-tags').value.trim();
     if (!title) return;
+    if (await checkWatchlistAddDuplicate()) return;
     const id = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
     const { error } = await supabase.from('shows').insert({
       id, title, category: 'anime', scope: activeScope, list_status: 'watchlist',
       tags: tagsRaw ? tagsRaw.split(',').map(t => t.trim()).filter(Boolean) : null,
+      poster_url: watchlistAddPicked?.posterUrl || null,
+      genres: watchlistAddPicked?.genres || null,
+      studio: watchlistAddPicked?.studio || null,
     });
     if (checkWriteError(error)) return;
+    watchlistAddPicked = null;
+    document.getElementById('watchlist-add-cover-candidates').innerHTML = '';
+    document.getElementById('watchlist-add-cover-status').style.display = 'none';
+    document.getElementById('watchlist-add-duplicate-warning').style.display = 'none';
     document.getElementById('watchlist-add-title').value = '';
     document.getElementById('watchlist-add-tags').value = '';
     invalidateShowsCache();
@@ -3370,16 +3424,71 @@
     });
   }
 
+  // Same "no visible field for it" reasoning as watchlistAddPicked -- holds
+  // Find Cover's result for the To Read quick-add row between pick and
+  // + Add. Cleared on a fresh search or category change so a stale pick
+  // (e.g. manga genres) can't attach itself after switching to Book.
+  let toReadAddPicked = null;
+
+  async function findCoverForToReadAdd() {
+    const title = document.getElementById('to-read-add-title').value.trim();
+    const category = document.getElementById('to-read-add-category').value;
+    if (!title || category === 'webnovel') return;
+    toReadAddPicked = null;
+    const statusEl = document.getElementById('to-read-add-cover-status');
+    document.getElementById('to-read-add-cover-candidates').innerHTML = '';
+    statusEl.textContent = 'Searching…';
+    statusEl.style.display = '';
+    try {
+      const results = (category === 'manga' || category === 'manhwa') ? await searchAniListCovers(title, 'MANGA')
+        : await searchOpenLibraryCovers(title);
+      renderCoverCandidates('to-read-add-cover-candidates', 'to-read-add-cover-status', results, (c) => {
+        if (c.name) document.getElementById('to-read-add-title').value = c.name;
+        toReadAddPicked = {
+          coverUrl: c.url,
+          genres: c.genres || null,
+          totalChapters: (category === 'manga' || category === 'manhwa') ? (c.chapters || null) : null,
+          totalPages: category === 'book' ? (c.pages || null) : null,
+        };
+        checkToReadAddDuplicate();
+      });
+    } catch (e) {
+      statusEl.textContent = 'Search failed — try again.';
+    }
+  }
+  document.getElementById('to-read-add-find-cover').addEventListener('click', findCoverForToReadAdd);
+  document.getElementById('to-read-add-category').addEventListener('change', () => { toReadAddPicked = null; });
+
+  async function checkToReadAddDuplicate() {
+    const title = document.getElementById('to-read-add-title').value;
+    const category = document.getElementById('to-read-add-category').value;
+    const warningEl = document.getElementById('to-read-add-duplicate-warning');
+    const match = await findExistingMedia(title, category, activeScope);
+    warningEl.style.display = match ? '' : 'none';
+    if (match) warningEl.textContent = `Already in ${activeScope}'s ${category} list — adding again will be blocked.`;
+    return match;
+  }
+  document.getElementById('to-read-add-title').addEventListener('blur', checkToReadAddDuplicate);
+
   document.getElementById('to-read-add-btn').addEventListener('click', async () => {
     const title = document.getElementById('to-read-add-title').value.trim();
     const category = document.getElementById('to-read-add-category').value;
     const tagsRaw = document.getElementById('to-read-add-tags').value.trim();
     if (!title) return;
+    if (await checkToReadAddDuplicate()) return;
     const { error } = await supabase.from('written_media').insert({
       title, category, scope: activeScope, list_status: 'plan_to_read',
       tags: tagsRaw ? tagsRaw.split(',').map(t => t.trim()).filter(Boolean) : null,
+      cover_url: toReadAddPicked?.coverUrl || null,
+      genres: toReadAddPicked?.genres || null,
+      total_chapters: toReadAddPicked?.totalChapters || null,
+      total_pages: toReadAddPicked?.totalPages || null,
     });
     if (checkWriteError(error)) return;
+    toReadAddPicked = null;
+    document.getElementById('to-read-add-cover-candidates').innerHTML = '';
+    document.getElementById('to-read-add-cover-status').style.display = 'none';
+    document.getElementById('to-read-add-duplicate-warning').style.display = 'none';
     document.getElementById('to-read-add-title').value = '';
     document.getElementById('to-read-add-tags').value = '';
     invalidateWrittenMediaCache();
