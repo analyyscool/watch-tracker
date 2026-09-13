@@ -3709,7 +3709,7 @@
   // it, but it DOES show up as a PREQUEL/SEQUEL edge on either side. This
   // adds no extra network round-trip -- it's the same query that was
   // already being made for each seed/genre/popularity candidate.
-  const RELATION_FIELDS = `relations { edges { relationType node { title { romaji english } format } } }`;
+  const RELATION_FIELDS = `relations { edges { relationType node { title { romaji english } format popularity } } }`;
 
   function extractRelatedTitles(relationsField) {
     const edges = relationsField?.edges || [];
@@ -3723,6 +3723,11 @@
   // SEQUEL list -- used to detect "this candidate is a later installment
   // of a franchise" specifically, so isFreshFranchiseEntry (below) can
   // require the earlier installment to be something already tracked.
+  // Returns {title, popularity} pairs (not bare titles) since
+  // isFreshFranchiseEntry needs the popularity to decide whether a given
+  // PREQUEL edge is a real prerequisite or obscure side content -- see
+  // that function's comment for why format alone (an earlier, reverted
+  // approach) wasn't a reliable enough signal.
   //
   // Tried extending this to ALTERNATIVE edges too (catching "Gintama the
   // Movie 2026: Yoshiwara in Flames", a nostalgia-retelling movie linked
@@ -3738,24 +3743,12 @@
   // alone. Blocking a major standalone remake is worse than occasionally
   // recommending a context-dependent nostalgia movie, so this stays
   // PREQUEL-only.
-  //
-  // A PREQUEL edge pointing at a MOVIE is excluded from gating -- confirmed
-  // live: "Legend of the Galactic Heroes" (the mainstream, 110-episode
-  // OVA -- popularity 85k, score 88) has a real PREQUEL edge to "...: My
-  // Conquest Is the Sea of Stars", an obscure bonus/side movie most
-  // viewers don't treat as required viewing, which was wrongly gating the
-  // far more significant main series entirely out of every section. A
-  // TV/TV_SHORT/OVA/SPECIAL prequel is much more likely to be genuine
-  // serialized story content actually worth "watch this first" gating
-  // (confirmed against the two known-good exclusion cases: Fruits
-  // Basket's gating prequel is TV, Gintama's finale movie's is SPECIAL --
-  // neither is a MOVIE, so this stays narrow enough not to reopen those).
   function extractPrequelTitles(relationsField) {
     const edges = relationsField?.edges || [];
     return edges
-      .filter(e => e.relationType === 'PREQUEL' && e.node?.format !== 'MOVIE')
-      .map(e => e.node?.title?.english || e.node?.title?.romaji)
-      .filter(Boolean);
+      .filter(e => e.relationType === 'PREQUEL')
+      .map(e => ({ title: e.node?.title?.english || e.node?.title?.romaji, popularity: e.node?.popularity ?? null }))
+      .filter(p => p.title);
   }
 
   // A candidate that IS a later installment (has a PREQUEL edge) is only
@@ -3765,10 +3758,34 @@
   // Basket: The Final Season", when neither earlier Gintama nor earlier
   // Fruits Basket is tracked at all). A candidate with NO prequel edge is
   // always a fresh, valid starting point.
+  //
+  // Whether a PREQUEL edge actually counts as "a real prerequisite" is
+  // decided by comparing its popularity to the CANDIDATE's own popularity,
+  // not by format (a format-based version of this check was tried and
+  // reverted -- excluding MOVIE-format prequels fixed Legend of the
+  // Galactic Heroes' false positive but broke every legitimate movie
+  // sequel, e.g. "Fate/stay night [Heaven's Feel] III" no longer required
+  // its own prequel movie to be tracked). Calibrated live against real
+  // AniList data: LOGH's own popularity is 85,138 vs. its obscure "prequel"
+  // movie's 15,790 (ratio ~0.18 -- clearly not a real prerequisite,
+  // shouldn't gate); Heaven's Feel III vs. II is ~1.09, Fruits Basket
+  // Final vs. its TV prequel is ~1.05, Violet Evergarden: the Movie vs.
+  // its prequel movie is ~0.72, Gintama: THE VERY FINAL vs. THE SEMI-FINAL
+  // is ~0.57 -- all comfortably above 0.3, all correctly still gate. A
+  // missing popularity value (rare) fails toward gating (safer default:
+  // treat it as significant) rather than silently letting a sequel
+  // through uncalibrated.
+  const PREQUEL_SIGNIFICANCE_RATIO = 0.3;
+
   function isFreshFranchiseEntry(candidate, alreadyHave) {
     const prequels = candidate.prequelTitles || [];
     if (!prequels.length) return true;
-    return prequels.some(p => titleOverlapsAny(normalizeTitle(p), alreadyHave));
+    const significant = prequels.filter(p => {
+      if (p.popularity == null || !candidate.popularity) return true;
+      return (p.popularity / candidate.popularity) >= PREQUEL_SIGNIFICANCE_RATIO;
+    });
+    if (!significant.length) return true;
+    return significant.some(p => titleOverlapsAny(normalizeTitle(p.title), alreadyHave));
   }
 
   // AniList always pads a show's recommendations list out to `perPage`
@@ -3811,7 +3828,7 @@
       media(search: $s, type: $type) {
         id popularity
         recommendations(sort: RATING_DESC, perPage: 10) {
-          nodes { rating mediaRecommendation { id format title { romaji english } genres coverImage { large } studios(isMain: true) { nodes { name } } averageScore ${RELATION_FIELDS} } }
+          nodes { rating mediaRecommendation { id format popularity title { romaji english } genres coverImage { large } studios(isMain: true) { nodes { name } } averageScore ${RELATION_FIELDS} } }
         }
       }
     } }`;
@@ -3844,6 +3861,7 @@
       relatedTitles: extractRelatedTitles(m.relations),
       prequelTitles: extractPrequelTitles(m.relations),
       score: m.averageScore ?? null,
+      popularity: m.popularity ?? null,
     }));
   }
 
@@ -3934,7 +3952,7 @@
     const query = `query ($genre: String, $type: MediaType, $perPage: Int) {
       Page(perPage: $perPage) {
         media(genre_in: [$genre], type: $type, sort: SCORE_DESC) {
-          id title { romaji english } genres coverImage { large } studios(isMain: true) { nodes { name } } averageScore ${RELATION_FIELDS}
+          id popularity title { romaji english } genres coverImage { large } studios(isMain: true) { nodes { name } } averageScore ${RELATION_FIELDS}
         }
       }
     }`;
@@ -3968,6 +3986,7 @@
             relatedTitles: extractRelatedTitles(m.relations),
             prequelTitles: extractPrequelTitles(m.relations),
             score: m.averageScore ?? null,
+            popularity: m.popularity ?? null,
           });
         });
       } catch (e) {
@@ -4052,6 +4071,7 @@
             relatedTitles: extractRelatedTitles(m.relations),
             prequelTitles: extractPrequelTitles(m.relations),
             score: m.averageScore ?? null,
+            popularity: m.popularity ?? null,
           });
         });
         if (!json?.data?.Page?.pageInfo?.hasNextPage) break;
