@@ -3111,17 +3111,14 @@
       }
     }
 
-    // western/movie's isFreshEntry is a no-op here (same cost-control
-    // reasoning as computeRecommendations' post-pass -- see
-    // RECOMMENDATION_SOURCES.movie/western's comments) since this modal's
-    // candidate pool is already small (max ~11 before the slice above),
-    // the real franchise-tail/spin-off check runs directly against the
-    // final ~6 rather than needing a separate post-pass step.
-    if (category === 'western') {
-      const kept = [];
-      for (const c of similar) { if (!(await isTVSpinoffOrPrequel(c))) kept.push(c); }
-      similar = kept;
-    } else if (category === 'movie') {
+    // movie's isFreshEntry is a no-op in the main pass above (same
+    // cost-control reasoning as computeRecommendations' post-pass -- see
+    // RECOMMENDATION_SOURCES.movie's comment) since this modal's candidate
+    // pool is already small (max ~11 before the slice above), the real
+    // franchise-tail check runs directly against the final ~6 rather than
+    // needing a separate post-pass step. TV has no equivalent check at all
+    // (see RECOMMENDATION_SOURCES.western's comment).
+    if (category === 'movie') {
       const kept = [];
       for (const c of similar) { if (await isFreshMovieEntry(c, alreadyHave)) kept.push(c); }
       similar = kept;
@@ -4102,7 +4099,7 @@
       const recJson = await recRes.json();
       const recResults = recJson.results || [];
       return recResults
-        .filter(r => (r.vote_count || 0) >= TMDB_MIN_VOTE_COUNT && (r.vote_average || 0) >= TMDB_SEED_MIN_SCORE)
+        .filter(r => (r.vote_count || 0) >= TMDB_MIN_VOTE_COUNT && (r.vote_average || 0) >= TMDB_SEED_MIN_SCORE && !isJapaneseOriginTV(r, mediaType))
         .map(r => tmdbResultToCandidate(r, mediaType));
     } catch (e) {
       console.warn('TMDB recommendation search failed for', title, e);
@@ -4126,6 +4123,19 @@
       score: r.vote_average != null ? Math.round(r.vote_average * 10) : null,
       collectionId: r.belongs_to_collection?.id ?? null,
     };
+  }
+
+  // Popular anime (Frieren, Attack on Titan, One Piece, Solo Leveling...)
+  // is catalogued by TMDB as regular TV -- confirmed live: querying "tv"
+  // for genre-affinity/peak-unseen/recommendations surfaces it right
+  // alongside genuinely Western shows, since TMDB has no "is this anime"
+  // flag. `original_language` does the job instead (Frieren: "ja",
+  // Breaking Bad: "en") -- movies are deliberately NOT filtered by this,
+  // since an anime FILM is legitimately "movie" category in this app's
+  // own taxonomy (not "anime"), so it belongs in Movie recommendations,
+  // unlike an anime TV show under the Western tab.
+  function isJapaneseOriginTV(r, mediaType) {
+    return mediaType === 'tv' && r.original_language === 'ja';
   }
 
   // TMDB's /search and /discover responses only give genre IDs, not
@@ -4162,7 +4172,7 @@
         if (!res.ok) { console.warn('TMDB genre-affinity search failed', res.status); break; }
         anySucceeded = true;
         const pageResults = json.results || [];
-        pageResults.forEach(r => results.push(tmdbResultToCandidate(r, mediaType)));
+        pageResults.filter(r => !isJapaneseOriginTV(r, mediaType)).forEach(r => results.push(tmdbResultToCandidate(r, mediaType)));
         if (page >= (json.total_pages || 1)) break;
       } catch (e) {
         console.warn('TMDB genre-affinity search failed', e);
@@ -4197,7 +4207,7 @@
         if (!res.ok) { console.warn('TMDB peak-unseen search failed', res.status); break; }
         anySucceeded = true;
         const pageResults = json.results || [];
-        pageResults.forEach(r => results.push(tmdbResultToCandidate(r, mediaType)));
+        pageResults.filter(r => !isJapaneseOriginTV(r, mediaType)).forEach(r => results.push(tmdbResultToCandidate(r, mediaType)));
         if (page >= (json.total_pages || 1)) break;
       } catch (e) {
         console.warn('TMDB peak-unseen search failed', e);
@@ -4250,24 +4260,13 @@
   // TV has no structured relation-to-parent-show data on TMDB at all --
   // verified live against a known real spin-off pair (Better Call Saul ->
   // Breaking Bad): the show's full detail response has no field
-  // connecting them, only generic keyword tags with no reference to
-  // WHICH show they're a spin-off/prequel of. So unlike isFreshMovieEntry
-  // (which can check "is the earlier entry tracked"), this can only
-  // blanket-exclude -- a spin-off/prequel-tagged show never surfaces,
-  // regardless of whether its (unidentifiable) parent is tracked. Explicit
-  // user decision (2026-09-13), not a default -- the alternative (skip TV
-  // franchise-checking entirely) was the original recommendation.
-  async function isTVSpinoffOrPrequel(candidate) {
-    try {
-      const res = await fetch(`https://api.themoviedb.org/3/tv/${candidate.tmdbId}/keywords?api_key=${TMDB_API_KEY}`);
-      const json = await res.json();
-      const keywords = (json.results || []).map(k => k.name.toLowerCase());
-      return keywords.includes('spin off') || keywords.includes('prequel');
-    } catch (e) {
-      console.warn('TMDB keywords lookup failed for candidate', candidate.title, e);
-      return false; // fail open, same posture as isFreshMovieEntry
-    }
-  }
+  // connecting them, only generic keyword tags with no reference to WHICH
+  // show they're a spin-off/prequel of. A blanket exclusion based on those
+  // tags alone was tried (2026-09-13) but reverted the same day: it caught
+  // Better Call Saul itself, a show that holds up fine independently --
+  // blocking a good, legitimately standalone show is worse than
+  // occasionally recommending a context-dependent one, so TV gets no
+  // franchise check at all (see RECOMMENDATION_SOURCES.western).
 
   // ── Recommendations: orchestration, cache, dismissal ──
   const REC_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -4366,13 +4365,13 @@
       fetchGenreAffinity: (genres, mediaType, count) => fetchTMDBGenreAffinityCandidates(genres, mediaType, count),
       fetchPeakUnseen: (mediaType, count) => fetchTMDBPeakUnseenCandidates(mediaType, count),
       // isFreshMovieEntry is real per-candidate collection data (unlike
-      // TV's isTVSpinoffOrPrequel), but it's still 2 TMDB round-trips per
-      // candidate -- against the full raw candidate pool (30-50+ per
+      // TV, which has no franchise check at all -- see
+      // RECOMMENDATION_SOURCES.western), but it's still 2 TMDB round-trips
+      // per candidate -- against the full raw candidate pool (30-50+ per
       // section) that's up to ~400 sequential requests before a section
-      // even finishes filling. Same cost-control posture as western:
-      // every candidate passes here, and the check runs once as a
-      // post-pass against the small quota-filled finalist set instead
-      // (Step 4 below).
+      // even finishes filling. Every candidate passes here, and the check
+      // runs once as a post-pass against the small quota-filled finalist
+      // set instead.
       isFreshEntry: async () => true,
     },
     western: {
@@ -4380,11 +4379,16 @@
       fetchSeed: (seed, mediaType) => fetchTMDBRecommendationsFor(seed.title, mediaType),
       fetchGenreAffinity: (genres, mediaType, count) => fetchTMDBGenreAffinityCandidates(genres, mediaType, count),
       fetchPeakUnseen: (mediaType, count) => fetchTMDBPeakUnseenCandidates(mediaType, count),
-      // No structured franchise data for TV at all (see
-      // isTVSpinoffOrPrequel's comment) -- every candidate passes this
-      // check; the blanket spin-off/prequel exclusion runs separately,
-      // ONLY against the small finalist set, after quotas are filled
-      // (Step 4 below), not per-raw-candidate here.
+      // No structured franchise data for TV at all -- TMDB can't tell a
+      // spin-off from its specific parent (confirmed live: Better Call
+      // Saul's own detail response has no field connecting it to Breaking
+      // Bad, only untargeted "spin off"/"prequel" keyword tags). A prior
+      // version of this blanket-excluded anything carrying those tags
+      // regardless of merit, but that meant a good, legitimately
+      // standalone show (Better Call Saul itself) never surfaced even
+      // though it holds up fine on its own -- reverted per explicit
+      // decision (2026-09-13): no franchise check for TV at all, same as
+      // originally recommended, relying only on already-tracked dedup.
       isFreshEntry: async () => true,
     },
   };
@@ -4534,27 +4538,6 @@
     // to keep this a single, simple all-or-nothing cache write.
     if (becauseYouLikedFailed && overallTasteFailed && peakUnseenFailed) {
       throw new Error('computeRecommendations: all three sections failed to fetch');
-    }
-
-    // TV can't check a specific candidate against a specific parent (see
-    // RECOMMENDATION_SOURCES.western's isFreshEntry comment) -- instead,
-    // blanket-filter the already-quota-filled finalist arrays. Filtering
-    // AFTER quotas fill (rather than per-raw-candidate during the main
-    // loops above) keeps this to ~10-30 keyword lookups total instead of
-    // one per raw candidate (30-50+ per section) -- no backfill for a
-    // removed slot, same "a tier just contributes what it has" philosophy
-    // as the rest of this function's quota logic.
-    if (category === 'western') {
-      const filterSpinoffs = async (list) => {
-        const kept = [];
-        for (const item of list) {
-          if (!(await isTVSpinoffOrPrequel(item))) kept.push(item);
-        }
-        return kept;
-      };
-      becauseYouLiked = await filterSpinoffs(becauseYouLiked);
-      overallTaste = await filterSpinoffs(overallTaste);
-      peakUnseen = await filterSpinoffs(peakUnseen);
     }
 
     // Movies DO have structured per-candidate franchise data
