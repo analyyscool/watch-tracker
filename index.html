@@ -3021,7 +3021,9 @@
   // modal too.
   function showDetailRecCategory(item, kind) {
     if (kind === 'show') return RECOMMENDATION_SOURCES[item.category] ? item.category : null;
-    return (item.category === 'manga' || item.category === 'manhwa') ? 'manga' : null;
+    if (item.category === 'manga' || item.category === 'manhwa') return 'manga';
+    if (item.category === 'book') return 'book';
+    return null;
   }
 
   async function openShowDetailModal(item, kind = 'show') {
@@ -3065,8 +3067,6 @@
       similarSection.style.display = 'none';
       return;
     }
-    const source = RECOMMENDATION_SOURCES[category];
-    const type = source.mediaType;
     similarSection.style.display = '';
     similarGrid.innerHTML = `<p style="font-size:0.7rem; color:var(--muted)">Loading…</p>`;
 
@@ -3074,62 +3074,101 @@
     // Same watchlist-vs-"already have" split as computeRecommendations --
     // a watchlist-only entry can still surface here, just flagged so the
     // card can grey out the redundant "+ Watchlist" button.
-    const isWatchlistStatus = category === 'manga' ? (s) => s === 'plan_to_read' : (s) => s === 'watchlist';
+    const isWatchlistStatus = (category === 'manga' || category === 'book') ? (s) => s === 'plan_to_read' : (s) => s === 'watchlist';
     const alreadyHave = buildAlreadyHaveTitles(allRows.filter(r => !isWatchlistStatus(r.listStatus)));
     const watchlistRows = allRows.filter(r => isWatchlistStatus(r.listStatus));
-    const candidates = await source.fetchSeed({ title: item.title }, type);
 
-    // Modal may have been closed (or reopened for a different item) while
-    // this fetch was in flight -- don't clobber whatever's showing now.
-    if (showDetailItemId !== item.id) return;
-
-    if (!candidates) {
-      similarGrid.innerHTML = `<p style="font-size:0.7rem; color:var(--muted)">Couldn't load similar titles right now.</p>`;
-      return;
-    }
     let similar = [];
-    for (const c of candidates) {
-      if (similar.length >= 6) break;
-      if (candidateMatchesAny(c, alreadyHave)) continue;
-      if (!(await source.isFreshEntry(c, alreadyHave))) continue;
-      similar.push(c);
-    }
-
-    // The seed-based "if you liked X" pass can legitimately come up thin
-    // (e.g. this exact show doesn't already track many of its own
-    // recommended titles) or empty (e.g. weak/spinoff-only community
-    // data, filtered out by the vote/format quality gates) -- fill any
-    // remaining slots with this show's own genre-affinity matches, same
-    // fallback concept as the main tab's "Overall taste" section, just
-    // scoped to this one show's genres instead of an aggregate taste
-    // profile.
-    if (similar.length < 6 && (item.genres || []).length) {
-      const usedIds = new Set(similar.map(c => externalIdFor(c)));
-      const fillCandidates = await source.fetchGenreAffinity(item.genres.slice(0, 3), type, (6 - similar.length) + usedIds.size + 5);
-      if (fillCandidates) {
-        for (const candidate of fillCandidates) {
-          if (similar.length >= 6) break;
-          if (candidateMatchesAny(candidate, alreadyHave)) continue;
-          if (!(await source.isFreshEntry(candidate, alreadyHave))) continue;
-          const id = externalIdFor(candidate);
-          if (usedIds.has(id)) continue;
-          usedIds.add(id);
-          similar.push(candidate);
+    if (category === 'book') {
+      // Books have no RECOMMENDATION_SOURCES entry (no per-title
+      // similarity API exists -- see computeBookRecommendations' own
+      // comment) so this reuses the same two Open Library fetchers built
+      // for the Recommendations tab, just seeded from THIS one book's
+      // author/genre instead of an aggregate taste profile.
+      const usedTitles = new Set();
+      if (item.author) {
+        const authorCandidates = await fetchOpenLibraryAuthorCandidates(item.author, 10);
+        if (authorCandidates) {
+          for (const c of authorCandidates) {
+            if (similar.length >= 6) break;
+            if (candidateMatchesAny(c, alreadyHave) || candidateMatchesAny(c, usedTitles)) continue;
+            candidateTitleKeys(c).forEach(k => usedTitles.add(k));
+            similar.push(c);
+          }
         }
       }
-    }
+      if (similar.length < 6 && (item.genres || [])[0]) {
+        const genreCandidates = await fetchOpenLibrarySubjectCandidates(item.genres[0], 10);
+        if (genreCandidates) {
+          for (const c of genreCandidates) {
+            if (similar.length >= 6) break;
+            if (candidateMatchesAny(c, alreadyHave) || candidateMatchesAny(c, usedTitles)) continue;
+            candidateTitleKeys(c).forEach(k => usedTitles.add(k));
+            similar.push(c);
+          }
+        }
+      }
 
-    // movie's isFreshEntry is a no-op in the main pass above (same
-    // cost-control reasoning as computeRecommendations' post-pass -- see
-    // RECOMMENDATION_SOURCES.movie's comment) since this modal's candidate
-    // pool is already small (max ~11 before the slice above), the real
-    // franchise-tail check runs directly against the final ~6 rather than
-    // needing a separate post-pass step. TV has no equivalent check at all
-    // (see RECOMMENDATION_SOURCES.western's comment).
-    if (category === 'movie') {
-      const kept = [];
-      for (const c of similar) { if (await isFreshMovieEntry(c, alreadyHave)) kept.push(c); }
-      similar = kept;
+      // Modal may have been closed (or reopened for a different item)
+      // while these fetches were in flight -- don't clobber whatever's
+      // showing now.
+      if (showDetailItemId !== item.id) return;
+    } else {
+      const source = RECOMMENDATION_SOURCES[category];
+      const type = source.mediaType;
+      const candidates = await source.fetchSeed({ title: item.title }, type);
+
+      // Modal may have been closed (or reopened for a different item) while
+      // this fetch was in flight -- don't clobber whatever's showing now.
+      if (showDetailItemId !== item.id) return;
+
+      if (!candidates) {
+        similarGrid.innerHTML = `<p style="font-size:0.7rem; color:var(--muted)">Couldn't load similar titles right now.</p>`;
+        return;
+      }
+      for (const c of candidates) {
+        if (similar.length >= 6) break;
+        if (candidateMatchesAny(c, alreadyHave)) continue;
+        if (!(await source.isFreshEntry(c, alreadyHave))) continue;
+        similar.push(c);
+      }
+
+      // The seed-based "if you liked X" pass can legitimately come up thin
+      // (e.g. this exact show doesn't already track many of its own
+      // recommended titles) or empty (e.g. weak/spinoff-only community
+      // data, filtered out by the vote/format quality gates) -- fill any
+      // remaining slots with this show's own genre-affinity matches, same
+      // fallback concept as the main tab's "Overall taste" section, just
+      // scoped to this one show's genres instead of an aggregate taste
+      // profile.
+      if (similar.length < 6 && (item.genres || []).length) {
+        const usedIds = new Set(similar.map(c => externalIdFor(c)));
+        const fillCandidates = await source.fetchGenreAffinity(item.genres.slice(0, 3), type, (6 - similar.length) + usedIds.size + 5);
+        if (fillCandidates) {
+          for (const candidate of fillCandidates) {
+            if (similar.length >= 6) break;
+            if (candidateMatchesAny(candidate, alreadyHave)) continue;
+            if (!(await source.isFreshEntry(candidate, alreadyHave))) continue;
+            const id = externalIdFor(candidate);
+            if (usedIds.has(id)) continue;
+            usedIds.add(id);
+            similar.push(candidate);
+          }
+        }
+      }
+
+      // movie's isFreshEntry is a no-op in the main pass above (same
+      // cost-control reasoning as computeRecommendations' post-pass -- see
+      // RECOMMENDATION_SOURCES.movie's comment) since this modal's candidate
+      // pool is already small (max ~11 before the slice above), the real
+      // franchise-tail check runs directly against the final ~6 rather than
+      // needing a separate post-pass step. TV has no equivalent check at all
+      // (see RECOMMENDATION_SOURCES.western's comment).
+      if (category === 'movie') {
+        const kept = [];
+        for (const c of similar) { if (await isFreshMovieEntry(c, alreadyHave)) kept.push(c); }
+        similar = kept;
+      }
     }
 
     if (!similar.length) {
