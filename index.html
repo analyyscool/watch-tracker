@@ -3599,16 +3599,33 @@
   // (or dismissing) one doesn't suppress a genuinely later new season.
   const TMDB_API_KEY = 'eea657b9ab068f2638dbe9e0ff6bc7ac';
 
-  function getDismissedSeasonNotices() {
-    try { return JSON.parse(localStorage.getItem('dismissedSeasonNotices') || '[]'); }
+  // Both AniList and its Jikan fallback rate-limit (429) a burst of
+  // back-to-back requests -- observed hitting both in the same sweep when
+  // several shows/manga needed a sequel check at once, since a 429 has no
+  // CORS header and so surfaces in devtools as a misleading "blocked by
+  // CORS policy" error instead of the real rate-limit. Spacing requests out
+  // keeps each sweep under both APIs' limits.
+  const SEQUEL_CHECK_DELAY_MS = 400;
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+  // Announced (not-yet-aired) notices use their own dismissed-list key so
+  // dismissing "Season 2 announced" doesn't also suppress the later, actually
+  // watchable "Season 2 is now available" notice -- both share the same
+  // `key` (show id + sequel title), so a single shared dismissed list would
+  // otherwise permanently hide the real release once the announcement was
+  // dismissed.
+  function getDismissedSeasonNotices(announced) {
+    const storageKey = announced ? 'dismissedAnnouncedSeasonNotices' : 'dismissedSeasonNotices';
+    try { return JSON.parse(localStorage.getItem(storageKey) || '[]'); }
     catch (e) { return []; }
   }
 
-  function dismissSeasonNotice(key) {
-    const dismissed = getDismissedSeasonNotices();
+  function dismissSeasonNotice(key, announced) {
+    const storageKey = announced ? 'dismissedAnnouncedSeasonNotices' : 'dismissedSeasonNotices';
+    const dismissed = getDismissedSeasonNotices(announced);
     if (!dismissed.includes(key)) {
       dismissed.push(key);
-      localStorage.setItem('dismissedSeasonNotices', JSON.stringify(dismissed));
+      localStorage.setItem(storageKey, JSON.stringify(dismissed));
     }
   }
 
@@ -3654,24 +3671,37 @@
     );
     if (!candidates.length) return;
 
-    const dismissed = getDismissedSeasonNotices();
+    const dismissedReleased = getDismissedSeasonNotices(false);
+    const dismissedAnnounced = getDismissedSeasonNotices(true);
     const notices = [];
     for (const s of candidates) {
       try {
         const notice = s.category === 'anime' ? await checkAnimeSequel(s) : await checkWesternSeason(s);
+        const dismissed = notice?.announced ? dismissedAnnounced : dismissedReleased;
         if (notice && !dismissed.includes(notice.key)) notices.push(notice);
       } catch (e) { console.error('Season check failed for', s.title, e); }
+      await sleep(SEQUEL_CHECK_DELAY_MS);
     }
     setPendingSeasonNotices(activeScope, notices);
     renderSeasonNoticesSection(notices);
   }
 
-  function buildSeasonNotice(show, sequelTitle, sequelEpisodes) {
+  // `announced` distinguishes a confirmed-but-unaired next season (AniList/
+  // Jikan status NOT_YET_RELEASED / "Not yet aired") from one that's
+  // actually watchable -- AniList creates the SEQUEL edge the moment a
+  // season is announced, well before an air date exists, so without this
+  // the banner would tell you to "Add to In Progress" a show with nothing
+  // to watch yet. Announced notices get their own no-action section (see
+  // renderSeasonNoticesSection) instead of the actionable one.
+  function buildSeasonNotice(show, sequelTitle, sequelEpisodes, announced) {
     return {
       type: 'anime',
       key: `${show.id}::${sequelTitle}`,
       scope: show.scope,
-      text: `${show.title} → new season: "${sequelTitle}"`,
+      announced: !!announced,
+      text: announced
+        ? `${show.title} → Season ${(show.totalSeasons || 1) + 1} announced: "${sequelTitle}" (no air date yet)`
+        : `${show.title} → new season: "${sequelTitle}"`,
       showId: show.id,
       showTitle: show.title,
       posterUrl: show.posterUrl,
@@ -3683,7 +3713,7 @@
   async function checkAnimeSequel(show) {
     const query = `query ($s: String) { Media(search: $s, type: ANIME) {
       episodes
-      relations { edges { relationType node { title { romaji english } format episodes } } }
+      relations { edges { relationType node { title { romaji english } format episodes status } } }
     } }`;
     try {
       const res = await fetch('https://graphql.anilist.co', {
@@ -3713,13 +3743,14 @@
       // doesn't report Season 1's own episode count (still-airing edge case)
       // since there's nothing to safely compare against.
       if (media.episodes != null && show.totalEpisodes > media.episodes) return null;
-      return buildSeasonNotice(show, sequel.node.title.english || sequel.node.title.romaji, sequel.node.episodes);
+      const announced = sequel.node.status === 'NOT_YET_RELEASED';
+      return buildSeasonNotice(show, sequel.node.title.english || sequel.node.title.romaji, sequel.node.episodes, announced);
     } catch (e) {
       console.warn('AniList sequel check failed for', show.title, '— falling back to Jikan', e);
       const fallback = await fetchJikanAnimeSequel(show.title).catch(() => null);
       if (!fallback) return null;
       if (fallback.baseEpisodes != null && show.totalEpisodes > fallback.baseEpisodes) return null;
-      return buildSeasonNotice(show, fallback.title, fallback.episodes);
+      return buildSeasonNotice(show, fallback.title, fallback.episodes, fallback.announced);
     }
   }
 
@@ -3750,7 +3781,12 @@
     // anime.episodes is Season 1's own count, used the same way as AniList's
     // media.episodes above to guard against re-flagging an already-merged
     // (or deliberately dropped) season.
-    return { title: d.title_english || d.title, episodes: d.episodes || 0, baseEpisodes: anime.episodes ?? null };
+    return {
+      title: d.title_english || d.title,
+      episodes: d.episodes || 0,
+      baseEpisodes: anime.episodes ?? null,
+      announced: d.status === 'Not yet aired',
+    };
   }
 
   async function checkWesternSeason(show) {
@@ -3762,11 +3798,20 @@
     const detailRes = await fetch(`https://api.themoviedb.org/3/tv/${match.id}?api_key=${TMDB_API_KEY}`);
     const detail = await detailRes.json();
     if (detail.number_of_seasons && detail.number_of_seasons > show.totalSeasons) {
+      // TMDB adds a season row (with a possibly-future air_date, or none
+      // yet) as soon as a renewal is confirmed, same early-detection issue
+      // as AniList's SEQUEL edge -- so a season with no past air_date isn't
+      // actually watchable yet.
+      const seasonEntry = (detail.seasons || []).find(s => s.season_number === detail.number_of_seasons);
+      const announced = !seasonEntry?.air_date || new Date(seasonEntry.air_date) > new Date();
       return {
         type: 'western',
         key: `${show.id}::s${detail.number_of_seasons}`,
         scope: show.scope,
-        text: `${show.title} → Season ${detail.number_of_seasons} is now available (tracked through Season ${show.totalSeasons})`,
+        announced,
+        text: announced
+          ? `${show.title} → Season ${detail.number_of_seasons} announced (no air date yet)`
+          : `${show.title} → Season ${detail.number_of_seasons} is now available (tracked through Season ${show.totalSeasons})`,
         showId: show.id,
         showTitle: show.title,
         posterUrl: show.posterUrl,
@@ -4879,7 +4924,7 @@
       last_updated: new Date().toISOString().slice(0, 10),
     }).eq('id', notice.showId).eq('scope', notice.scope);
     if (checkWriteError(error)) return;
-    dismissSeasonNotice(notice.key);
+    dismissSeasonNotice(notice.key, notice.announced);
     removePendingSeasonNotice(notice.key);
     invalidateShowsCache();
     showToast(`Updated "${notice.showTitle}" to Season ${notice.newSeasonCount}`);
@@ -4905,7 +4950,7 @@
       last_updated: new Date().toISOString().slice(0, 10),
     }).eq('id', notice.showId).eq('scope', notice.scope);
     if (checkWriteError(error)) return;
-    dismissSeasonNotice(notice.key);
+    dismissSeasonNotice(notice.key, notice.announced);
     removePendingSeasonNotice(notice.key);
     invalidateShowsCache();
     showToast(`Moved "${notice.showTitle}" to Watchlist, tagged "${seasonTag}"`);
@@ -4924,30 +4969,56 @@
     const slot = document.getElementById('season-notices-section');
     document.getElementById('in-progress-divider').style.display = notices.length ? '' : 'none';
     if (!notices.length) { slot.innerHTML = ''; return; }
+    const released = notices.filter(n => !n.announced);
+    const announced = notices.filter(n => n.announced);
+    // Announced-but-unaired sequels get their own no-action section --
+    // nothing to watch yet, so "Add to In Progress"/"Add to Watchlist" would
+    // be misleading (and would bump total_episodes with a still-unconfirmed
+    // count). Just a heads-up with a Dismiss.
     slot.innerHTML = `
-      <div class="section-divider"><span>new seasons available</span></div>
-      <div id="season-notices-grid">
-        ${notices.map((n, i) => `
-          <div class="card">
-            ${n.posterUrl ? `<img class="card-poster" src="${n.posterUrl}" alt="" onerror="this.remove()">` : ''}
-            <div class="card-body">
-              <div class="card-top"><div class="card-title">${escapeHTML(n.showTitle)}</div></div>
-              <div class="card-stats"><span class="stat">${escapeHTML(n.text)}</span></div>
-              <div class="progress-controls">
-                <button class="btn btn-primary" data-idx="${i}" data-action="bump">Add to In Progress</button>
-                <button class="btn" data-idx="${i}" data-action="watchlist">Add to Watchlist</button>
-                <button class="btn" data-idx="${i}" data-action="dismiss">Dismiss</button>
+      ${released.length ? `
+        <div class="section-divider"><span>new seasons available</span></div>
+        <div id="season-notices-grid">
+          ${released.map((n, i) => `
+            <div class="card">
+              ${n.posterUrl ? `<img class="card-poster" src="${n.posterUrl}" alt="" onerror="this.remove()">` : ''}
+              <div class="card-body">
+                <div class="card-top"><div class="card-title">${escapeHTML(n.showTitle)}</div></div>
+                <div class="card-stats"><span class="stat">${escapeHTML(n.text)}</span></div>
+                <div class="progress-controls">
+                  <button class="btn btn-primary" data-idx="${i}" data-group="released" data-action="bump">Add to In Progress</button>
+                  <button class="btn" data-idx="${i}" data-group="released" data-action="watchlist">Add to Watchlist</button>
+                  <button class="btn" data-idx="${i}" data-group="released" data-action="dismiss">Dismiss</button>
+                </div>
               </div>
             </div>
-          </div>
-        `).join('')}
-      </div>
+          `).join('')}
+        </div>
+      ` : ''}
+      ${announced.length ? `
+        <div class="section-divider"><span>announced sequels</span></div>
+        <div id="announced-season-notices-grid">
+          ${announced.map((n, i) => `
+            <div class="card">
+              ${n.posterUrl ? `<img class="card-poster" src="${n.posterUrl}" alt="" onerror="this.remove()">` : ''}
+              <div class="card-body">
+                <div class="card-top"><div class="card-title">${escapeHTML(n.showTitle)}</div></div>
+                <div class="card-stats"><span class="stat">${escapeHTML(n.text)}</span></div>
+                <div class="progress-controls">
+                  <button class="btn" data-idx="${i}" data-group="announced" data-action="dismiss">Dismiss</button>
+                </div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      ` : ''}
     `;
     slot.querySelectorAll('[data-action]').forEach(btn => {
       btn.addEventListener('click', () => {
-        const notice = notices[parseInt(btn.dataset.idx, 10)];
+        const group = btn.dataset.group === 'announced' ? announced : released;
+        const notice = group[parseInt(btn.dataset.idx, 10)];
         if (btn.dataset.action === 'dismiss') {
-          dismissSeasonNotice(notice.key);
+          dismissSeasonNotice(notice.key, notice.announced);
           removePendingSeasonNotice(notice.key);
           renderSeasonNoticesSection(notices.filter(n => n.key !== notice.key));
         } else if (btn.dataset.action === 'watchlist') {
@@ -5907,6 +5978,7 @@
         const notice = await checkMediaSequel(m);
         if (notice && !dismissed.includes(notice.key)) notices.push(notice);
       } catch (e) { console.error('Sequel check failed for', m.title, e); }
+      await sleep(SEQUEL_CHECK_DELAY_MS);
     }
     if (notices.length) showMediaSequelsBanner(notices);
   }
