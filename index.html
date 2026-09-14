@@ -2694,12 +2694,9 @@
   // happening to be the highest score in whatever's currently on the
   // watchlist (confirmed live as too aggressive -- Karl's call, 2026-09-15:
   // keep it as a percentage, but a rating shouldn't get force-stretched to
-  // 100%). This does mean an inferred item can occasionally display a
-  // HIGHER percentage than an own-rated item ranked above it in the list
-  // (their two scales aren't the same shape) -- a known imperfection,
-  // accepted for now rather than solved by hiding the number entirely.
-  // Only genuinely unrated items go through scoreAffinity's inference and
-  // get the min-max stretch.
+  // 100%). Only genuinely unrated items go through scoreAffinity's
+  // inference and get the min-max stretch -- see the sort below for how
+  // the list handles these two differently-shaped scales sharing one page.
   function applyAffinityRanking(items, affinity) {
     if (affinity.ratedCount < MIN_RATED_FOR_AFFINITY) return items;
     const scored = items.map(item => ({
@@ -2718,12 +2715,17 @@
         s.item._matchPct = Math.round((spread > 0 ? (s.inferred - min) / spread : s.inferred / 5) * 100);
       }
     });
-    // Own-rated and inferred items still share the same underlying 0-5
-    // scale for RANKING purposes even though their displayed _matchPct
-    // isn't on a comparable shape -- sorting by that raw value keeps the
-    // list order meaningful (best real/predicted enjoyment first) even
-    // though the numbers alongside it don't always decrease monotonically.
-    scored.sort((a, b) => ((b.ownRating ?? b.inferred) ?? -1) - ((a.ownRating ?? a.inferred) ?? -1));
+    // Sorts by the DISPLAYED _matchPct itself (not the underlying raw 0-5
+    // value) -- tried sorting by raw value first, since own-rated and
+    // inferred scores share that scale even though their percentages
+    // don't; rejected live (Karl, 2026-09-15): with rating/5*100 no
+    // longer stretched (see above), that put a real 80% row above a mere
+    // guessed 100% row, which reads as visibly out of order on a list
+    // that's showing percentages front and center. Sorting by what's
+    // actually printed on screen keeps the list visually consistent, at
+    // the cost of an inferred guess occasionally outranking a real
+    // rating in list position -- accepted trade for now.
+    scored.sort((a, b) => (b.item._matchPct ?? -1) - (a.item._matchPct ?? -1));
     return scored.map(s => s.item);
   }
 
