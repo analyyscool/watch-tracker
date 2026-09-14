@@ -4037,12 +4037,14 @@
   // one), so re-querying AniList/TMDB for the same "definitely finished"
   // shows on every single refresh is pure waste -- both the ~15-20s wait
   // for a full library, and unnecessary load against APIs already
-  // documented elsewhere in this file as flaky under load. A null result
-  // is trusted for CALENDAR_SHOW_NEGATIVE_CACHE_MS before re-checking (a
-  // finished show could technically un-finish via a surprise revival, but
-  // that's rare enough to accept a day of lag on); a real result is
-  // always re-fetched fresh so a shifted air date or newly-passed episode
-  // stays accurate.
+  // documented elsewhere in this file as flaky under load. `result` is
+  // always an array of upcoming {episode,airingAt} entries (possibly
+  // several, since a show can have multiple not-yet-aired episodes); an
+  // EMPTY array is trusted for CALENDAR_SHOW_NEGATIVE_CACHE_MS before
+  // re-checking (a finished show could technically un-finish via a
+  // surprise revival, but that's rare enough to accept a day of lag on).
+  // A non-empty result is always re-fetched fresh so a shifted air date
+  // or newly-aired episode stays accurate.
   const CALENDAR_SHOW_NEGATIVE_CACHE_MS = 24 * 60 * 60 * 1000;
 
   function getShowAiringCache(showId) {
@@ -4058,9 +4060,31 @@
     localStorage.setItem('calendarShowCache', JSON.stringify(all));
   }
 
-  async function fetchAniListNextAiring(title) {
-    const query = `query ($s: String) { Media(search: $s, type: ANIME) {
-      nextAiringEpisode { episode airingAt }
+  // Returns every remaining not-yet-aired episode for a title's CURRENT
+  // season, not just the next one -- a single `nextAiringEpisode` call
+  // only ever shows one week at a time, understating a weekly show's
+  // real presence on the calendar. `null` = fetch failure, `[]` = fetch
+  // succeeded and genuinely nothing upcoming (already-finished show).
+  //
+  // A plain `Media(search: title)` single-entry lookup (the original
+  // implementation) reliably resolves to the FRANCHISE'S ORIGINAL/first
+  // season, not whatever's airing now -- AniList gives each cour/season
+  // its own separate Media entry (unlike TMDB, which keeps one show id
+  // across all seasons), so searching "Re:Zero" matches the finished
+  // 2016 season while "Re:ZERO -Starting Life in Another World- Season
+  // 4" airs under a completely different id (confirmed live, along with
+  // Bleach TYBW and Mushoku Tensei having the exact same problem). Fix:
+  // search broadly and prefer the newest RELEASING TV/MOVIE entry over
+  // the top text match. Format-restricted to TV/MOVIE so a same-franchise
+  // side-short (e.g. Re:Zero's "Break Time" ONA shorts, which sort ahead
+  // of the real season by start date) doesn't win instead.
+  async function fetchAniListUpcomingEpisodes(title) {
+    const query = `query ($s: String) { Page(perPage: 10) {
+      media(search: $s, type: ANIME, sort: START_DATE_DESC) {
+        format status
+        nextAiringEpisode { episode }
+        airingSchedule(notYetAired: true, perPage: 25) { nodes { episode airingAt } }
+      }
     } }`;
     try {
       const res = await fetch('https://graphql.anilist.co', {
@@ -4069,10 +4093,13 @@
         body: JSON.stringify({ query, variables: { s: title } })
       });
       const json = await res.json();
-      const next = json?.data?.Media?.nextAiringEpisode;
-      return next ? { episode: next.episode, airingAt: next.airingAt * 1000 } : null;
+      const media = json?.data?.Page?.media || [];
+      const releasing = media.find(m => m.status === 'RELEASING' && (m.format === 'TV' || m.format === 'MOVIE') && m.nextAiringEpisode);
+      const best = releasing || media[0];
+      const nodes = best?.airingSchedule?.nodes || [];
+      return nodes.map(n => ({ episode: n.episode, airingAt: n.airingAt * 1000 })).sort((a, b) => a.airingAt - b.airingAt);
     } catch (e) {
-      console.warn('AniList next-airing lookup failed for', title, e);
+      console.warn('AniList upcoming-episodes lookup failed for', title, e);
       return null;
     }
   }
@@ -4120,28 +4147,40 @@
     const airingCandidates = rows.filter(s => (s.category === 'anime' || s.category === 'western') && s.listStatus === 'watching');
     const movieCandidates = rows.filter(s => s.category === 'movie' && s.listStatus === 'watchlist');
 
+    // Cache always stores an ARRAY of upcoming {episode,airingAt} entries
+    // (possibly empty) regardless of source, so the negative-cache check
+    // below is uniform across anime (many possible upcoming episodes)
+    // and western/movie (at most one).
+    const isCachedEmpty = cached => cached && Array.isArray(cached.result) && cached.result.length === 0 && (Date.now() - cached.checkedAt) < CALENDAR_SHOW_NEGATIVE_CACHE_MS;
+
     const entries = [];
     for (const show of airingCandidates) {
       const cached = getShowAiringCache(show.id);
-      const trustCachedNull = cached && cached.result == null && (Date.now() - cached.checkedAt) < CALENDAR_SHOW_NEGATIVE_CACHE_MS;
-      let next = null;
-      if (!trustCachedNull) {
-        next = show.category === 'anime' ? await fetchAniListNextAiring(show.title) : await fetchTMDBNextEpisode(show.title);
-        setShowAiringCache(show.id, next);
+      let episodes;
+      if (isCachedEmpty(cached)) {
+        episodes = [];
+      } else {
+        const result = show.category === 'anime'
+          ? await fetchAniListUpcomingEpisodes(show.title)
+          : await fetchTMDBNextEpisode(show.title).then(r => (r ? [r] : []));
+        episodes = result != null ? result : (cached?.result || []);
+        if (result != null) setShowAiringCache(show.id, episodes);
         await sleep(SEQUEL_CHECK_DELAY_MS);
       }
-      if (next) entries.push({ ...show, episode: next.episode, airingAt: next.airingAt });
+      episodes.forEach(ep => entries.push({ ...show, episode: ep.episode, airingAt: ep.airingAt, entryKey: `${show.id}::${ep.episode ?? ep.airingAt}` }));
     }
     for (const movie of movieCandidates) {
       const cached = getShowAiringCache(movie.id);
-      const trustCachedNull = cached && cached.result == null && (Date.now() - cached.checkedAt) < CALENDAR_SHOW_NEGATIVE_CACHE_MS;
-      let next = null;
-      if (!trustCachedNull) {
-        next = await fetchTMDBMovieRelease(movie.title);
-        setShowAiringCache(movie.id, next);
+      let episodes;
+      if (isCachedEmpty(cached)) {
+        episodes = [];
+      } else {
+        const next = await fetchTMDBMovieRelease(movie.title);
+        episodes = next ? [next] : [];
+        setShowAiringCache(movie.id, episodes);
         await sleep(SEQUEL_CHECK_DELAY_MS);
       }
-      if (next) entries.push({ ...movie, episode: null, airingAt: next.airingAt });
+      episodes.forEach(ep => entries.push({ ...movie, episode: null, airingAt: ep.airingAt, entryKey: `${movie.id}::${ep.airingAt}` }));
     }
     entries.sort((a, b) => a.airingAt - b.airingAt);
     setCalendarCache(scope, entries);
@@ -4175,7 +4214,7 @@
       const dateLabel = new Date(e.airingAt).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
       const epLabel = e.episode != null ? ` Ep ${e.episode}` : '';
       return `
-        <div class="calendar-upcoming-item" data-show-id="${e.id}">
+        <div class="calendar-upcoming-item" data-entry-key="${e.entryKey || e.id}">
           ${e.posterUrl ? `<img class="calendar-upcoming-thumb" src="${e.posterUrl}" alt="" onerror="this.remove()">` : ''}
           <div>
             <div class="calendar-upcoming-date">${dateLabel}</div>
@@ -4186,7 +4225,7 @@
     }).join('');
     el.querySelectorAll('.calendar-upcoming-item').forEach(row => {
       row.addEventListener('click', () => {
-        const entry = upcoming.find(e => e.id === row.dataset.showId);
+        const entry = upcoming.find(e => (e.entryKey || e.id) === row.dataset.entryKey);
         if (entry) openShowDetailModal(entry, 'show');
       });
     });
@@ -4220,7 +4259,7 @@
       cells.push(`
         <div class="calendar-cell${key === todayKey ? ' calendar-cell-today' : ''}">
           <div class="calendar-cell-day">${day}</div>
-          ${dayEntries.slice(0, 3).map(e => `<div class="calendar-cell-entry" data-show-id="${e.id}" title="${escapeHTML(e.title)}">${escapeHTML(e.title)}${e.episode != null ? ` Ep${e.episode}` : ''}</div>`).join('')}
+          ${dayEntries.slice(0, 3).map(e => `<div class="calendar-cell-entry" data-entry-key="${e.entryKey || e.id}" title="${escapeHTML(e.title)}">${escapeHTML(e.title)}${e.episode != null ? ` Ep${e.episode}` : ''}</div>`).join('')}
           ${dayEntries.length > 3 ? `<div class="calendar-cell-more">+${dayEntries.length - 3} more</div>` : ''}
         </div>
       `);
@@ -4231,7 +4270,7 @@
     `;
     grid.querySelectorAll('.calendar-cell-entry').forEach(el => {
       el.addEventListener('click', () => {
-        const entry = entries.find(e => e.id === el.dataset.showId);
+        const entry = entries.find(e => (e.entryKey || e.id) === el.dataset.entryKey);
         if (entry) openShowDetailModal(entry, 'show');
       });
     });
