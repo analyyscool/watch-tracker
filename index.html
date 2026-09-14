@@ -3871,10 +3871,24 @@
   // would have succeeded. Non-429 responses (including other error
   // statuses) are returned as-is on the first attempt, matching a plain
   // fetch's contract -- only 429 specifically triggers a retry here.
+  //
+  // Confirmed live this wasn't actually working: AniList's 429 sometimes
+  // comes back with no CORS header at all, which means the browser never
+  // hands JS a Response with status 429 -- fetch() itself REJECTS with a
+  // CORS TypeError instead. The original version had no try/catch around
+  // the fetch call, so that rejection propagated immediately on the very
+  // first attempt, skipping the retry loop entirely -- exactly the
+  // scenario this function exists to survive. Now a thrown fetch error is
+  // treated the same as a resolved 429: retried with the same backoff,
+  // and only re-thrown once retries are exhausted.
   async function fetchWithRetry429(url, options, retries = 2, backoffMs = 2500) {
     for (let attempt = 0; ; attempt++) {
-      const res = await fetch(url, options);
-      if (res.status !== 429 || attempt >= retries) return res;
+      try {
+        const res = await fetch(url, options);
+        if (res.status !== 429 || attempt >= retries) return res;
+      } catch (e) {
+        if (attempt >= retries) throw e;
+      }
       await sleep(backoffMs * (attempt + 1));
     }
   }
