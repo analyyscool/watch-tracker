@@ -933,6 +933,109 @@
   }
   .rec-dismiss-btn:hover { color: var(--text); }
 
+  /* ── Calendar ── */
+  .calendar-layout {
+    display: flex;
+    gap: 1.5rem;
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .calendar-main { flex: 2 1 480px; min-width: 0; }
+  .calendar-side { flex: 1 1 260px; min-width: 0; }
+
+  .calendar-nav {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    margin-bottom: 0.75rem;
+  }
+  .calendar-month-label {
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 0.85rem;
+    min-width: 10rem;
+    text-align: center;
+  }
+
+  .calendar-weekday-row, .calendar-days {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 0.3rem;
+  }
+  .calendar-weekday {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.55rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    text-align: center;
+    padding-bottom: 0.3rem;
+  }
+  .calendar-cell {
+    min-height: 5.5rem;
+    border: 1px solid var(--border2);
+    border-radius: 6px;
+    padding: 0.3rem;
+    background: var(--surface);
+    overflow: hidden;
+  }
+  .calendar-cell-empty { border: none; background: transparent; }
+  .calendar-cell-today { border-color: var(--accent); }
+  .calendar-cell-day {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.6rem;
+    color: var(--muted);
+    margin-bottom: 0.2rem;
+  }
+  .calendar-cell-today .calendar-cell-day { color: var(--accent); }
+  .calendar-cell-entry {
+    font-size: 0.6rem;
+    color: var(--text);
+    background: var(--surface2);
+    border-radius: 3px;
+    padding: 0.1rem 0.3rem;
+    margin-bottom: 0.15rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+  }
+  .calendar-cell-entry:hover { background: var(--accent); color: #fff; }
+  .calendar-cell-more {
+    font-size: 0.55rem;
+    color: var(--muted);
+  }
+
+  .calendar-upcoming-item {
+    display: flex;
+    gap: 0.6rem;
+    align-items: center;
+    padding: 0.5rem 0.25rem;
+    border-bottom: 1px solid var(--border2);
+    cursor: pointer;
+  }
+  .calendar-upcoming-item:hover { background: var(--surface2); }
+  .calendar-upcoming-thumb {
+    width: 36px;
+    height: 52px;
+    object-fit: cover;
+    border-radius: 4px;
+    flex-shrink: 0;
+    background: var(--border2);
+  }
+  .calendar-upcoming-date {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.58rem;
+    color: var(--muted);
+  }
+  .calendar-upcoming-title {
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 0.72rem;
+    color: var(--text);
+  }
+
   .watchlist-remove {
     font-size: 0.85rem;
     line-height: 1;
@@ -1350,15 +1453,17 @@
   }
   .spinwheel-selector { display: flex; flex-wrap: wrap; gap: 0.4rem; flex: 1; }
   .wheel-pill {
-    padding: 0.35rem 0.75rem;
-    font-size: 0.72rem;
-    font-family: 'Syne', sans-serif;
-    font-weight: 600;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.65rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 0.4rem 0.9rem;
     border: 1px solid var(--border2);
-    border-radius: 999px;
-    background: var(--surface);
+    border-radius: 4px;
+    background: transparent;
     color: var(--muted);
     cursor: pointer;
+    transition: border-color 0.15s, color 0.15s, background 0.15s;
   }
   .wheel-pill:hover { color: var(--text); border-color: var(--accent); }
   .wheel-pill.active { background: var(--accent); color: #fff; border-color: var(--accent); }
@@ -1792,6 +1897,7 @@
     <button class="tab-btn active" data-toptab="tvmovies">TV / Movies</button>
     <button class="tab-btn" data-toptab="reading">Reading</button>
     <button class="tab-btn" data-toptab="recommendations">Recommendations</button>
+    <button class="tab-btn" data-toptab="calendar">Calendar</button>
     <button class="tab-btn" data-toptab="stats">Stats</button>
   </div>
 
@@ -1906,6 +2012,19 @@
     </div>
   </div>
 
+  <div class="modal-backdrop" id="surprise-result-modal">
+    <div class="modal" style="position:relative">
+      <button class="modal-x-close" id="surprise-result-close" aria-label="Close">&times;</button>
+      <h2>Surprise pick&hellip;</h2>
+      <div id="surprise-result-body"></div>
+      <div class="modal-actions" style="flex-wrap:wrap">
+        <button class="btn rec-add-btn" id="surprise-result-add">+ Watchlist</button>
+        <button class="btn rec-start-btn" id="surprise-result-start">&#9654; Start Now</button>
+        <button class="btn" id="surprise-result-again">Surprise me again</button>
+      </div>
+    </div>
+  </div>
+
   <canvas id="confetti-canvas"></canvas>
 
   <div id="view-reading" style="display:none">
@@ -1993,6 +2112,24 @@
   <div id="view-stats" style="display:none"></div>
 
   <div id="view-recommendations" style="display:none"></div>
+
+  <div id="view-calendar" style="display:none">
+    <div id="calendar-stale-note" style="display:none; font-size:0.65rem; color:var(--muted); margin:0 0 0.75rem"></div>
+    <div class="calendar-layout">
+      <div class="calendar-main">
+        <div class="calendar-nav">
+          <button class="btn" id="calendar-prev-month">&larr;</button>
+          <div class="calendar-month-label" id="calendar-month-label"></div>
+          <button class="btn" id="calendar-next-month">&rarr;</button>
+        </div>
+        <div class="calendar-grid" id="calendar-grid"></div>
+      </div>
+      <div class="calendar-side">
+        <div class="rec-section-title">Upcoming</div>
+        <div id="calendar-upcoming-list"></div>
+      </div>
+    </div>
+  </div>
 
   <div id="view-tierlist" style="display:none">
     <div class="category-toggle">
@@ -3861,6 +3998,218 @@
     return null;
   }
 
+  // ── Calendar (upcoming episodes/releases) ──
+  // Confirmed-date-only: currently-watching anime/western shows' next
+  // episode, and watchlist movies with a future release date. No manga/
+  // manhwa here -- there's no structured "next chapter" date anywhere
+  // (not MangaDex, not AniList), only a guessable estimate from release
+  // cadence, which was deliberately left out rather than showing a
+  // confident-looking date that's actually a guess.
+  //
+  // Same title-search matching as checkAnimeSequel/checkWesternSeason
+  // above (no external id stored anywhere in this app's schema) and the
+  // same throttle/cache shape as checkNewSeasons -- refetch at most once
+  // every CALENDAR_CHECK_INTERVAL_MS, serve the cached list instantly
+  // otherwise so opening the tab doesn't block on a sequential fetch
+  // loop over every tracked show.
+  const CALENDAR_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+
+  function getCalendarCache(scope) {
+    try {
+      const all = JSON.parse(localStorage.getItem('calendarCache') || '{}');
+      return all[scope] || null;
+    } catch { return null; }
+  }
+  function setCalendarCache(scope, entries) {
+    let all = {};
+    try { all = JSON.parse(localStorage.getItem('calendarCache') || '{}'); } catch {}
+    all[scope] = { entries, fetchedAt: Date.now() };
+    localStorage.setItem('calendarCache', JSON.stringify(all));
+  }
+
+  async function fetchAniListNextAiring(title) {
+    const query = `query ($s: String) { Media(search: $s, type: ANIME) {
+      nextAiringEpisode { episode airingAt }
+    } }`;
+    try {
+      const res = await fetch('https://graphql.anilist.co', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, variables: { s: title } })
+      });
+      const json = await res.json();
+      const next = json?.data?.Media?.nextAiringEpisode;
+      return next ? { episode: next.episode, airingAt: next.airingAt * 1000 } : null;
+    } catch (e) {
+      console.warn('AniList next-airing lookup failed for', title, e);
+      return null;
+    }
+  }
+
+  async function fetchTMDBNextEpisode(title) {
+    try {
+      const searchRes = await fetch(`https://api.themoviedb.org/3/search/tv?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(title)}`);
+      const searchJson = await searchRes.json();
+      const match = (searchJson.results || [])[0];
+      if (!match) return null;
+      const detailRes = await fetch(`https://api.themoviedb.org/3/tv/${match.id}?api_key=${TMDB_API_KEY}`);
+      const detail = await detailRes.json();
+      const next = detail.next_episode_to_air;
+      if (!next?.air_date) return null;
+      return { episode: next.episode_number, airingAt: new Date(next.air_date + 'T00:00:00').getTime() };
+    } catch (e) {
+      console.warn('TMDB next-episode lookup failed for', title, e);
+      return null;
+    }
+  }
+
+  async function fetchTMDBMovieRelease(title) {
+    try {
+      const searchRes = await fetch(`https://api.themoviedb.org/3/search/movie?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(title)}`);
+      const searchJson = await searchRes.json();
+      const match = (searchJson.results || [])[0];
+      if (!match?.release_date) return null;
+      const airingAt = new Date(match.release_date + 'T00:00:00').getTime();
+      return airingAt > Date.now() ? { episode: null, airingAt } : null;
+    } catch (e) {
+      console.warn('TMDB movie release lookup failed for', title, e);
+      return null;
+    }
+  }
+
+  async function refreshCalendarEntries(scope) {
+    const rows = await fetchShows(scope);
+    const airingCandidates = rows.filter(s => (s.category === 'anime' || s.category === 'western') && s.listStatus === 'watching');
+    const movieCandidates = rows.filter(s => s.category === 'movie' && s.listStatus === 'watchlist');
+
+    const entries = [];
+    for (const show of airingCandidates) {
+      const next = show.category === 'anime' ? await fetchAniListNextAiring(show.title) : await fetchTMDBNextEpisode(show.title);
+      if (next) entries.push({ ...show, episode: next.episode, airingAt: next.airingAt });
+      await sleep(SEQUEL_CHECK_DELAY_MS);
+    }
+    for (const movie of movieCandidates) {
+      const next = await fetchTMDBMovieRelease(movie.title);
+      if (next) entries.push({ ...movie, episode: null, airingAt: next.airingAt });
+      await sleep(SEQUEL_CHECK_DELAY_MS);
+    }
+    entries.sort((a, b) => a.airingAt - b.airingAt);
+    setCalendarCache(scope, entries);
+    return entries;
+  }
+
+  async function loadCalendarEntries(scope, { force = false } = {}) {
+    const cached = getCalendarCache(scope);
+    if (cached && !force && (Date.now() - cached.fetchedAt) < CALENDAR_CHECK_INTERVAL_MS) {
+      return { entries: cached.entries, stale: false };
+    }
+    try {
+      return { entries: await refreshCalendarEntries(scope), stale: false };
+    } catch (e) {
+      console.error('Calendar refresh failed', e);
+      return { entries: cached ? cached.entries : [], stale: true };
+    }
+  }
+
+  let calendarViewDate = new Date();
+  let calendarEntriesCache = [];
+
+  function renderCalendarUpcomingList(entries) {
+    const el = document.getElementById('calendar-upcoming-list');
+    const upcoming = entries.filter(e => e.airingAt >= Date.now()).slice(0, 30);
+    if (!upcoming.length) {
+      el.innerHTML = `<p style="font-size:0.7rem; color:var(--muted)">Nothing upcoming right now.</p>`;
+      return;
+    }
+    el.innerHTML = upcoming.map(e => {
+      const dateLabel = new Date(e.airingAt).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+      const epLabel = e.episode != null ? ` Ep ${e.episode}` : '';
+      return `
+        <div class="calendar-upcoming-item" data-show-id="${e.id}">
+          ${e.posterUrl ? `<img class="calendar-upcoming-thumb" src="${e.posterUrl}" alt="" onerror="this.remove()">` : ''}
+          <div>
+            <div class="calendar-upcoming-date">${dateLabel}</div>
+            <div class="calendar-upcoming-title">${escapeHTML(e.title)}${epLabel}</div>
+          </div>
+        </div>
+      `;
+    }).join('');
+    el.querySelectorAll('.calendar-upcoming-item').forEach(row => {
+      row.addEventListener('click', () => {
+        const entry = upcoming.find(e => e.id === row.dataset.showId);
+        if (entry) openShowDetailModal(entry, 'show');
+      });
+    });
+  }
+
+  function renderCalendarGrid(entries) {
+    const grid = document.getElementById('calendar-grid');
+    const label = document.getElementById('calendar-month-label');
+    const year = calendarViewDate.getFullYear();
+    const month = calendarViewDate.getMonth();
+    label.textContent = calendarViewDate.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+
+    const byDay = new Map();
+    entries.forEach(e => {
+      const d = new Date(e.airingAt);
+      const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+      if (!byDay.has(key)) byDay.set(key, []);
+      byDay.get(key).push(e);
+    });
+
+    const startWeekday = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const today = new Date();
+    const todayKey = `${today.getFullYear()}-${today.getMonth()}-${today.getDate()}`;
+
+    const cells = [];
+    for (let i = 0; i < startWeekday; i++) cells.push('<div class="calendar-cell calendar-cell-empty"></div>');
+    for (let day = 1; day <= daysInMonth; day++) {
+      const key = `${year}-${month}-${day}`;
+      const dayEntries = byDay.get(key) || [];
+      cells.push(`
+        <div class="calendar-cell${key === todayKey ? ' calendar-cell-today' : ''}">
+          <div class="calendar-cell-day">${day}</div>
+          ${dayEntries.slice(0, 3).map(e => `<div class="calendar-cell-entry" data-show-id="${e.id}" title="${escapeHTML(e.title)}">${escapeHTML(e.title)}${e.episode != null ? ` Ep${e.episode}` : ''}</div>`).join('')}
+          ${dayEntries.length > 3 ? `<div class="calendar-cell-more">+${dayEntries.length - 3} more</div>` : ''}
+        </div>
+      `);
+    }
+    grid.innerHTML = `
+      <div class="calendar-weekday-row">${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => `<div class="calendar-weekday">${d}</div>`).join('')}</div>
+      <div class="calendar-days">${cells.join('')}</div>
+    `;
+    grid.querySelectorAll('.calendar-cell-entry').forEach(el => {
+      el.addEventListener('click', () => {
+        const entry = entries.find(e => e.id === el.dataset.showId);
+        if (entry) openShowDetailModal(entry, 'show');
+      });
+    });
+  }
+
+  async function renderCalendarTab({ force = false } = {}) {
+    const staleNote = document.getElementById('calendar-stale-note');
+    staleNote.style.display = 'none';
+    calendarViewDate = new Date();
+    const { entries, stale } = await loadCalendarEntries(activeScope, { force });
+    calendarEntriesCache = entries;
+    if (stale) {
+      staleNote.style.display = '';
+      staleNote.textContent = "Couldn't refresh — showing last known upcoming dates.";
+    }
+    renderCalendarGrid(calendarEntriesCache);
+    renderCalendarUpcomingList(calendarEntriesCache);
+  }
+
+  document.getElementById('calendar-prev-month').addEventListener('click', () => {
+    calendarViewDate.setMonth(calendarViewDate.getMonth() - 1);
+    renderCalendarGrid(calendarEntriesCache);
+  });
+  document.getElementById('calendar-next-month').addEventListener('click', () => {
+    calendarViewDate.setMonth(calendarViewDate.getMonth() + 1);
+    renderCalendarGrid(calendarEntriesCache);
+  });
+
   // ── Cover/poster search for the Add Show/Movie/Reading forms ──
   // Always returns candidates for the user to pick from -- never
   // auto-applies a top hit, since a blind match risks a wrong cover
@@ -3998,8 +4347,24 @@
   // legitimately contribute zero "because you liked X" entries rather
   // than padding the list with junk. Manga has no TV_SHORT/OVA-style
   // format distinction, so the format filter only applies to ANIME.
+  //
+  // TV/MOVIE-only originally excluded ONA and OVA outright as a proxy
+  // for "short-form padding" -- but that proxy was too blunt: it also
+  // silently blocked full-length, critically acclaimed releases that
+  // just happen to carry those format labels for distribution reasons
+  // rather than length/quality -- e.g. Netflix-original seasons are
+  // always tagged ONA regardless of being full 10-13 episode series
+  // (Cyberpunk: Edgerunners, score 85; Pluto, score 84; Devilman
+  // Crybaby, score 76), and several genuinely feature-length or
+  // multi-episode OVAs are widely considered classics (Rurouni Kenshin:
+  // Trust & Betrayal, score 85; Hellsing Ultimate, score 81). The
+  // MIN_RECOMMENDATION_VOTES engagement gate above already does the
+  // real work of filtering out the shorts/promos/chibi-spinoff junk
+  // Frieren's padded list was full of, so ONA/OVA no longer need a
+  // blanket format ban on top of it -- SPECIAL and TV_SHORT (true
+  // shorts/promos by definition) stay excluded.
   const MIN_RECOMMENDATION_VOTES = 3;
-  const ANIME_RECOMMENDATION_FORMATS = new Set(['TV', 'MOVIE']);
+  const ANIME_RECOMMENDATION_FORMATS = new Set(['TV', 'MOVIE', 'ONA', 'OVA']);
 
   // A single `Media(search:)` call blindly trusts AniList's own top-hit
   // ranking, which can pick the wrong entry outright -- confirmed live:
@@ -4145,7 +4510,7 @@
     const query = `query ($genre: String, $type: MediaType, $perPage: Int) {
       Page(perPage: $perPage) {
         media(genre_in: [$genre], type: $type, sort: SCORE_DESC) {
-          id popularity title { romaji english } genres coverImage { large } studios(isMain: true) { nodes { name } } averageScore ${RELATION_FIELDS}
+          id popularity format title { romaji english } genres coverImage { large } studios(isMain: true) { nodes { name } } averageScore ${RELATION_FIELDS}
         }
       }
     }`;
@@ -4167,6 +4532,15 @@
         const media = json?.data?.Page?.media || [];
         media.forEach(m => {
           if (seenIds.has(m.id)) return;
+          // Same quality gate as the seed-recommendations path (see
+          // ANIME_RECOMMENDATION_FORMATS' own comment) -- this query has
+          // no per-edge vote count to gate on the way seed recommendations
+          // do, so format is the only signal here separating a real show
+          // from a MUSIC-format PV, SPECIAL, or TV_SHORT (confirmed live:
+          // AniList's "Idol" entry -- YOASOBI's Oshi no Ko theme song music
+          // video -- is format MUSIC, genre "Psychological", score 86,
+          // popular enough to otherwise rank above real shows in that genre).
+          if (type === 'ANIME' && !ANIME_RECOMMENDATION_FORMATS.has(m.format)) return;
           seenIds.add(m.id);
           merged.push({
             anilistId: m.id,
@@ -4231,7 +4605,7 @@
       Page(page: $page, perPage: 50) {
         pageInfo { hasNextPage }
         media(type: $type, sort: SCORE_DESC) {
-          id title { romaji english } genres coverImage { large } studios(isMain: true) { nodes { name } } averageScore popularity ${RELATION_FIELDS}
+          id format title { romaji english } genres coverImage { large } studios(isMain: true) { nodes { name } } averageScore popularity ${RELATION_FIELDS}
         }
       }
     }`;
@@ -4252,7 +4626,12 @@
         if (!res.ok || json.errors) { console.warn('Peak-unseen recommendation search failed', res.status, json.errors); break; }
         anySucceeded = true;
         const media = json?.data?.Page?.media || [];
-        media.filter(m => (m.popularity || 0) >= PEAK_MIN_POPULARITY).forEach(m => {
+        // Same format gate as fetchGenreAffinityCandidates (see its
+        // comment) -- global SCORE_DESC surfaces the same MUSIC/PV/SPECIAL
+        // junk this section is meant to exclude just as readily as genre
+        // search does (AniList's "Idol" MUSIC entry, score 86, popularity
+        // 24,950, clears this section's own PEAK_MIN_POPULARITY floor).
+        media.filter(m => (m.popularity || 0) >= PEAK_MIN_POPULARITY && !(type === 'ANIME' && !ANIME_RECOMMENDATION_FORMATS.has(m.format))).forEach(m => {
           results.push({
             anilistId: m.id,
             malId: null,
@@ -4278,6 +4657,67 @@
     // lose most of its headroom to this function pre-truncating before
     // that ran at all.
     return anySucceeded ? results : null;
+  }
+
+  // Manual escape hatch for shows that every score/popularity-ranked
+  // candidate source above will always miss on principle, not by
+  // accident -- e.g. Kingdom: its first (only prequel-free, so only
+  // valid entry-point) season sits at AniList score 74/popularity 60k,
+  // while the franchise's later, actually-great seasons climb to 84-85
+  // but with far lower popularity (fewer viewers made it past the weak
+  // start). Genre-affinity only pulls the top ~50 per genre by
+  // SCORE_DESC and peak-unseen only the global top ~200 by score, so a
+  // 74 never surfaces through either path regardless of genre match --
+  // this isn't a bug to fix generically (there's no reliable "gets good
+  // later" signal), it's a manual override list for specific known
+  // cases. Add an AniList id here (see any show's URL,
+  // anilist.co/anime/<id>) to force it into consideration; still runs
+  // through the normal alreadyHave/dedup/isFreshEntry checks below, so
+  // adding an id you've already watched or that fails the franchise
+  // gate is a no-op, not a bypass of those.
+  const FORCED_RECOMMENDATION_IDS = {
+    anime: [12031], // Kingdom (2012) — see comment above
+    manga: [],
+  };
+
+  async function fetchForcedCandidates(category, type) {
+    const ids = FORCED_RECOMMENDATION_IDS[category] || [];
+    if (!ids.length) return [];
+    const query = `query ($id: Int, $type: MediaType) {
+      Media(id: $id, type: $type) {
+        id title { romaji english } genres coverImage { large } studios(isMain: true) { nodes { name } } averageScore popularity ${RELATION_FIELDS}
+      }
+    }`;
+    const results = [];
+    for (const id of ids) {
+      try {
+        const res = await fetch('https://graphql.anilist.co', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query, variables: { id, type } })
+        });
+        const json = await res.json();
+        const m = json?.data?.Media;
+        if (!res.ok || json.errors || !m) { console.warn('Forced-recommendation fetch failed for id', id, json.errors); continue; }
+        results.push({
+          anilistId: m.id,
+          malId: null,
+          title: m.title.english || m.title.romaji,
+          altTitles: [m.title.english, m.title.romaji].filter(Boolean),
+          genres: m.genres || [],
+          coverUrl: m.coverImage?.large || null,
+          studio: m.studios?.nodes?.[0]?.name || null,
+          relatedTitles: extractRelatedTitles(m.relations),
+          prequelTitles: extractPrequelTitles(m.relations),
+          score: m.averageScore ?? null,
+          popularity: m.popularity ?? null,
+          reason: 'forced',
+        });
+      } catch (e) {
+        console.warn('Forced-recommendation fetch failed for id', id, e);
+      }
+    }
+    return results;
   }
 
   // ── Recommendations: TMDB fetch ──
@@ -4488,6 +4928,30 @@
   // exactly two candidate sources instead of the three-source pattern used
   // by every other category (see computeBookRecommendations below).
 
+  // Filters out omnibus/box-set/bundle listings, which Open Library's
+  // search freely mixes in alongside individual books (e.g. "The Mistborn
+  // Trilogy: The Final Empire, The Well of Ascension, The Hero of Ages")
+  // -- not a book someone can add a single reading-progress bar for, and
+  // not what "similar books" should be suggesting. Title-pattern based
+  // since neither search.json nor the subjects endpoint expose a
+  // structured "this is a bundle" flag.
+  const BOOK_COLLECTION_TITLE_PATTERN = /\b(box(?:ed)?\s*set|omnibus|bundle|complete\s+(?:series|collection|trilogy|duology|saga)|\d+[\s-]*book\s+(?:set|series|collection)|books?\s+\d+\s*[-–—]\s*\d+|vol(?:ume)?s?\.?\s*\d+\s*[-–—]\s*\d+)\b/i;
+  function isBookCollectionTitle(title) {
+    return !!title && BOOK_COLLECTION_TITLE_PATTERN.test(title);
+  }
+
+  // Author-search results carry a `language` field (array of ISO 639-2
+  // codes present across that work's editions) that the subject/genre
+  // search endpoint does NOT expose at all -- so English-only filtering
+  // only applies to the author-search source below; a subject-search
+  // candidate in another language currently has no signal to catch it on.
+  // A doc with no `language` field at all (sparse/older catalog entries)
+  // fails open rather than getting dropped, since an English book missing
+  // metadata is a more likely case than a foreign one with none.
+  function isNonEnglishByLanguageField(doc) {
+    return Array.isArray(doc.language) && doc.language.length > 0 && !doc.language.includes('eng');
+  }
+
   // Author-search and subject-search results come back with DIFFERENT
   // field names for the same concepts (cover_i vs cover_id, author_name[]
   // vs authors[].name) -- kept as two small mapper functions rather than
@@ -4523,10 +4987,12 @@
 
   async function fetchOpenLibraryAuthorCandidates(authorName, count) {
     try {
-      const res = await fetch(`https://openlibrary.org/search.json?author=${encodeURIComponent(authorName)}&limit=20&fields=title,author_name,cover_i,subject,key`);
+      const res = await fetch(`https://openlibrary.org/search.json?author=${encodeURIComponent(authorName)}&limit=20&fields=title,author_name,cover_i,subject,key,language`);
       if (!res.ok) return null;
       const json = await res.json();
-      const docs = json.docs || [];
+      const docs = (json.docs || [])
+        .filter(d => !isNonEnglishByLanguageField(d))
+        .filter(d => !isBookCollectionTitle(d.title));
       // Not sliced to `count` here -- the caller's own already-have/
       // dedup/dismissed filtering (Fix 1 above) needs real headroom to
       // work with, same "over-fetch, let the caller filter" convention
@@ -4557,7 +5023,9 @@
       if (res.status === 404) return [];
       if (!res.ok) return null;
       const json = await res.json();
-      const works = json.works || [];
+      // No language field on this endpoint (see isNonEnglishByLanguageField's
+      // comment) -- only the collection/box-set title filter applies here.
+      const works = (json.works || []).filter(w => !isBookCollectionTitle(w.title));
       return works.map(w => openLibrarySubjectWorkToCandidate(w, genre));
     } catch (e) {
       console.warn('Open Library subject search failed for', genre, e);
@@ -4796,19 +5264,22 @@
     const affinity = computeAffinity(rows);
     const topGenres = Object.entries(affinity.genreAvg).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([g]) => g);
     // Over-fetch to survive dedup filtering below.
+    // Forced picks (see fetchForcedCandidates) go first so they win the
+    // section's limited slots ahead of the score-ranked genre pool that
+    // would otherwise never surface them at all.
+    const forcedCandidates = await fetchForcedCandidates(category, type);
     const genreCandidates = await source.fetchGenreAffinity(topGenres, type, REC_SECTION_CAP + usedTitles.size + 10);
     const overallTasteFailed = genreCandidates === null;
     let overallTaste = [];
-    if (genreCandidates) {
-      for (const candidate of genreCandidates) {
-        if (overallTaste.length >= REC_SECTION_CAP) break;
-        if (candidateMatchesAny(candidate, alreadyHave) || candidateMatchesAny(candidate, usedTitles)) continue;
-        if (!(await source.isFreshEntry(candidate, alreadyHave))) continue;
-        if (dismissed.has(externalIdFor(candidate))) continue;
-        candidateTitleKeys(candidate).forEach(k => usedTitles.add(k));
-        const watchlistMatch = findWatchlistMatch(candidate, watchlistRows);
-        overallTaste.push({ ...candidate, reason: 'affinity', reasonDetail: topGenres.slice(0, 2).join('/'), sourceRating: null, alreadyOnWatchlist: !!watchlistMatch, watchlistTags: watchlistMatch?.tags || [] });
-      }
+    for (const candidate of [...forcedCandidates, ...(genreCandidates || [])]) {
+      if (overallTaste.length >= REC_SECTION_CAP) break;
+      if (candidateMatchesAny(candidate, alreadyHave) || candidateMatchesAny(candidate, usedTitles)) continue;
+      if (!(await source.isFreshEntry(candidate, alreadyHave))) continue;
+      if (dismissed.has(externalIdFor(candidate))) continue;
+      candidateTitleKeys(candidate).forEach(k => usedTitles.add(k));
+      const watchlistMatch = findWatchlistMatch(candidate, watchlistRows);
+      const isForced = candidate.reason === 'forced';
+      overallTaste.push({ ...candidate, reason: isForced ? 'forced' : 'affinity', reasonDetail: isForced ? 'recommended pick' : topGenres.slice(0, 2).join('/'), sourceRating: null, alreadyOnWatchlist: !!watchlistMatch, watchlistTags: watchlistMatch?.tags || [] });
     }
 
     const peakCandidates = await source.fetchPeakUnseen(type, REC_SECTION_CAP + usedTitles.size + 10);
@@ -5459,17 +5930,28 @@
     });
   }
 
-  // ── Spin the Wheel (movie decider) ──
-  // A 3-reel slot machine that picks a movie to watch. The built-in
-  // "__watchlist__" wheel is synthesized each render from the active
-  // scope's watchlist movies; named wheels are user-built, global (not
-  // per scope), and stored — with their own watchlist + custom entries —
-  // under the single localStorage key `spinwheel:v1`. Each spin has a
-  // 50% chance of landing all three reels on one movie (→ result popup)
-  // and a 50% chance of a deliberate no-match (→ shake, spin again).
-  // Only "Mark watched" touches Supabase (via markMovieWatched).
+  // ── Spin the Wheel (what-to-watch decider) ──
+  // A 3-reel slot machine that picks something to watch. There are three
+  // built-in auto-wheels (one per category — movies, anime, shows), each
+  // synthesized each render from that category's watchlist in the active
+  // scope; kept separate rather than merged into one pool since "surprise
+  // me with anything" isn't actually what a decider is for — you're
+  // usually in the mood for a specific kind of thing. Named wheels are
+  // user-built, global (not per scope), and stored — with their own
+  // watchlist + custom entries — under the single localStorage key
+  // `spinwheel:v1`. Each spin has a 50% chance of landing all three reels
+  // on one entry (→ result popup) and a 50% chance of a deliberate
+  // no-match (→ shake, spin again). Only "Mark watched" touches Supabase
+  // (via markMovieWatched, which despite the name just flips any
+  // shows-table row — movie or show — to finished).
   const SPIN_KEY = 'spinwheel:v1';
-  const WATCHLIST_WHEEL = '__watchlist__';
+  const AUTO_WHEELS = [
+    { id: '__watchlist_movie__', category: 'movie', label: 'Movie Watchlist' },
+    { id: '__watchlist_anime__', category: 'anime', label: 'Anime Watchlist' },
+    { id: '__watchlist_western__', category: 'western', label: 'Show Watchlist' },
+  ];
+  const DEFAULT_WHEEL = AUTO_WHEELS[0].id;
+  function autoWheelFor(id) { return AUTO_WHEELS.find(w => w.id === id) || null; }
 
   function loadSpinState() {
     try {
@@ -5477,12 +5959,12 @@
       if (s && Array.isArray(s.wheels)) {
         return {
           wheels: s.wheels,
-          lastWheelId: s.lastWheelId || WATCHLIST_WHEEL,
+          lastWheelId: s.lastWheelId || DEFAULT_WHEEL,
           soundOn: s.soundOn !== false,
         };
       }
     } catch {}
-    return { wheels: [], lastWheelId: WATCHLIST_WHEEL, soundOn: true };
+    return { wheels: [], lastWheelId: DEFAULT_WHEEL, soundOn: true };
   }
   function saveSpinState() {
     try { localStorage.setItem(SPIN_KEY, JSON.stringify(spinState)); } catch {}
@@ -5490,7 +5972,7 @@
 
   let spinState = loadSpinState();
   let spinWheelId = spinState.lastWheelId;
-  let spinWatchlistMovies = [];   // active scope's watchlist movies (for the auto wheel + editor picker)
+  let spinWatchlistEntries = [];   // active scope's watchlist shows/movies (for the auto wheel + editor picker)
   let spinEntries = [];           // resolved entries for the current wheel: {key,type,title,runtimeMinutes,showId?,posterUrl?,entryIndex?}
   let spinWinner = null;          // resolved entry the last match landed on
   let spinning = false;
@@ -5502,19 +5984,20 @@
 
   async function resolveEntries() {
     const rows = await fetchShows(activeScope);
-    spinWatchlistMovies = rows
-      .filter(s => s.category === 'movie' && s.listStatus === 'watchlist')
+    spinWatchlistEntries = rows
+      .filter(s => s.listStatus === 'watchlist')
       .sort((a, b) => a.title.localeCompare(b.title));
 
-    if (spinWheelId === WATCHLIST_WHEEL) {
-      return spinWatchlistMovies.map(m => ({
+    const auto = autoWheelFor(spinWheelId);
+    if (auto) {
+      return spinWatchlistEntries.filter(m => m.category === auto.category).map(m => ({
         key: 'w:' + m.id, type: 'watchlist', showId: m.id, title: m.title,
         runtimeMinutes: m.runtimeMinutes, posterUrl: m.posterUrl,
       }));
     }
     const wheel = currentWheel();
     if (!wheel) return [];
-    const byId = new Map(spinWatchlistMovies.map(m => [m.id, m]));
+    const byId = new Map(spinWatchlistEntries.map(m => [m.id, m]));
     const out = [];
     wheel.entries.forEach((e, i) => {
       if (e.type === 'watchlist') {
@@ -5534,7 +6017,7 @@
   }
 
   async function renderSpinWheelTab() {
-    if (spinWheelId !== WATCHLIST_WHEEL && !currentWheel()) spinWheelId = WATCHLIST_WHEEL;
+    if (!autoWheelFor(spinWheelId) && !currentWheel()) spinWheelId = DEFAULT_WHEEL;
     renderWheelSelector();
     updateSoundButton();
     spinEntries = await resolveEntries();
@@ -5552,7 +6035,7 @@
       b.dataset.wheelId = id;
       return b;
     };
-    el.appendChild(pill(WATCHLIST_WHEEL, 'Movie Watchlist'));
+    AUTO_WHEELS.forEach(w => el.appendChild(pill(w.id, w.label)));
     spinState.wheels.forEach(w => el.appendChild(pill(w.id, w.name)));
     const nw = document.createElement('button');
     nw.className = 'wheel-pill';
@@ -5564,7 +6047,7 @@
   function renderWheelEditor() {
     const ed = document.getElementById('spinwheel-editor');
     const wheel = currentWheel();
-    if (spinWheelId === WATCHLIST_WHEEL || !wheel) { ed.style.display = 'none'; return; }
+    if (autoWheelFor(spinWheelId) || !wheel) { ed.style.display = 'none'; return; }
     ed.style.display = '';
     document.getElementById('wheel-rename').value = wheel.name;
 
@@ -5588,7 +6071,7 @@
     const onWheel = new Set(wheel.entries.filter(e => e.type === 'watchlist').map(e => e.showId));
     document.getElementById('wheel-add-watchlist').innerHTML =
       '<option value="">Add from watchlist…</option>' +
-      spinWatchlistMovies.filter(m => !onWheel.has(m.id))
+      spinWatchlistEntries.filter(m => !onWheel.has(m.id))
         .map(m => `<option value="${m.id}">${escapeHTML(m.title)}</option>`).join('');
   }
 
@@ -5600,14 +6083,14 @@
     if (spinEntries.length < 2) {
       stage.style.display = 'none';
       empty.style.cssText = 'display:block;font-size:0.78rem;color:var(--muted);padding:1.5rem 0;text-align:center';
-      empty.textContent = spinWheelId === WATCHLIST_WHEEL
-        ? 'Add at least 2 movies to the watchlist to spin.'
-        : 'Add at least 2 movies to this wheel to spin.';
+      empty.textContent = autoWheelFor(spinWheelId)
+        ? 'Add at least 2 titles to the watchlist to spin.'
+        : 'Add at least 2 titles to this wheel to spin.';
       return;
     }
     empty.style.display = 'none';
     stage.style.display = '';
-    count.textContent = `${spinEntries.length} movies on the wheel`;
+    count.textContent = `${spinEntries.length} titles on the wheel`;
     btn.disabled = false;
     if (!spinning) spinReels().forEach((r, i) => setReel(r, spinEntries[i % spinEntries.length].title));
   }
@@ -5698,7 +6181,7 @@
     const canWrite = canWriteScope(activeScope);
     document.getElementById('spin-result-watch').style.display = (entry.type === 'watchlist' && canWrite) ? '' : 'none';
     document.getElementById('spin-result-watched').style.display = (entry.type === 'watchlist' && canWrite) ? '' : 'none';
-    document.getElementById('spin-result-remove').style.display = (spinWheelId === WATCHLIST_WHEEL) ? 'none' : '';
+    document.getElementById('spin-result-remove').style.display = autoWheelFor(spinWheelId) ? 'none' : '';
     document.getElementById('spin-result-modal').classList.add('open');
   }
 
@@ -5709,7 +6192,7 @@
 
   function removeWinnerFromWheel() {
     const wheel = currentWheel();
-    if (spinWheelId === WATCHLIST_WHEEL || !wheel || !spinWinner || typeof spinWinner.entryIndex !== 'number') return;
+    if (autoWheelFor(spinWheelId) || !wheel || !spinWinner || typeof spinWinner.entryIndex !== 'number') return;
     wheel.entries.splice(spinWinner.entryIndex, 1);
     saveSpinState();
     renderSpinWheelTab();
@@ -5853,8 +6336,8 @@
     if (!wheel) return;
     if (!confirm(`Delete the "${wheel.name}" wheel?`)) return;
     spinState.wheels = spinState.wheels.filter(w => w.id !== wheel.id);
-    spinWheelId = WATCHLIST_WHEEL;
-    spinState.lastWheelId = WATCHLIST_WHEEL;
+    spinWheelId = DEFAULT_WHEEL;
+    spinState.lastWheelId = DEFAULT_WHEEL;
     saveSpinState();
     renderSpinWheelTab();
   });
@@ -6272,12 +6755,14 @@
                    <input type="number" class="total-pages-input" data-id="${m.id}" min="1" value="${m.totalPages || ''}" placeholder="?" title="Total pages — editable since different print editions vary">
                    <span class="progress-value">p</span>
                    <button class="btn mark-finished-btn" data-media-id="${m.id}">Mark Finished</button>
+                   <button class="btn reading-remove-btn" data-id="${m.id}" data-title="${escapeHTML(m.title)}">Remove</button>
                  </div>`
               : `<div class="progress-controls">
                    <button class="btn chapter-step" data-id="${m.id}" data-delta="-1">−</button>
                    <span class="progress-value">${m.totalVolumes ? `Vol ${m.currentVolume || 0}/${m.totalVolumes} · ` : ''}Ch ${m.currentChapter || 0}${m.totalChapters ? '/' + m.totalChapters : ''}</span>
                    <button class="btn chapter-step" data-id="${m.id}" data-delta="1">+</button>
                    <button class="btn mark-finished-btn" data-media-id="${m.id}">Mark Finished</button>
+                   <button class="btn reading-remove-btn" data-id="${m.id}" data-title="${escapeHTML(m.title)}">Remove</button>
                  </div>`)
           : '';
         const animeSyncBadge = m.chapterSyncedFromAnime
@@ -6448,6 +6933,14 @@
     if (chBtn) { bumpChapter(chBtn.dataset.id, parseInt(chBtn.dataset.delta, 10)); return; }
     const finBtn = e.target.closest('.mark-finished-btn[data-media-id]');
     if (finBtn) { markReadingFinished(finBtn.dataset.mediaId); return; }
+    const removeBtn = e.target.closest('.reading-remove-btn[data-id]');
+    if (removeBtn) {
+      if (!canWriteScope(activeScope)) return;
+      if (!confirm(`Remove "${removeBtn.dataset.title}" from your list entirely?`)) return;
+      supabase.from('written_media').delete().eq('id', removeBtn.dataset.id)
+        .then(({ error }) => { if (checkWriteError(error)) return; invalidateWrittenMediaCache(); loadReading(); });
+      return;
+    }
   });
 
   document.body.addEventListener('change', e => {
@@ -6922,12 +7415,9 @@
     tvmovies: ['watching', 'movie-watchlist', 'spinwheel', 'tierlist', 'ratings'],
     reading: ['reading', 'reading-ratings'],
     recommendations: ['recommendations'],
+    calendar: ['calendar'],
     stats: ['stats'],
   };
-  function toptabFor(tab) {
-    return Object.keys(TOPTAB_GROUPS).find(top => TOPTAB_GROUPS[top].includes(tab));
-  }
-
   // The header used to hard-code "Currently Watching" regardless of tab —
   // stale-looking once the site grew past a single-purpose show tracker.
   // Each tab gets its own eyebrow/title; only Watching/Reading get a live
@@ -6941,6 +7431,7 @@
     reading: { eyebrow: 'in progress', title: 'Currently Reading' },
     'reading-ratings': { eyebrow: 'rated', title: 'Reading Ratings' },
     recommendations: { eyebrow: 'discover', title: 'Recommendations' },
+    calendar: { eyebrow: 'upcoming', title: 'Calendar' },
     stats: { eyebrow: 'the numbers', title: 'Stats' },
   };
 
@@ -6965,6 +7456,7 @@
     document.getElementById('view-reading').style.display = tab === 'reading' ? '' : 'none';
     document.getElementById('view-reading-ratings').style.display = tab === 'reading-ratings' ? '' : 'none';
     document.getElementById('view-recommendations').style.display = tab === 'recommendations' ? '' : 'none';
+    document.getElementById('view-calendar').style.display = tab === 'calendar' ? '' : 'none';
     if (tab === 'tierlist') {
       watchedShowsCache = null;
       initTierlistView();
@@ -6991,8 +7483,9 @@
     if (tab === 'recommendations') {
       renderRecommendationsTab();
     }
-    const top = toptabFor(tab);
-    if (top) localStorage.setItem(`activeSubtab:${top}`, tab);
+    if (tab === 'calendar') {
+      renderCalendarTab();
+    }
   }
 
   document.querySelectorAll('#top-tabs .tab-btn').forEach(btn => {
@@ -7003,8 +7496,7 @@
       document.getElementById('tvmovies-subtabs').style.display = top === 'tvmovies' ? '' : 'none';
       document.getElementById('reading-subtabs').style.display = top === 'reading' ? '' : 'none';
       const group = TOPTAB_GROUPS[top];
-      const remembered = localStorage.getItem(`activeSubtab:${top}`);
-      activateSubtab(group.includes(remembered) ? remembered : group[0]);
+      activateSubtab(group[0]);
     });
   });
 
@@ -8047,6 +8539,22 @@
     return ` · <span class="rec-score-inline">${source} ${item.score}%</span>`;
   }
 
+  // Shared by every place that renders a recommendation card (the three
+  // section grids below, and the "Surprise me" result modal) so the
+  // reason label stays identical no matter where the item is shown.
+  function recReasonHTML(item) {
+    if (item.reason === 'because_rated') {
+      return `Because you rated <strong>${escapeHTML(item.reasonDetail)}</strong>${item.sourceRating != null ? ` ★${item.sourceRating}` : ''}`;
+    } else if (item.reason === 'by_author') {
+      return `More by <strong>${escapeHTML(item.reasonDetail)}</strong>`;
+    } else if (item.reason === 'affinity') {
+      return `Matches your ${escapeHTML(item.reasonDetail)} taste`;
+    } else if (item.reason === 'forced') {
+      return `Worth a look despite the score`;
+    }
+    return `Popular pick you haven't seen yet`;
+  }
+
   // Renders one section's grid (cards + dismiss/add handlers) into the
   // given container id. `list` is that section's array of recommendation
   // objects. Shared by all three sections in renderRecommendationsTab so
@@ -8058,16 +8566,7 @@
       return;
     }
     grid.innerHTML = list.map((item, idx) => {
-      let reasonHTML;
-      if (item.reason === 'because_rated') {
-        reasonHTML = `Because you rated <strong>${escapeHTML(item.reasonDetail)}</strong>${item.sourceRating != null ? ` ★${item.sourceRating}` : ''}`;
-      } else if (item.reason === 'by_author') {
-        reasonHTML = `More by <strong>${escapeHTML(item.reasonDetail)}</strong>`;
-      } else if (item.reason === 'affinity') {
-        reasonHTML = `Matches your ${escapeHTML(item.reasonDetail)} taste`;
-      } else {
-        reasonHTML = `Popular pick you haven't seen yet`;
-      }
+      const reasonHTML = recReasonHTML(item);
       const genresText = (item.genres || []).map(g => escapeHTML(g)).join(', ');
       return `
       <div class="rec-card rec-card-h" data-idx="${idx}">
@@ -8123,6 +8622,49 @@
     });
   }
 
+  // ── Recommendations: Surprise me ──
+  // Uniform-random pick from whichever category tab is currently open,
+  // pulled from that category's already-computed, already-quality-gated
+  // recommendation pool (every section combined) rather than a fresh
+  // fetch -- the sections are already the curated "top picks", so a
+  // plain random draw from them is the "weighted toward your taste"
+  // pick without needing a second scoring pass. Kept per-category
+  // (button lives inside the category tab's own render) rather than one
+  // mixed button across every media type, since "surprise me" usually
+  // means "within the kind of thing I'm in the mood for right now".
+  let surprisePool = [];
+  let surprisePoolCategory = null;
+
+  function openSurprisePick() {
+    if (!surprisePool.length) return;
+    const item = surprisePool[Math.floor(Math.random() * surprisePool.length)];
+    const genresText = (item.genres || []).map(g => escapeHTML(g)).join(', ');
+    document.getElementById('surprise-result-body').innerHTML = `
+      <div class="rec-card-h-top">
+        ${item.coverUrl ? `<img class="rec-card-h-img" src="${item.coverUrl}" alt="" onerror="this.remove()">` : `<div class="rec-card-h-img"></div>`}
+        <div class="rec-card-h-body">
+          <div class="rec-card-h-title">${escapeHTML(item.title)}</div>
+          <div class="rec-card-h-meta">${genresText}${recScoreBadgeHTML(item)}</div>
+          <div class="rec-card-h-reason">${recReasonHTML(item)}</div>
+        </div>
+      </div>
+    `;
+    const addBtn = document.getElementById('surprise-result-add');
+    addBtn.disabled = !!item.alreadyOnWatchlist;
+    addBtn.textContent = item.alreadyOnWatchlist ? 'On Watchlist' : '+ Watchlist';
+    addBtn.onclick = async () => { if (await addRecommendationItemToWatchlist(item, surprisePoolCategory, activeScope)) closeSurpriseResult(); };
+    document.getElementById('surprise-result-start').onclick = async () => { if (await startRecommendationItemNow(item, surprisePoolCategory, activeScope)) closeSurpriseResult(); };
+    document.getElementById('surprise-result-modal').classList.add('open');
+  }
+  function closeSurpriseResult() {
+    document.getElementById('surprise-result-modal').classList.remove('open');
+  }
+  document.getElementById('surprise-result-close').addEventListener('click', closeSurpriseResult);
+  document.getElementById('surprise-result-again').addEventListener('click', openSurprisePick);
+  document.getElementById('surprise-result-modal').addEventListener('click', e => {
+    if (e.target.id === 'surprise-result-modal') closeSurpriseResult();
+  });
+
   async function renderRecommendationsTab({ force = false } = {}) {
     const container = document.getElementById('view-recommendations');
     const isShowsCategory = activeRecCategory === 'anime' || activeRecCategory === 'western' || activeRecCategory === 'movie';
@@ -8151,7 +8693,8 @@
         <button class="tab-btn sub-tab-btn${activeRecCategory === 'western' ? ' active' : ''}" onclick="setRecCategory('western')">Western</button>
         <button class="tab-btn sub-tab-btn${activeRecCategory === 'movie' ? ' active' : ''}" onclick="setRecCategory('movie')">Movies</button>
         <button class="tab-btn sub-tab-btn${activeRecCategory === 'book' ? ' active' : ''}" onclick="setRecCategory('book')">Books</button>
-        <button class="btn" id="rec-refresh-btn" style="margin-left:auto">Refresh</button>
+        <button class="btn" id="rec-surprise-btn" style="margin-left:auto" disabled>&#127922; Surprise me</button>
+        <button class="btn" id="rec-refresh-btn">Refresh</button>
       </div>
       <div id="rec-stale-note" style="display:none; font-size:0.65rem; color:var(--muted); margin:0.5rem 0"></div>
       ${belowThreshold ? `<p style="font-size:0.75rem; color:var(--muted); margin-bottom:1rem">${activeRecCategory === 'book' ? 'Rate a few more books to unlock "More from authors you love" and "Matches your taste" recommendations.' : 'Rate a few more shows to unlock "Because you liked" and "Matches your taste" recommendations.'}</p>` : activeRecCategory === 'book' ? `
@@ -8200,6 +8743,14 @@
       }
     }
     if (activeRecCategory !== 'book') renderRecSectionGrid('rec-grid-peak', sections.peakUnseen);
+
+    surprisePoolCategory = activeRecCategory;
+    surprisePool = activeRecCategory === 'book'
+      ? [...(sections.byAuthor || []), ...(sections.overallTaste || [])]
+      : [...(sections.becauseYouLiked || []), ...(sections.overallTaste || []), ...(sections.peakUnseen || [])];
+    const surpriseBtn = document.getElementById('rec-surprise-btn');
+    surpriseBtn.disabled = surprisePool.length === 0;
+    surpriseBtn.onclick = openSurprisePick;
   }
 
   // ── Auto-refresh on focus ──
