@@ -4073,14 +4073,32 @@
   // across all seasons), so searching "Re:Zero" matches the finished
   // 2016 season while "Re:ZERO -Starting Life in Another World- Season
   // 4" airs under a completely different id (confirmed live, along with
-  // Bleach TYBW and Mushoku Tensei having the exact same problem). Fix:
-  // search broadly and prefer the newest RELEASING TV/MOVIE entry over
-  // the top text match. Format-restricted to TV/MOVIE so a same-franchise
-  // side-short (e.g. Re:Zero's "Break Time" ONA shorts, which sort ahead
-  // of the real season by start date) doesn't win instead.
+  // Bleach TYBW and Mushoku Tensei having the exact same problem).
+  //
+  // Fix (v1): search broadly sorted by START_DATE_DESC and prefer the
+  // newest RELEASING entry over the top text match. That alone still
+  // fails for a franchise with a long-running ORIGINAL series plus many
+  // newer one-off movies/specials/ONAs -- confirmed live: "One Piece"'s
+  // actual ongoing weekly TV series (started 1999, still RELEASING,
+  // episode 1179+) never appears even in the top 30 date-sorted results,
+  // outranked by every OVA/special/movie released since (the real show
+  // is the OLDEST thing with that title, so DATE_DESC buries it
+  // regardless of page size). Fix (v2): also fetch a POPULARITY_DESC
+  // page and search the UNION of both lists for a RELEASING match --
+  // a real long-running flagship series is always near the top by
+  // popularity even when it's nowhere near the top by date, and this
+  // doesn't regress the season-matching fix above (verified live: Re:
+  // Zero Season 4 already appears in ITS OWN popularity-sorted top 5,
+  // so the fix from v1 keeps working through this new path too).
   async function fetchAniListUpcomingEpisodes(title) {
-    const query = `query ($s: String) { Page(perPage: 10) {
+    const query = `query ($s: String) { byDate: Page(perPage: 10) {
       media(search: $s, type: ANIME, sort: START_DATE_DESC) {
+        format status title { romaji english }
+        nextAiringEpisode { episode }
+        airingSchedule(notYetAired: true, perPage: 25) { nodes { episode airingAt } }
+      }
+    } byPopularity: Page(perPage: 5) {
+      media(search: $s, type: ANIME, sort: POPULARITY_DESC) {
         format status title { romaji english }
         nextAiringEpisode { episode }
         airingSchedule(notYetAired: true, perPage: 25) { nodes { episode airingAt } }
@@ -4093,9 +4111,10 @@
         body: JSON.stringify({ query, variables: { s: title } })
       });
       const json = await res.json();
-      const media = json?.data?.Page?.media || [];
-      const releasing = media.find(m => m.status === 'RELEASING' && (m.format === 'TV' || m.format === 'MOVIE') && m.nextAiringEpisode);
-      const best = releasing || media[0];
+      const byDate = json?.data?.byDate?.media || [];
+      const byPopularity = json?.data?.byPopularity?.media || [];
+      const releasing = [...byDate, ...byPopularity].find(m => m.status === 'RELEASING' && (m.format === 'TV' || m.format === 'MOVIE') && m.nextAiringEpisode);
+      const best = releasing || byDate[0];
       const nodes = best?.airingSchedule?.nodes || [];
       // Carries the ACTUALLY-matched entry's own title (e.g. "...Season
       // 4") alongside each episode -- since this can resolve to a
