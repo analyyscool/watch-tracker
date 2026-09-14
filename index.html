@@ -2602,13 +2602,28 @@
   // just be noise wearing the mask of a real signal.
   const MIN_RATED_FOR_AFFINITY = 5;
 
+  // Bayesian shrinkage strength for computeAffinity's genre/studio averages
+  // (2026-09-15, replacing a raw average) -- a genre or studio backed by
+  // only 1-2 ratings used to count exactly as much as one backed by 15,
+  // so a single outlier rating could swing a match score just as hard as
+  // a well-established preference. Pulling a sparse average toward the
+  // viewer's OWN overall mean (rather than a fixed neutral value like 2.5)
+  // means "1 rating" reads as "not much evidence either way, defer to
+  // your typical rating" instead of asserting a confident opinion off one
+  // data point. AFFINITY_SHRINKAGE_K is the number of "virtual" prior
+  // ratings the shrinkage is worth -- at count=K a genre/studio's shrunk
+  // average sits exactly halfway between its raw average and your overall
+  // mean; well past K it converges on the raw average.
+  const AFFINITY_SHRINKAGE_K = 3;
+
   function computeAffinity(items) {
     const genreSum = {}, genreCount = {};
     const studioSum = {}, studioCount = {};
-    let ratedCount = 0;
+    let ratedCount = 0, ratingTotal = 0;
     items.forEach(it => {
       if (it.rating == null) return;
       ratedCount++;
+      ratingTotal += it.rating;
       (it.genres || []).forEach(g => {
         genreSum[g] = (genreSum[g] || 0) + it.rating;
         genreCount[g] = (genreCount[g] || 0) + 1;
@@ -2618,18 +2633,30 @@
         studioCount[it.studio] = (studioCount[it.studio] || 0) + 1;
       }
     });
-    const genreAvg = {};
-    Object.keys(genreSum).forEach(g => { genreAvg[g] = genreSum[g] / genreCount[g]; });
-    const studioAvg = {};
-    Object.keys(studioSum).forEach(s => { studioAvg[s] = studioSum[s] / studioCount[s]; });
-    return { genreAvg, studioAvg, ratedCount };
+    const overallAvg = ratedCount ? ratingTotal / ratedCount : null;
+    const shrink = (sum, count) => (sum + overallAvg * AFFINITY_SHRINKAGE_K) / (count + AFFINITY_SHRINKAGE_K);
+    const genreAvg = {}, genreN = genreCount;
+    Object.keys(genreSum).forEach(g => { genreAvg[g] = shrink(genreSum[g], genreCount[g]); });
+    const studioAvg = {}, studioN = studioCount;
+    Object.keys(studioSum).forEach(s => { studioAvg[s] = shrink(studioSum[s], studioCount[s]); });
+    return { genreAvg, studioAvg, genreN, studioN, ratedCount };
   }
 
   // Score is on the same 0–5 scale as ratings; null means not enough
-  // genre/studio overlap with anything rated to say anything.
+  // genre/studio overlap with anything rated to say anything. Each
+  // item's genre score is a CONFIDENCE-WEIGHTED mean across its own
+  // overlapping genres (weighted by genreN[g], see computeAffinity) --
+  // not a flat average -- so a genre you've rated 10 times pulls an
+  // item's score harder than one you've only rated once, on top of the
+  // per-genre shrinkage already applied.
   function scoreAffinity(item, affinity) {
-    const genreScores = (item.genres || []).map(g => affinity.genreAvg[g]).filter(v => v != null);
-    const genreScore = genreScores.length ? genreScores.reduce((a, b) => a + b, 0) / genreScores.length : null;
+    const genreEntries = (item.genres || [])
+      .map(g => ({ avg: affinity.genreAvg[g], n: affinity.genreN[g] }))
+      .filter(e => e.avg != null);
+    const genreWeightTotal = genreEntries.reduce((a, e) => a + e.n, 0);
+    const genreScore = genreWeightTotal
+      ? genreEntries.reduce((a, e) => a + e.avg * e.n, 0) / genreWeightTotal
+      : null;
     const studioScore = item.studio && affinity.studioAvg[item.studio] != null ? affinity.studioAvg[item.studio] : null;
     if (genreScore == null && studioScore == null) return null;
     if (genreScore != null && studioScore != null) return genreScore * 0.75 + studioScore * 0.25;
@@ -2638,13 +2665,26 @@
 
   // Sorts by affinity score descending (unscored items sink to the bottom,
   // keeping their relative order) and stamps a `_matchPct` (0–100) on each
-  // scored item for the badge in renderWatchlist/renderToRead.
+  // scored item for the badge in renderWatchlist/renderToRead. The 0-5
+  // raw score used to map straight to 0-100% -- since shrinkage now pulls
+  // sparse-data scores toward your overall mean (correctly, since there's
+  // real uncertainty there), most scores end up in a narrow band near
+  // that mean, which read as "everything looks about the same" even
+  // though the underlying scores are more honest than before. A final
+  // min-max stretch across whatever's actually being ranked THIS render
+  // restores visible separation -- the best match among your current
+  // watchlist reads near 100%, not "the same 80% as everything else".
   function applyAffinityRanking(items, affinity) {
     if (affinity.ratedCount < MIN_RATED_FOR_AFFINITY) return items;
     const scored = items.map(item => ({ item, score: scoreAffinity(item, affinity) }));
     scored.sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
+    const realScores = scored.map(s => s.score).filter(s => s != null);
+    const min = Math.min(...realScores), max = Math.max(...realScores);
+    const spread = max - min;
     return scored.map(({ item, score }) => {
-      if (score != null) item._matchPct = Math.round((score / 5) * 100);
+      if (score != null) {
+        item._matchPct = Math.round((spread > 0 ? (score - min) / spread : score / 5) * 100);
+      }
       return item;
     });
   }
@@ -3852,6 +3892,16 @@
   const SEQUEL_CHECK_DELAY_MS = 800;
   const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+  // Governs all four News/Calendar auto-check throttles (season/chapter/
+  // media-sequel checks below, plus CALENDAR_CHECK_INTERVAL_MS) -- was a
+  // flat 6h, independently duplicated as a literal in each spot. Widened
+  // to a week (2026-09-15): release cadence for new seasons/chapters/
+  // calendar air dates doesn't meaningfully change hour to hour, so a 6h
+  // window bought nothing but extra load on AniList/Jikan/TMDB, APIs
+  // already documented as flaky under load. One shared constant now
+  // instead of five separately-drifting literals.
+  const NEWS_CHECK_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
+
   // Shared by the News/Calendar refresh-status notes -- rounds to the
   // coarsest unit that still reads as "roughly this long", matching how a
   // person would actually say it rather than a literal countdown.
@@ -3944,7 +3994,7 @@
   async function checkNewSeasons() {
     renderSeasonNoticesSection(getPendingSeasonNotices(activeScope));
 
-    const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+    const CHECK_INTERVAL_MS = NEWS_CHECK_INTERVAL_MS;
     const lastCheck = parseInt(localStorage.getItem('lastSeasonCheck') || '0', 10);
     if (Date.now() - lastCheck < CHECK_INTERVAL_MS) return;
     localStorage.setItem('lastSeasonCheck', String(Date.now()));
@@ -3982,7 +4032,19 @@
     const notices = [];
     for (const s of candidates) {
       try {
-        const notice = s.category === 'anime' ? await checkAnimeSequel(s) : await checkWesternSeason(s);
+        let notice = s.category === 'anime' ? await checkAnimeSequel(s) : await checkWesternSeason(s);
+        // Belt-and-suspenders against the Frieren bug (see checkAnimeSequel's
+        // comment): whatever the source-specific classification decided,
+        // a notice whose newTotalEpisodes wouldn't actually raise the
+        // stored total is never safe to bump from -- applying it would
+        // leave total_episodes unchanged while flipping list_status to
+        // 'watching'/'watchlist', which reads as instantly "completed"
+        // since current_episode already equals the untouched total. Force
+        // it into the non-actionable (Dismiss-only) `announced` bucket
+        // instead of trusting the per-source `announced` flag alone.
+        if (notice && !notice.announced && notice.newTotalEpisodes <= s.totalEpisodes) {
+          notice = { ...notice, announced: true };
+        }
         const alreadyTracked = notice?.sequelTitle && trackedTitles.has(notice.sequelTitle.toLowerCase().trim());
         const dismissed = notice?.announced ? dismissedAnnounced : dismissedReleased;
         if (notice && !alreadyTracked && !dismissed.includes(notice.key)) notices.push(notice);
@@ -4013,14 +4075,24 @@
   // || 1) + 1` formula always said "Season 2" regardless of how deep
   // the walk actually went, mislabeling it. Defaults to 2 for the
   // Jikan/western fallback paths, which only ever check one hop ahead.
-  function buildSeasonNotice(show, sequelTitle, sequelEpisodes, announced, seasonNumber = 2) {
+  function buildSeasonNotice(show, sequelTitle, sequelEpisodes, announced, seasonNumber = 2, status = null) {
+    // `announced` (see checkAnimeSequel) now covers two distinct real
+    // states -- genuinely NOT_YET_RELEASED (no air date) and RELEASING
+    // (airing right now, but AniList hasn't published a final episode
+    // count yet) -- both are equally unsafe to bump total_episodes from,
+    // but they read very differently to a person deciding whether to
+    // start watching, so the copy distinguishes them instead of always
+    // saying "no air date yet" for a season that's actually mid-air.
+    const airingNow = status === 'RELEASING';
     return {
       type: 'anime',
       key: `${show.id}::${sequelTitle}`,
       scope: show.scope,
       announced: !!announced,
       text: announced
-        ? `${show.title} → Season ${seasonNumber} announced: "${sequelTitle}" (no air date yet)`
+        ? (airingNow
+          ? `${show.title} → Season ${seasonNumber} now airing: "${sequelTitle}" (episode count not final yet -- can't track progress until it finishes)`
+          : `${show.title} → Season ${seasonNumber} announced: "${sequelTitle}" (no air date yet)`)
         : `${show.title} → new season: "${sequelTitle}"`,
       showId: show.id,
       showTitle: show.title,
@@ -4169,8 +4241,23 @@
         const next = seq.node;
         seasonNumber++;
         if (next.episodes == null || cumulative + next.episodes > show.totalEpisodes) {
-          const announced = next.status === 'NOT_YET_RELEASED';
-          return buildSeasonNotice(show, next.title.english || next.title.romaji, next.episodes, announced, seasonNumber);
+          // `announced` here really means "don't let this feed the
+          // Watching/Watchlist bump buttons" -- NOT_YET_RELEASED is the
+          // obvious case (nothing to add yet), but a sequel that's
+          // CURRENTLY AIRING also reports episodes: null until it
+          // finishes, and is just as unsafe to bump total_episodes by.
+          // Confirmed live: this is exactly what silently broke Frieren --
+          // treating only NOT_YET_RELEASED as non-actionable let a
+          // mid-air Season 2 (RELEASING, episodes: null) through to
+          // applySeasonBump, which added 0 episodes to the stored total
+          // (newTotalEpisodes = show.totalEpisodes + (null || 0)) while
+          // flipping list_status to 'watching' -- since current_episode
+          // already equaled the unchanged total, the show immediately
+          // read as "completed" despite the new season being entirely
+          // unwatched. See buildSeasonNotice's text for the two different
+          // messages this now produces.
+          const announced = next.episodes == null;
+          return buildSeasonNotice(show, next.title.english || next.title.romaji, next.episodes, announced, seasonNumber, next.status);
         }
         cumulative += next.episodes;
         node = next;
@@ -4230,9 +4317,17 @@
     // (or deliberately dropped) season.
     return {
       title: d.title_english || d.title,
-      episodes: d.episodes || 0,
+      // `d.episodes || 0` used to coalesce a genuinely-unknown count
+      // (still airing, MAL hasn't finalized the total) down to 0 --
+      // indistinguishable from "no episodes" and NOT flagged as
+      // `announced`, so it fed straight into the same total_episodes-
+      // doesn't-actually-bump bug as the AniList path (see
+      // checkAnimeSequel's comment). Left as null instead so it's
+      // treated as unconfirmed regardless of MAL's status label.
+      episodes: d.episodes || null,
       baseEpisodes: anime.episodes ?? null,
-      announced: d.status === 'Not yet aired',
+      announced: d.status === 'Not yet aired' || !d.episodes,
+      status: d.status === 'Currently Airing' ? 'RELEASING' : (d.status === 'Not yet aired' ? 'NOT_YET_RELEASED' : null),
     };
   }
 
@@ -4283,19 +4378,25 @@
   // every CALENDAR_CHECK_INTERVAL_MS, serve the cached list instantly
   // otherwise so opening the tab doesn't block on a sequential fetch
   // loop over every tracked show.
-  const CALENDAR_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+  const CALENDAR_CHECK_INTERVAL_MS = NEWS_CHECK_INTERVAL_MS;
 
-  function getCalendarCache(scope) {
-    try {
-      const all = JSON.parse(localStorage.getItem('calendarCache') || '{}');
-      return all[scope] || null;
-    } catch { return null; }
+  // Moved from per-DEVICE localStorage to a shared Supabase table
+  // (2026-09-15, see supabase/migration-calendar-cache.sql) -- confirmed
+  // live: a tablet with no prior local cache showed fewer entries than a
+  // laptop that already had per-show fallback data, because each device
+  // was independently rebuilding the whole list from scratch with its
+  // own gaps whenever an individual AniList/TMDB call failed. Same
+  // read/compute/write shape as loadRecommendations/recommendations_cache.
+  async function getCalendarCache(scope) {
+    const { data, error } = await supabase.from('calendar_cache')
+      .select('entries, updated_at').eq('scope', scope).maybeSingle();
+    if (error || !data) return null;
+    return { entries: data.entries, fetchedAt: new Date(data.updated_at).getTime() };
   }
-  function setCalendarCache(scope, entries) {
-    let all = {};
-    try { all = JSON.parse(localStorage.getItem('calendarCache') || '{}'); } catch {}
-    all[scope] = { entries, fetchedAt: Date.now() };
-    localStorage.setItem('calendarCache', JSON.stringify(all));
+  async function setCalendarCache(scope, entries) {
+    const { error } = await supabase.from('calendar_cache')
+      .upsert({ scope, entries, updated_at: new Date().toISOString() }, { onConflict: 'scope' });
+    checkWriteError(error);
   }
 
   // Per-show result cache, separate from the per-scope list above --
@@ -4471,6 +4572,21 @@
     // and western/movie (at most one).
     const isCachedEmpty = cached => cached && Array.isArray(cached.result) && cached.result.length === 0 && (Date.now() - cached.checkedAt) < CALENDAR_SHOW_NEGATIVE_CACHE_MS;
 
+    // Fallback for a per-show fetch failure with no local negative-cache
+    // hit -- previously fell straight to `[]` (silently dropping that
+    // show's entries for this refresh) when the LOCAL per-show cache had
+    // nothing, which is exactly what happened on a device seeing this
+    // show for the first time. Now falls back to whatever the SHARED
+    // calendar cache (just read into `sharedPrev`, same one every device
+    // reads/writes) last had for this show instead, so a cold device
+    // doesn't regress behind what's already known-good.
+    const sharedPrev = await getCalendarCache(scope);
+    const prevEntriesByShow = new Map();
+    for (const e of (sharedPrev?.entries || [])) {
+      if (!prevEntriesByShow.has(e.id)) prevEntriesByShow.set(e.id, []);
+      prevEntriesByShow.get(e.id).push({ episode: e.episode, airingAt: e.airingAt, matchedTitle: e.calendarDisplayTitle });
+    }
+
     const entries = [];
     for (const show of airingCandidates) {
       const cached = getShowAiringCache(show.id);
@@ -4481,7 +4597,7 @@
         const result = show.category === 'anime'
           ? await fetchAniListUpcomingEpisodes(show.title)
           : await fetchTMDBNextEpisode(show.title).then(r => (r ? [r] : []));
-        episodes = result != null ? result : (cached?.result || []);
+        episodes = result != null ? result : (cached?.result || prevEntriesByShow.get(show.id) || []);
         if (result != null) setShowAiringCache(show.id, episodes);
         await sleep(SEQUEL_CHECK_DELAY_MS);
       }
@@ -4505,6 +4621,15 @@
       if (isCachedEmpty(cached)) {
         episodes = [];
       } else {
+        // NOT given the same prevEntriesByShow fallback as the anime loop
+        // above -- fetchTMDBMovieRelease's `null` is genuinely ambiguous
+        // (no match / no release date / release date already passed / a
+        // real fetch failure all collapse to the same null), unlike
+        // fetchAniListUpcomingEpisodes which only returns null on an
+        // actual failure. Falling back to a stale cached entry here would
+        // make a movie's calendar card stick around forever after its
+        // real release date passes, since "already released" and "fetch
+        // broke" would become indistinguishable.
         const next = await fetchTMDBMovieRelease(movie.title);
         episodes = next ? [next] : [];
         setShowAiringCache(movie.id, episodes);
@@ -4513,12 +4638,12 @@
       episodes.forEach(ep => entries.push({ ...movie, episode: null, airingAt: ep.airingAt, entryKey: `${movie.id}::${ep.airingAt}` }));
     }
     entries.sort((a, b) => a.airingAt - b.airingAt);
-    setCalendarCache(scope, entries);
+    await setCalendarCache(scope, entries);
     return entries;
   }
 
   async function loadCalendarEntries(scope, { force = false } = {}) {
-    const cached = getCalendarCache(scope);
+    const cached = await getCalendarCache(scope);
     if (cached && !force && (Date.now() - cached.fetchedAt) < CALENDAR_CHECK_INTERVAL_MS) {
       return { entries: cached.entries, stale: false };
     }
@@ -4639,17 +4764,17 @@
   // Same reasoning as News's getNewsRefreshWaitMs -- read the real cache
   // age against the same CALENDAR_CHECK_INTERVAL_MS that governs an
   // automatic refresh, instead of a separate invented cooldown.
-  function getCalendarRefreshWaitMs(scope) {
-    const cached = getCalendarCache(scope);
+  async function getCalendarRefreshWaitMs(scope) {
+    const cached = await getCalendarCache(scope);
     if (!cached) return 0;
     return Math.max(0, CALENDAR_CHECK_INTERVAL_MS - (Date.now() - cached.fetchedAt));
   }
 
-  function updateCalendarRefreshUI() {
+  async function updateCalendarRefreshUI() {
     const btn = document.getElementById('calendar-refresh-btn');
     const note = document.getElementById('calendar-refresh-note');
     if (calendarLoading) return;
-    const waitMs = getCalendarRefreshWaitMs(activeScope);
+    const waitMs = await getCalendarRefreshWaitMs(activeScope);
     if (waitMs > 0) {
       btn.disabled = true;
       note.innerHTML = `Next automatic check in ${formatWaitTime(waitMs)}. <a href="#" id="calendar-force-refresh" style="color:inherit; text-decoration:underline">Check now anyway</a>`;
@@ -4697,7 +4822,7 @@
     } finally {
       calendarLoading = false;
       refreshBtn.textContent = refreshLabel;
-      updateCalendarRefreshUI();
+      await updateCalendarRefreshUI();
     }
   }
 
@@ -5444,16 +5569,22 @@
   // not what "similar books" should be suggesting. Title-pattern based
   // since neither search.json nor the subjects endpoint expose a
   // structured "this is a bundle" flag.
-  const BOOK_COLLECTION_TITLE_PATTERN = /\b(box(?:ed)?\s*set|omnibus|bundle|complete\s+(?:series|collection|trilogy|duology|saga)|\d+[\s-]*book\s+(?:set|series|collection)|books?\s+\d+\s*[-–—]\s*\d+|vol(?:ume)?s?\.?\s*\d+\s*[-–—]\s*\d+)\b/i;
+  // Confirmed live: "The Red Rising Series Collection 5 Books Set By
+  // Pierce Brown" slipped through both clauses meant to catch it -- the
+  // `\d+[\s-]*book\s+(?:set|...)` clause required the SINGULAR "book"
+  // immediately before whitespace, so "5 Books Set" (plural) never
+  // matched, and "Series Collection" wasn't caught either since that
+  // clause requires the literal word "complete" right before it. Made
+  // "book" plural-aware and added a bare "series collection" phrase
+  // (common box-set wording that doesn't happen to say "complete").
+  const BOOK_COLLECTION_TITLE_PATTERN = /\b(box(?:ed)?\s*set|omnibus|bundle|(?:complete\s+)?(?:series|book)\s+collection|complete\s+(?:trilogy|duology|saga)|\d+[\s-]*books?\s+(?:set|series|collection)|books?\s+\d+\s*[-–—]\s*\d+|vol(?:ume)?s?\.?\s*\d+\s*[-–—]\s*\d+)\b/i;
   function isBookCollectionTitle(title) {
     return !!title && BOOK_COLLECTION_TITLE_PATTERN.test(title);
   }
 
-  // Author-search results carry a `language` field (array of ISO 639-2
-  // codes present across that work's editions) that the subject/genre
-  // search endpoint does NOT expose at all -- so English-only filtering
-  // only applies to the author-search source below; a subject-search
-  // candidate in another language currently has no signal to catch it on.
+  // `language` is an array of ISO 639-2 codes present across a work's
+  // editions, on search.json docs (both author- and, since 2026-09-15,
+  // subject-search route through it -- see fetchOpenLibrarySubjectCandidates).
   // A doc with no `language` field at all (sparse/older catalog entries)
   // fails open rather than getting dropped, since an English book missing
   // metadata is a more likely case than a foreign one with none.
@@ -5461,11 +5592,7 @@
     return Array.isArray(doc.language) && doc.language.length > 0 && !doc.language.includes('eng');
   }
 
-  // Author-search and subject-search results come back with DIFFERENT
-  // field names for the same concepts (cover_i vs cover_id, author_name[]
-  // vs authors[].name) -- kept as two small mapper functions rather than
-  // one "smart" mapper that branches on shape.
-  function openLibrarySearchDocToCandidate(doc, reasonDetail) {
+  function openLibrarySearchDocToCandidate(doc, reasonDetail, reason = 'by_author') {
     return {
       olid: doc.key,
       title: doc.title,
@@ -5473,23 +5600,7 @@
       coverUrl: doc.cover_i ? `https://covers.openlibrary.org/b/id/${doc.cover_i}-L.jpg` : null,
       genres: (doc.subject || []).slice(0, 5),
       score: null,
-      reason: 'by_author',
-      reasonDetail,
-    };
-  }
-
-  // The subjects endpoint doesn't return each work's own tag list -- the
-  // subject we searched under IS a genre this book is tagged with, so it's
-  // used directly as `genres` rather than left empty.
-  function openLibrarySubjectWorkToCandidate(work, reasonDetail) {
-    return {
-      olid: work.key,
-      title: work.title,
-      author: work.authors?.[0]?.name || null,
-      coverUrl: work.cover_id ? `https://covers.openlibrary.org/b/id/${work.cover_id}-L.jpg` : null,
-      genres: [reasonDetail],
-      score: null,
-      reason: 'affinity',
+      reason,
       reasonDetail,
     };
   }
@@ -5514,28 +5625,27 @@
     }
   }
 
-  // Open Library subject slugs are lowercase with underscores, e.g.
-  // "Science Fiction" -> "science_fiction" -- reverse-engineered from
-  // Open Library's own subject-page URLs, not documented anywhere.
-  function subjectSlug(genre) {
-    return genre.toLowerCase().trim().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
-  }
-
+  // Switched from the dedicated /subjects/<slug>.json endpoint to
+  // search.json's own `subject=` filter (2026-09-15) -- confirmed live:
+  // the subjects endpoint's work objects carry no `language` field at
+  // all, so a genre-affinity candidate had zero signal to filter non-
+  // English editions on (e.g. "Alvorada Vermelha", the Portuguese
+  // edition of a Red Rising book, sailed straight through). search.json
+  // returns the same doc shape author-search already uses, `language`
+  // included, so both candidate sources can now share one filter
+  // (isNonEnglishByLanguageField) and one mapper (openLibrarySearchDocToCandidate).
   async function fetchOpenLibrarySubjectCandidates(genre, count) {
     try {
-      const res = await fetch(`https://openlibrary.org/subjects/${subjectSlug(genre)}.json?limit=${Math.max(count, 20)}`);
-      // A 404 means this specific genre has no Open Library subject page
-      // (not every genre string in this app's data maps to one) -- that's
-      // "no results for this genre", not a fetch outage, so it's treated
-      // as an empty success rather than folded into the same `null`
-      // failure signal a real network/5xx error uses.
-      if (res.status === 404) return [];
+      const res = await fetch(`https://openlibrary.org/search.json?subject=${encodeURIComponent(genre)}&limit=${Math.max(count, 20)}&fields=title,author_name,cover_i,subject,key,language`);
       if (!res.ok) return null;
       const json = await res.json();
-      // No language field on this endpoint (see isNonEnglishByLanguageField's
-      // comment) -- only the collection/box-set title filter applies here.
-      const works = (json.works || []).filter(w => !isBookCollectionTitle(w.title));
-      return works.map(w => openLibrarySubjectWorkToCandidate(w, genre));
+      // An empty result set means this specific genre string doesn't
+      // match an Open Library subject (not every genre this app stores
+      // maps to one) -- "no results", not a fetch outage.
+      const docs = (json.docs || [])
+        .filter(d => !isNonEnglishByLanguageField(d))
+        .filter(d => !isBookCollectionTitle(d.title));
+      return docs.map(d => openLibrarySearchDocToCandidate(d, genre, 'affinity'));
     } catch (e) {
       console.warn('Open Library subject search failed for', genre, e);
       return null;
@@ -5543,7 +5653,13 @@
   }
 
   // ── Recommendations: orchestration, cache, dismissal ──
-  const REC_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+  // Shortened from 7 to 3 days (2026-09-15, at Karl's request) -- the
+  // underlying compute is a real cost (sequential AniList/TMDB/Jikan
+  // calls per seed), so this still isn't "every visit", but combined with
+  // the larger pool + daily rotation above (REC_SECTION_CAP/
+  // pickRotatingSubset) the page now actually changes both within a
+  // cache period (daily reshuffle) and across one (a real recompute).
+  const REC_CACHE_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000;
 
   // Stable dedup/dismissal key across sources: AniList id when we have
   // one, else a TMDB id (western/movie candidates), else a MAL-id key
@@ -5581,7 +5697,49 @@
     return !checkWriteError(error);
   }
 
-  const REC_SECTION_CAP = 10;
+  // REC_SECTION_CAP is the POOL size computed/cached per section, not the
+  // number of cards actually shown -- see REC_DISPLAY_CAP and
+  // pickRotatingSubset below. Raised from a flat 10 (2026-09-15): the page
+  // used to show exactly what got computed, so with a multi-day cache it
+  // looked identical on every visit even though the underlying fetch
+  // over-fetches candidates already. Computing/storing a bigger pool once
+  // and rotating which slice of it renders is cheap (no extra API calls)
+  // and gives real variety between visits instead of a static page.
+  const REC_SECTION_CAP = 24;
+  const REC_DISPLAY_CAP = 10;
+
+  // Deterministic PRNG (mulberry32) seeded from a string hash -- used to
+  // pick a STABLE-per-day slice of the recommendation pool rather than a
+  // fresh random pick on every render, so reloading the tab five times in
+  // one sitting doesn't feel like the list is randomly churning; it only
+  // rotates once the seed's date component changes.
+  function seededShuffle(list, seed) {
+    let h = 0;
+    for (let i = 0; i < seed.length; i++) { h = (Math.imul(31, h) + seed.charCodeAt(i)) | 0; }
+    let state = h >>> 0;
+    const rand = () => {
+      state |= 0; state = (state + 0x6D2B79F5) | 0;
+      let t = Math.imul(state ^ (state >>> 15), 1 | state);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    const arr = [...list];
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(rand() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+  }
+
+  // Rotates daily (seed includes today's date) within whatever pool is
+  // currently cached -- `slot` keeps sections independent so "Because you
+  // liked" and "Matches your taste" don't happen to pick the same shuffle
+  // order.
+  function pickRotatingSubset(list, n, slot) {
+    if (!list || list.length <= n) return list || [];
+    const today = new Date().toISOString().slice(0, 10);
+    return seededShuffle(list, `${slot}::${today}`).slice(0, n);
+  }
 
   // Builds three independent, deduped recommendation sections for one
   // scope+category and writes them to recommendations_cache:
@@ -6260,7 +6418,7 @@
   // the wait shown is the SOONEST of the three, since that's when the
   // button would next have any real effect.
   function getNewsRefreshWaitMs() {
-    const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+    const CHECK_INTERVAL_MS = NEWS_CHECK_INTERVAL_MS;
     const keys = ['lastSeasonCheck', 'lastChapterCheck', 'lastMediaSequelCheck'];
     const waits = keys.map(k => {
       const last = parseInt(localStorage.getItem(k) || '0', 10);
@@ -7128,7 +7286,7 @@
   }
 
   async function checkNewChapters() {
-    const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+    const CHECK_INTERVAL_MS = NEWS_CHECK_INTERVAL_MS;
     const lastCheck = parseInt(localStorage.getItem('lastChapterCheck') || '0', 10);
     if (Date.now() - lastCheck < CHECK_INTERVAL_MS) return;
     localStorage.setItem('lastChapterCheck', String(Date.now()));
@@ -7330,7 +7488,7 @@
 
   async function checkMangaSequels() {
     showMediaSequelsBanner(getPendingMediaSequelNotices(activeScope));
-    const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+    const CHECK_INTERVAL_MS = NEWS_CHECK_INTERVAL_MS;
     const lastCheck = parseInt(localStorage.getItem('lastMediaSequelCheck') || '0', 10);
     if (Date.now() - lastCheck < CHECK_INTERVAL_MS) return;
     localStorage.setItem('lastMediaSequelCheck', String(Date.now()));
@@ -9438,16 +9596,22 @@
       staleNote.textContent = "Couldn't refresh — showing last known recommendations.";
     }
 
+    // Each section is computed/cached as a larger pool (REC_SECTION_CAP)
+    // than what's actually shown (REC_DISPLAY_CAP) -- picking a fresh,
+    // date-seeded slice at RENDER time (not compute time) is what makes
+    // the page feel like it rotates day to day even inside one multi-day
+    // cache period, without any extra API calls.
+    const rotate = (list, slot) => pickRotatingSubset(list, REC_DISPLAY_CAP, `${activeScope}::${activeRecCategory}::${slot}`);
     if (!belowThreshold) {
       if (activeRecCategory === 'book') {
-        renderRecSectionGrid('rec-grid-author', sections.byAuthor);
-        renderRecSectionGrid('rec-grid-book-taste', sections.overallTaste);
+        renderRecSectionGrid('rec-grid-author', rotate(sections.byAuthor, 'author'));
+        renderRecSectionGrid('rec-grid-book-taste', rotate(sections.overallTaste, 'taste'));
       } else {
-        renderRecSectionGrid('rec-grid-because', sections.becauseYouLiked);
-        renderRecSectionGrid('rec-grid-overall', sections.overallTaste);
+        renderRecSectionGrid('rec-grid-because', rotate(sections.becauseYouLiked, 'because'));
+        renderRecSectionGrid('rec-grid-overall', rotate(sections.overallTaste, 'overall'));
       }
     }
-    if (activeRecCategory !== 'book') renderRecSectionGrid('rec-grid-peak', sections.peakUnseen);
+    if (activeRecCategory !== 'book') renderRecSectionGrid('rec-grid-peak', rotate(sections.peakUnseen, 'peak'));
 
     surprisePoolCategory = activeRecCategory;
     surprisePool = activeRecCategory === 'book'
