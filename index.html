@@ -957,15 +957,6 @@
     min-width: 10rem;
     text-align: center;
   }
-  .calendar-nav-week {
-    gap: 0.5rem;
-    justify-content: space-between;
-  }
-  .calendar-nav-week .calendar-month-label {
-    min-width: 0;
-    font-size: 0.68rem;
-    white-space: nowrap;
-  }
 
   .calendar-weekday-row, .calendar-days {
     display: grid;
@@ -2137,11 +2128,7 @@
         <div class="calendar-grid" id="calendar-grid"></div>
       </div>
       <div class="calendar-side">
-        <div class="calendar-nav calendar-nav-week">
-          <button class="btn" id="calendar-prev-week">&larr;</button>
-          <div class="calendar-month-label" id="calendar-week-label"></div>
-          <button class="btn" id="calendar-next-week">&rarr;</button>
-        </div>
+        <div class="rec-section-title">Upcoming (next 7 days)</div>
         <div id="calendar-upcoming-list"></div>
       </div>
     </div>
@@ -4240,35 +4227,21 @@
 
   let calendarViewDate = new Date();
   let calendarEntriesCache = [];
-  let calendarWeekOffset = 0; // weeks relative to today's date, navigated independently of the month grid
 
-  function startOfDay(d) {
-    const x = new Date(d);
-    x.setHours(0, 0, 0, 0);
-    return x;
-  }
-
-  // The week window is anchored to TODAY (not the calendar week's Sunday)
-  // so week 0 is always "the next 7 days" rather than potentially
-  // including already-passed days earlier in the current Sun-Sat week.
-  function currentWeekRange() {
-    const start = startOfDay(new Date());
-    start.setDate(start.getDate() + calendarWeekOffset * 7);
-    const end = new Date(start);
-    end.setDate(end.getDate() + 7);
-    return { start, end };
-  }
-
+  // Fixed next-7-days window, no navigation -- the month grid already
+  // lets you browse forward/backward through all time, so this list's
+  // job is just a fast, no-interaction glance at what's coming very
+  // soon, not a second way to browse the same data (tried adding
+  // prev/next week navigation here and reverted it: pure duplication of
+  // what the grid already does, for a side panel whose whole point is
+  // not needing interaction).
   function renderCalendarUpcomingList(entries) {
     const el = document.getElementById('calendar-upcoming-list');
-    const { start, end } = currentWeekRange();
-    const fmt = d => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    document.getElementById('calendar-week-label').textContent =
-      (calendarWeekOffset === 0 ? 'This week: ' : '') + `${fmt(start)}–${fmt(new Date(end.getTime() - 86400000))}`;
-
-    const upcoming = entries.filter(e => e.airingAt >= start.getTime() && e.airingAt < end.getTime()).sort((a, b) => a.airingAt - b.airingAt);
+    const now = Date.now();
+    const sevenDaysOut = now + 7 * 24 * 60 * 60 * 1000;
+    const upcoming = entries.filter(e => e.airingAt >= now && e.airingAt < sevenDaysOut).sort((a, b) => a.airingAt - b.airingAt);
     if (!upcoming.length) {
-      el.innerHTML = `<p style="font-size:0.7rem; color:var(--muted)">Nothing this week.</p>`;
+      el.innerHTML = `<p style="font-size:0.7rem; color:var(--muted)">Nothing in the next 7 days.</p>`;
       return;
     }
     el.innerHTML = upcoming.map(e => {
@@ -4357,7 +4330,6 @@
       const staleNote = document.getElementById('calendar-stale-note');
       staleNote.style.display = 'none';
       calendarViewDate = new Date();
-      calendarWeekOffset = 0;
       // Render the grid frame (with whatever's already cached, even if
       // that's nothing yet) immediately, synchronously, before the network
       // round-trip below -- otherwise the nav buttons (static markup) paint
@@ -4392,14 +4364,6 @@
     renderCalendarGrid(calendarEntriesCache);
   });
   document.getElementById('calendar-refresh-btn').addEventListener('click', () => renderCalendarTab({ force: true }));
-  document.getElementById('calendar-prev-week').addEventListener('click', () => {
-    calendarWeekOffset -= 1;
-    renderCalendarUpcomingList(calendarEntriesCache);
-  });
-  document.getElementById('calendar-next-week').addEventListener('click', () => {
-    calendarWeekOffset += 1;
-    renderCalendarUpcomingList(calendarEntriesCache);
-  });
 
   // ── Cover/poster search for the Add Show/Movie/Reading forms ──
   // Always returns candidates for the user to pick from -- never
