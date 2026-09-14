@@ -4101,7 +4101,25 @@
       // match. relationType === 'SEQUEL' is already the primary signal
       // here; an unclassified format is treated as "not yet known", not
       // "wrong", and let through.
-      const sequelEdge = n => (n.relations?.edges || []).find(e => e.relationType === 'SEQUEL' && (!e.node.format || ['TV', 'TV_SHORT', 'ONA', 'OVA'].includes(e.node.format)));
+      //
+      // AniList tags trivial bonus content (a 1-episode omake OVA) as
+      // SEQUEL just as readily as a real season -- confirmed live:
+      // Steins;Gate's ONLY SEQUEL edge from Season 1 is a 1-episode OVA
+      // ("Egoistic Poriomania"), which got reported as "the new season"
+      // even though the real, much more significant continuation
+      // (Steins;Gate 0, 23 episodes) isn't even connected via a SEQUEL
+      // edge in AniList's graph for this franchise at all -- a real gap
+      // in how this franchise happens to be tagged, not something a
+      // relation-type walk can fully route around. At minimum, a <4
+      // episode SEQUEL target (and 1-episode bonus OVAs are the common
+      // case) is excluded from counting as a real season, so a trivial
+      // extra doesn't produce a misleading notice even when the genuine
+      // sequel isn't reachable this way.
+      const sequelEdge = n => (n.relations?.edges || []).find(e =>
+        e.relationType === 'SEQUEL' &&
+        (!e.node.format || ['TV', 'TV_SHORT', 'ONA', 'OVA'].includes(e.node.format)) &&
+        (e.node.episodes == null || e.node.episodes >= 4)
+      );
       let cumulative = anchor.episodes || 0;
       let node = anchor;
       let seasonNumber = 1; // anchor itself is season 1
@@ -7076,11 +7094,20 @@
     }
   }
 
-  function buildMediaSequelNotice(m, sequelTitle) {
+  // announced distinguishes "already publishing/finished, readable now"
+  // from "confirmed but nothing to read yet" -- confirmed live this
+  // matters: The Fable's and 20th Century Boys' real sequel series are
+  // both already FINISHED serializing (86 and 16 chapters respectively),
+  // not just announced, so the old unconditional "sequel series: X"
+  // wording undersold that these are fully readable right now.
+  function buildMediaSequelNotice(m, sequelTitle, announced) {
     return {
       key: `${m.id}::${sequelTitle}`,
       title: m.title,
-      text: `${m.title} → sequel series: "${sequelTitle}"`,
+      announced: !!announced,
+      text: announced
+        ? `${m.title} → sequel series announced: "${sequelTitle}" (nothing to read yet)`
+        : `${m.title} → sequel series available: "${sequelTitle}"`,
       sequelTitle, category: m.category,
       // The tracked series' own cover, same convention as buildSeasonNotice
       // (anime) reusing show.posterUrl -- the SEQUEL's own cover isn't
@@ -7092,7 +7119,7 @@
 
   async function checkMediaSequel(m) {
     const query = `query ($s: String) { Media(search: $s, type: MANGA) {
-      relations { edges { relationType node { title { romaji english } format } } }
+      relations { edges { relationType node { title { romaji english } format status } } }
     } }`;
     try {
       const res = await fetchWithRetry429('https://graphql.anilist.co', {
@@ -7105,11 +7132,12 @@
       const edges = json?.data?.Media?.relations?.edges || [];
       const sequel = edges.find(e => e.relationType === 'SEQUEL' && ['MANGA', 'ONE_SHOT'].includes(e.node.format));
       if (!sequel) return null;
-      return buildMediaSequelNotice(m, sequel.node.title.english || sequel.node.title.romaji);
+      const announced = sequel.node.status === 'NOT_YET_RELEASED';
+      return buildMediaSequelNotice(m, sequel.node.title.english || sequel.node.title.romaji, announced);
     } catch (e) {
       console.warn('AniList sequel check failed for', m.title, '— falling back to Jikan', e);
       const fallback = await fetchJikanMangaSequel(m.title).catch(() => null);
-      return fallback ? buildMediaSequelNotice(m, fallback.title) : null;
+      return fallback ? buildMediaSequelNotice(m, fallback.title, false) : null;
     }
   }
 
@@ -7164,14 +7192,25 @@
   // card and the other a slim inline banner -- the underlying data (cover,
   // title, description text) is exactly analogous either way.
   function showMediaSequelsBanner(notices) {
-    document.getElementById('new-media-sequels-banner-slot').innerHTML = notices.map((n, i) => `
+    const slot = document.getElementById('new-media-sequels-banner-slot');
+    if (!notices.length) { slot.innerHTML = ''; return; }
+    // A section divider of its own so this doesn't visually run together
+    // with the anime "announced sequels" cards immediately above it in
+    // the News tab -- confirmed live this was genuinely confusing (read
+    // as if the manga cards belonged to the anime announced-sequels
+    // group). No "Add to Reading" action on an announced-but-nothing-
+    // published-yet notice, matching the anime section's own pattern of
+    // Dismiss-only for not-yet-available sequels.
+    slot.innerHTML = `
+      <div class="section-divider"><span>manga &amp; manhwa sequels</span></div>
+    ` + notices.map((n, i) => `
       <div class="card" data-idx="${i}">
         ${n.coverUrl ? `<img class="card-poster" src="${n.coverUrl}" alt="" onerror="this.remove()">` : ''}
         <div class="card-body">
           <div class="card-top"><div class="card-title">${escapeHTML(n.title)}</div></div>
           <div class="card-stats"><span class="stat">${escapeHTML(n.text)}</span></div>
           <div class="progress-controls">
-            <button class="btn btn-primary media-sequel-open" data-idx="${i}">Add to Reading</button>
+            ${n.announced ? '' : `<button class="btn btn-primary media-sequel-open" data-idx="${i}">Add to Reading</button>`}
             <button class="btn" data-idx="${i}" data-action="dismiss-media-sequel">Dismiss</button>
           </div>
         </div>
