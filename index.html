@@ -3943,8 +3943,18 @@
   // sequel chain (a "Part 2" of the shorts) instead of the real show's
   // (missing that a real Season 3 exists). Fixed the same way as the
   // calendar's equivalent bug: search restricted server-side to
-  // format TV/TV_SHORT and take the EARLIEST such match as the anchor
-  // (season 1), rather than trusting default search relevance.
+  // format TV/TV_SHORT/ONA/OVA and take the EARLIEST such match as the
+  // anchor (season 1), rather than trusting default search relevance.
+  // ONA/OVA had to be included despite enabling exactly the kind of
+  // side-content false match this guard exists to prevent -- excluding
+  // them entirely broke shows whose REAL main series is ONA-format
+  // (confirmed live: Witch Hat Atelier and Nippon Sangoku are both
+  // ONA, so format_in:[TV,TV_SHORT] excluded their actual Season 1
+  // outright, leaving only the announced Season 2 in the result set,
+  // which has no sequel of its own and dead-ended immediately). Safe in
+  // practice because the anchor is chosen by EARLIEST DATE, not just
+  // format match -- a real side-story spinoff still sorts after the
+  // main series it's a side story to.
   //
   // The stored row's total_episodes is one cumulative number across
   // every season merged into it (see the architecture note elsewhere),
@@ -3963,7 +3973,7 @@
   async function checkAnimeSequel(show) {
     const query = `query ($s: String) {
       Page(perPage: 5) {
-        media(search: $s, type: ANIME, format_in: [TV, TV_SHORT], sort: START_DATE) {
+        media(search: $s, type: ANIME, format_in: [TV, TV_SHORT, ONA, OVA], sort: START_DATE) {
           episodes startDate { year }
           relations {
             edges {
@@ -4013,7 +4023,14 @@
       // undated entries pushed to the end rather than the front.
       const anchor = [...media].sort((a, b) => (a.startDate?.year ?? 9999) - (b.startDate?.year ?? 9999))[0];
       if (!anchor) return null;
-      const sequelEdge = n => (n.relations?.edges || []).find(e => e.relationType === 'SEQUEL' && ['TV', 'TV_SHORT'].includes(e.node.format));
+      // A freshly-announced sequel can have format: null (AniList hasn't
+      // classified it yet) -- confirmed live: Nippon Sangoku's real
+      // sequel edge is correctly typed SEQUEL, but the target's format
+      // is null, so a strict format allowlist rejected an unambiguous
+      // match. relationType === 'SEQUEL' is already the primary signal
+      // here; an unclassified format is treated as "not yet known", not
+      // "wrong", and let through.
+      const sequelEdge = n => (n.relations?.edges || []).find(e => e.relationType === 'SEQUEL' && (!e.node.format || ['TV', 'TV_SHORT', 'ONA', 'OVA'].includes(e.node.format)));
       let cumulative = anchor.episodes || 0;
       let node = anchor;
       while (true) {
