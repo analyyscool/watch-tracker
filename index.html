@@ -2650,6 +2650,17 @@
   // item's score harder than one you've only rated once, on top of the
   // per-genre shrinkage already applied.
   function scoreAffinity(item, affinity) {
+    // A watchlist/to-read item can already carry YOUR OWN rating -- e.g.
+    // a show parked back on the watchlist mid-franchise with a "Season N"
+    // tag (see applySeasonBumpToWatchlist) keeps whatever rating you gave
+    // its earlier seasons. That's strictly stronger ground truth than a
+    // genre/studio-inferred guess, so it short-circuits the rest of this
+    // function entirely rather than being outvoted by an indirect proxy.
+    // Confirmed live: Bleach TYBW and Frieren, both rated 4/5 already,
+    // were showing as the WORST matches on the whole watchlist because
+    // their genre/studio inference happened to sit at the bottom of the
+    // spread -- the direct rating was being computed right past.
+    if (item.rating != null) return item.rating;
     const genreEntries = (item.genres || [])
       .map(g => ({ avg: affinity.genreAvg[g], n: affinity.genreN[g] }))
       .filter(e => e.avg != null);
