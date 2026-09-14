@@ -6185,8 +6185,8 @@
                 <div class="card-stats"><span class="stat">${escapeHTML(n.text)}</span></div>
                 <div class="progress-controls">
                   ${canWriteScope(n.scope) ? `
-                    <button class="btn btn-primary" data-idx="${i}" data-group="released" data-action="bump">Add to In Progress</button>
-                    <button class="btn" data-idx="${i}" data-group="released" data-action="watchlist">Add to Watchlist</button>
+                    <button class="btn" data-idx="${i}" data-group="released" data-action="bump">Add to In Progress</button>
+                    <button class="btn btn-primary" data-idx="${i}" data-group="released" data-action="watchlist">Add to Watchlist</button>
                   ` : ''}
                   <button class="btn" data-idx="${i}" data-group="released" data-action="dismiss">Dismiss</button>
                 </div>
