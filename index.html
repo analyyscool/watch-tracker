@@ -4137,7 +4137,12 @@
       }
     } catch (e) {
       console.warn('AniList sequel check failed for', show.title, '— falling back to Jikan', e);
-      const fallback = await fetchJikanAnimeSequel(show.title).catch(() => null);
+      // Deliberately NOT catching a Jikan failure into null here -- a thrown
+      // error (network/429/504) has to propagate up to checkNewSeasons()'s
+      // own try/catch so it can tell "check genuinely failed, keep the old
+      // notice" apart from "checked fine, there's nothing new" (a real null
+      // return from fetchJikanAnimeSequel itself, e.g. no sequel relation).
+      const fallback = await fetchJikanAnimeSequel(show.title);
       if (!fallback) return null;
       if (fallback.baseEpisodes != null && show.totalEpisodes > fallback.baseEpisodes) return null;
       return buildSeasonNotice(show, fallback.title, fallback.episodes, fallback.announced);
@@ -7094,32 +7099,57 @@
     }
   }
 
+  // Same cache-and-merge-preserve pattern as getPendingSeasonNotices /
+  // setPendingSeasonNotices for anime -- without this, any single failed
+  // per-item check on a throttled 6h re-run silently dropped that item's
+  // previously-found notice, and a page reload lost every notice until the
+  // next throttle window (confirmed live: Bleach/Nippon Sangoku/Sakamoto
+  // Days/Witch Hat Atelier notices vanishing with nothing dismissed).
+  function getAllPendingMediaSequelNotices() {
+    try { return JSON.parse(localStorage.getItem('pendingMediaSequelNotices') || '[]'); }
+    catch (e) { return []; }
+  }
+
+  function getPendingMediaSequelNotices(scope) {
+    return getAllPendingMediaSequelNotices().filter(n => n.scope === scope);
+  }
+
+  function setPendingMediaSequelNotices(scope, notices) {
+    const others = getAllPendingMediaSequelNotices().filter(n => n.scope !== scope);
+    localStorage.setItem('pendingMediaSequelNotices', JSON.stringify([...others, ...notices]));
+  }
+
+  function removePendingMediaSequelNotice(key) {
+    localStorage.setItem('pendingMediaSequelNotices', JSON.stringify(getAllPendingMediaSequelNotices().filter(n => n.key !== key)));
+  }
+
   // announced distinguishes "already publishing/finished, readable now"
   // from "confirmed but nothing to read yet" -- confirmed live this
   // matters: The Fable's and 20th Century Boys' real sequel series are
   // both already FINISHED serializing (86 and 16 chapters respectively),
   // not just announced, so the old unconditional "sequel series: X"
   // wording undersold that these are fully readable right now.
-  function buildMediaSequelNotice(m, sequelTitle, announced) {
+  function buildMediaSequelNotice(m, sequelTitle, announced, sequelCoverUrl) {
     return {
       key: `${m.id}::${sequelTitle}`,
+      mediaId: m.id,
       title: m.title,
       announced: !!announced,
       text: announced
         ? `${m.title} → sequel series announced: "${sequelTitle}" (nothing to read yet)`
         : `${m.title} → sequel series available: "${sequelTitle}"`,
       sequelTitle, category: m.category,
-      // The tracked series' own cover, same convention as buildSeasonNotice
-      // (anime) reusing show.posterUrl -- the SEQUEL's own cover isn't
-      // fetched (checkMediaSequel's query doesn't request coverImage), so
-      // this is a stand-in, not the new series' actual art.
-      coverUrl: m.coverUrl,
+      // The sequel's OWN cover when we have it -- confirmed live this
+      // mattered, the original series' cover was a misleading stand-in.
+      // Falls back to the tracked series' cover only if the sequel node
+      // genuinely has no art of its own yet (e.g. a freshly-announced entry).
+      coverUrl: sequelCoverUrl || m.coverUrl,
     };
   }
 
   async function checkMediaSequel(m) {
     const query = `query ($s: String) { Media(search: $s, type: MANGA) {
-      relations { edges { relationType node { title { romaji english } format status } } }
+      relations { edges { relationType node { title { romaji english } format status coverImage { large } } } }
     } }`;
     try {
       const res = await fetchWithRetry429('https://graphql.anilist.co', {
@@ -7133,11 +7163,14 @@
       const sequel = edges.find(e => e.relationType === 'SEQUEL' && ['MANGA', 'ONE_SHOT'].includes(e.node.format));
       if (!sequel) return null;
       const announced = sequel.node.status === 'NOT_YET_RELEASED';
-      return buildMediaSequelNotice(m, sequel.node.title.english || sequel.node.title.romaji, announced);
+      return buildMediaSequelNotice(m, sequel.node.title.english || sequel.node.title.romaji, announced, sequel.node.coverImage?.large);
     } catch (e) {
       console.warn('AniList sequel check failed for', m.title, '— falling back to Jikan', e);
-      const fallback = await fetchJikanMangaSequel(m.title).catch(() => null);
-      return fallback ? buildMediaSequelNotice(m, fallback.title, false) : null;
+      // Same reasoning as checkAnimeSequel's Jikan fallback: let a genuine
+      // fetch failure propagate instead of swallowing it into a null that's
+      // indistinguishable from "checked, nothing new".
+      const fallback = await fetchJikanMangaSequel(m.title);
+      return fallback ? buildMediaSequelNotice(m, fallback.title, false, fallback.coverUrl) : null;
     }
   }
 
@@ -7159,10 +7192,16 @@
     const relJson = await relRes.json();
     const seqGroup = (relJson.data || []).find(r => r.relation === 'Sequel');
     const entry = (seqGroup?.entry || []).find(e => e.type === 'Manga');
-    return entry ? { title: entry.name } : null;
+    if (!entry) return null;
+    // A second call for the sequel's own cover art, same reasoning as the
+    // AniList path -- otherwise the Jikan fallback would render with no
+    // image at all (the relations endpoint carries no images field).
+    const detail = await fetch(`https://api.jikan.moe/v4/manga/${entry.mal_id}`).then(r => r.json()).catch(() => null);
+    return { title: entry.name, coverUrl: detail?.data?.images?.jpg?.large_image_url || null };
   }
 
   async function checkMangaSequels() {
+    showMediaSequelsBanner(getPendingMediaSequelNotices(activeScope));
     const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
     const lastCheck = parseInt(localStorage.getItem('lastMediaSequelCheck') || '0', 10);
     if (Date.now() - lastCheck < CHECK_INTERVAL_MS) return;
@@ -7175,16 +7214,21 @@
     );
     if (!candidates.length) return;
 
+    const previousNotices = getPendingMediaSequelNotices(activeScope);
     const dismissed = getDismissedMediaSequelNotices();
     const notices = [];
     for (const m of candidates) {
       try {
         const notice = await checkMediaSequel(m);
-        if (notice && !dismissed.includes(notice.key)) notices.push(notice);
-      } catch (e) { console.error('Sequel check failed for', m.title, e); }
+        if (notice && !dismissed.includes(notice.key)) notices.push({ ...notice, scope: activeScope });
+      } catch (e) {
+        console.error('Sequel check failed for', m.title, e);
+        notices.push(...previousNotices.filter(n => n.mediaId === m.id));
+      }
       await sleep(SEQUEL_CHECK_DELAY_MS);
     }
-    if (notices.length) showMediaSequelsBanner(notices);
+    setPendingMediaSequelNotices(activeScope, notices);
+    showMediaSequelsBanner(notices);
   }
 
   // Same .card markup as the anime "new season" notices (renderSeasonNoticesSection)
@@ -7226,6 +7270,7 @@
       el.addEventListener('click', () => {
         const n = notices[parseInt(el.dataset.idx, 10)];
         dismissMediaSequelNotice(n.key);
+        removePendingMediaSequelNotice(n.key);
         el.closest('.card').remove();
         refreshNewsEmptyState();
       });
