@@ -4157,7 +4157,25 @@
     // started) but airing right now, and knowing that is exactly the kind
     // of thing worth surfacing (matches movies below, which already
     // include watchlist entries for their release date).
-    const airingCandidates = rows.filter(s => (s.category === 'anime' || s.category === 'western') && (s.listStatus === 'watching' || s.listStatus === 'watchlist'));
+    const activeCandidates = rows.filter(s => (s.category === 'anime' || s.category === 'western') && (s.listStatus === 'watching' || s.listStatus === 'watchlist'));
+    // A FINISHED show that gets revived later should still show up here --
+    // but re-checking the viewer's entire completed backlog every refresh
+    // would turn an already-15-20s check into minutes for a real library.
+    // Instead, piggyback on checkNewSeasons' own separate detection (the
+    // "new season" banner notices, checked every 6h against exactly this
+    // same finished/caught-up candidate set already): only a finished show
+    // that ALREADY has a pending season notice gets added here, which is a
+    // small set in practice, not the full backlog.
+    const noticeShowIds = new Set([
+      ...getPendingSeasonNotices(scope).map(n => n.showId),
+      ...(scope !== 'together' ? getPendingSeasonNotices('together').map(n => n.showId) : []),
+    ]);
+    const revivedCandidates = rows.filter(s =>
+      (s.category === 'anime' || s.category === 'western') &&
+      s.listStatus !== 'watching' && s.listStatus !== 'watchlist' &&
+      noticeShowIds.has(s.id)
+    );
+    const airingCandidates = [...activeCandidates, ...revivedCandidates];
     const movieCandidates = rows.filter(s => s.category === 'movie' && s.listStatus === 'watchlist');
 
     // Cache always stores an ARRAY of upcoming {episode,airingAt} entries
