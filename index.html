@@ -2136,7 +2136,8 @@
   <div id="view-recommendations" style="display:none"></div>
 
   <div id="view-news" style="display:none">
-    <div style="display:flex; justify-content:flex-end; margin-bottom:0.75rem">
+    <div style="display:flex; justify-content:flex-end; align-items:center; gap:0.75rem; margin-bottom:0.75rem">
+      <span id="news-refresh-note" style="font-size:0.65rem; color:var(--muted)"></span>
       <button class="btn" id="news-refresh-btn">Refresh</button>
     </div>
     <div id="season-notices-section"></div>
@@ -2146,7 +2147,8 @@
   </div>
 
   <div id="view-calendar" style="display:none">
-    <div style="display:flex; justify-content:flex-end; margin-bottom:0.75rem">
+    <div style="display:flex; justify-content:flex-end; align-items:center; gap:0.75rem; margin-bottom:0.75rem">
+      <span id="calendar-refresh-note" style="font-size:0.65rem; color:var(--muted)"></span>
       <button class="btn" id="calendar-refresh-btn">Refresh</button>
     </div>
     <div id="calendar-stale-note" style="display:none; font-size:0.65rem; color:var(--muted); margin:0 0 0.75rem"></div>
@@ -3850,6 +3852,19 @@
   const SEQUEL_CHECK_DELAY_MS = 800;
   const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+  // Shared by the News/Calendar refresh-status notes -- rounds to the
+  // coarsest unit that still reads as "roughly this long", matching how a
+  // person would actually say it rather than a literal countdown.
+  function formatWaitTime(ms) {
+    if (ms <= 0) return null;
+    const mins = Math.ceil(ms / 60000);
+    if (mins < 1) return 'less than a minute';
+    if (mins < 60) return `${mins}m`;
+    const hours = Math.floor(mins / 60);
+    const rem = mins % 60;
+    return rem ? `${hours}h ${rem}m` : `${hours}h`;
+  }
+
   // Retries a fetch on 429 (rate limited) with increasing backoff instead
   // of treating it as a hard failure -- a transient rate-limit shouldn't
   // silently drop a show's check for a full 6h cycle when a short wait
@@ -4584,6 +4599,33 @@
   // one "lost" entries at random). calendarLoading guards against that.
   let calendarLoading = false;
 
+  // Same reasoning as News's getNewsRefreshWaitMs -- read the real cache
+  // age against the same CALENDAR_CHECK_INTERVAL_MS that governs an
+  // automatic refresh, instead of a separate invented cooldown.
+  function getCalendarRefreshWaitMs(scope) {
+    const cached = getCalendarCache(scope);
+    if (!cached) return 0;
+    return Math.max(0, CALENDAR_CHECK_INTERVAL_MS - (Date.now() - cached.fetchedAt));
+  }
+
+  function updateCalendarRefreshUI() {
+    const btn = document.getElementById('calendar-refresh-btn');
+    const note = document.getElementById('calendar-refresh-note');
+    if (calendarLoading) return;
+    const waitMs = getCalendarRefreshWaitMs(activeScope);
+    if (waitMs > 0) {
+      btn.disabled = true;
+      note.innerHTML = `Next automatic check in ${formatWaitTime(waitMs)}. <a href="#" id="calendar-force-refresh" style="color:inherit; text-decoration:underline">Check now anyway</a>`;
+      document.getElementById('calendar-force-refresh').addEventListener('click', (e) => {
+        e.preventDefault();
+        renderCalendarTab({ force: true });
+      });
+    } else {
+      btn.disabled = false;
+      note.textContent = '';
+    }
+  }
+
   async function renderCalendarTab({ force = false } = {}) {
     if (calendarLoading) return;
     calendarLoading = true;
@@ -4591,6 +4633,7 @@
     const refreshLabel = refreshBtn.textContent;
     refreshBtn.disabled = true;
     refreshBtn.textContent = 'Refreshing…';
+    document.getElementById('calendar-refresh-note').textContent = '';
     try {
       const staleNote = document.getElementById('calendar-stale-note');
       staleNote.style.display = 'none';
@@ -4616,8 +4659,8 @@
       renderCalendarUpcomingList(calendarEntriesCache);
     } finally {
       calendarLoading = false;
-      refreshBtn.disabled = false;
       refreshBtn.textContent = refreshLabel;
+      updateCalendarRefreshUI();
     }
   }
 
@@ -4629,7 +4672,7 @@
     calendarViewDate.setMonth(calendarViewDate.getMonth() + 1);
     renderCalendarGrid(calendarEntriesCache);
   });
-  document.getElementById('calendar-refresh-btn').addEventListener('click', () => renderCalendarTab({ force: true }));
+  document.getElementById('calendar-refresh-btn').addEventListener('click', () => renderCalendarTab());
   document.getElementById('calendar-prev-week').addEventListener('click', () => {
     calendarWeekOffset -= 1;
     renderCalendarUpcomingList(calendarEntriesCache);
@@ -6171,12 +6214,51 @@
   // also renders whatever's already cached immediately (checkNewSeasons'
   // first line) and kicks a fresh check if the throttle window allows one.
   //
-  // force=true (the Refresh button) clears each check's own throttle
-  // timestamp before calling it -- necessary because a check that ran
-  // once under old detection logic (e.g. before checkAnimeSequel's
-  // wrong-anchor bug was fixed) caches its result for a full 6h, and
-  // without a way to force a recheck a fix like that wouldn't actually
-  // show up in the UI for hours even after being deployed.
+  // Each of the three checks below self-throttles independently against
+  // its own 6h window (lastSeasonCheck / lastChapterCheck /
+  // lastMediaSequelCheck) -- this reads that same real state back out
+  // instead of guessing a separate cooldown, so the button's disabled
+  // state and the note text are never out of sync with what a click would
+  // actually do. "Ready" means at least one of the three is actually due;
+  // the wait shown is the SOONEST of the three, since that's when the
+  // button would next have any real effect.
+  function getNewsRefreshWaitMs() {
+    const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+    const keys = ['lastSeasonCheck', 'lastChapterCheck', 'lastMediaSequelCheck'];
+    const waits = keys.map(k => {
+      const last = parseInt(localStorage.getItem(k) || '0', 10);
+      return Math.max(0, CHECK_INTERVAL_MS - (Date.now() - last));
+    });
+    return Math.min(...waits);
+  }
+
+  function updateNewsRefreshUI() {
+    const btn = document.getElementById('news-refresh-btn');
+    const note = document.getElementById('news-refresh-note');
+    if (newsLoading) return;
+    const waitMs = getNewsRefreshWaitMs();
+    if (waitMs > 0) {
+      btn.disabled = true;
+      note.innerHTML = `Next automatic check in ${formatWaitTime(waitMs)} — everything's already been checked recently. <a href="#" id="news-force-refresh" style="color:inherit; text-decoration:underline">Check now anyway</a>`;
+      document.getElementById('news-force-refresh').addEventListener('click', (e) => {
+        e.preventDefault();
+        renderNewsTab({ force: true });
+      });
+    } else {
+      btn.disabled = false;
+      note.textContent = '';
+    }
+  }
+
+  // force=true (only reachable via the "Check now anyway" link, not the
+  // main button, which is disabled whenever nothing is actually due)
+  // clears each check's own throttle timestamp before calling it --
+  // mainly useful right after shipping a detection fix (e.g. before
+  // checkAnimeSequel's wrong-anchor bug was fixed, a stale cached result
+  // would otherwise sit for a full 6h) or while still setting up/verifying
+  // the tracked library. Once things are steady, the disabled state above
+  // means the automatic 6h background checks are doing the real work and
+  // this is rarely needed.
   //
   // A full real library (every finished/caught-up anime/western show,
   // not just a handful) is 400ms-apart-plus-network-latency PER SHOW --
@@ -6194,6 +6276,7 @@
     const label = btn.textContent;
     btn.disabled = true;
     btn.textContent = 'Refreshing…';
+    document.getElementById('news-refresh-note').textContent = '';
     try {
       if (force) {
         localStorage.removeItem('lastSeasonCheck');
@@ -6204,11 +6287,11 @@
       refreshNewsEmptyState();
     } finally {
       newsLoading = false;
-      btn.disabled = false;
       btn.textContent = label;
+      updateNewsRefreshUI();
     }
   }
-  document.getElementById('news-refresh-btn').addEventListener('click', () => renderNewsTab({ force: true }));
+  document.getElementById('news-refresh-btn').addEventListener('click', () => renderNewsTab());
 
   async function loadShows() {
     checkNewSeasons();
