@@ -4081,7 +4081,7 @@
   async function fetchAniListUpcomingEpisodes(title) {
     const query = `query ($s: String) { Page(perPage: 10) {
       media(search: $s, type: ANIME, sort: START_DATE_DESC) {
-        format status
+        format status title { romaji english }
         nextAiringEpisode { episode }
         airingSchedule(notYetAired: true, perPage: 25) { nodes { episode airingAt } }
       }
@@ -4097,7 +4097,14 @@
       const releasing = media.find(m => m.status === 'RELEASING' && (m.format === 'TV' || m.format === 'MOVIE') && m.nextAiringEpisode);
       const best = releasing || media[0];
       const nodes = best?.airingSchedule?.nodes || [];
-      return nodes.map(n => ({ episode: n.episode, airingAt: n.airingAt * 1000 })).sort((a, b) => a.airingAt - b.airingAt);
+      // Carries the ACTUALLY-matched entry's own title (e.g. "...Season
+      // 4") alongside each episode -- since this can resolve to a
+      // different season than whatever generic title is stored for the
+      // tracked row (see comment above), the calendar needs to display
+      // which one it found, not silently reuse the stored title and
+      // leave it ambiguous which season "Ep 17" even belongs to.
+      const matchedTitle = best ? (best.title.english || best.title.romaji) : null;
+      return nodes.map(n => ({ episode: n.episode, airingAt: n.airingAt * 1000, matchedTitle })).sort((a, b) => a.airingAt - b.airingAt);
     } catch (e) {
       console.warn('AniList upcoming-episodes lookup failed for', title, e);
       return null;
@@ -4173,7 +4180,19 @@
         if (result != null) setShowAiringCache(show.id, episodes);
         await sleep(SEQUEL_CHECK_DELAY_MS);
       }
-      episodes.forEach(ep => entries.push({ ...show, episode: ep.episode, airingAt: ep.airingAt, entryKey: `${show.id}::${ep.episode ?? ep.airingAt}` }));
+      episodes.forEach(ep => entries.push({
+        ...show,
+        episode: ep.episode,
+        airingAt: ep.airingAt,
+        entryKey: `${show.id}::${ep.episode ?? ep.airingAt}`,
+        // Display-only: the actually-matched AniList entry's own title
+        // (e.g. includes "Season 4"), kept separate from `title` so the
+        // click-through detail modal still shows the show by the name
+        // you know it by, not whichever specific season happened to
+        // match. The calendar card itself uses this when present since
+        // otherwise "Ep 17" is ambiguous about which season it's from.
+        calendarDisplayTitle: ep.matchedTitle || null,
+      }));
     }
     for (const movie of movieCandidates) {
       const cached = getShowAiringCache(movie.id);
@@ -4224,7 +4243,7 @@
           ${e.posterUrl ? `<img class="calendar-upcoming-thumb" src="${e.posterUrl}" alt="" onerror="this.remove()">` : ''}
           <div>
             <div class="calendar-upcoming-date">${dateLabel}</div>
-            <div class="calendar-upcoming-title">${escapeHTML(e.title)}${epLabel}</div>
+            <div class="calendar-upcoming-title">${escapeHTML(e.calendarDisplayTitle || e.title)}${epLabel}</div>
           </div>
         </div>
       `;
@@ -4265,7 +4284,7 @@
       cells.push(`
         <div class="calendar-cell${key === todayKey ? ' calendar-cell-today' : ''}">
           <div class="calendar-cell-day">${day}</div>
-          ${dayEntries.slice(0, 3).map(e => `<div class="calendar-cell-entry" data-entry-key="${e.entryKey || e.id}" title="${escapeHTML(e.title)}">${escapeHTML(e.title)}${e.episode != null ? ` Ep${e.episode}` : ''}</div>`).join('')}
+          ${dayEntries.slice(0, 3).map(e => `<div class="calendar-cell-entry" data-entry-key="${e.entryKey || e.id}" title="${escapeHTML(e.calendarDisplayTitle || e.title)}">${escapeHTML(e.calendarDisplayTitle || e.title)}${e.episode != null ? ` Ep${e.episode}` : ''}</div>`).join('')}
           ${dayEntries.length > 3 ? `<div class="calendar-cell-more">+${dayEntries.length - 3} more</div>` : ''}
         </div>
       `);
