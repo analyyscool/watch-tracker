@@ -4184,7 +4184,17 @@
   // with a successful AniList result, so a legitimate "no sequel" answer
   // from AniList is never second-guessed.
   async function fetchJikanAnimeSequel(title) {
+    // Jikan's error responses (429/504/etc) are still valid, parseable JSON
+    // bodies -- confirmed live: a 504 returns
+    // {"status":504,"message":"...MyAnimeList may be down...","data" absent}
+    // -- so .json() never throws on its own. Without checking res.ok first,
+    // the missing `data` field reads as "search found nothing", a clean
+    // null return indistinguishable from a real "no sequel" answer, which
+    // silently defeated the retry/merge-preserve logic this whole fallback
+    // exists to support. Throwing here instead lets checkNewSeasons's own
+    // catch tell "the check failed" apart from "checked fine, nothing new".
     const searchRes = await fetch(`https://api.jikan.moe/v4/anime?q=${encodeURIComponent(title)}&limit=5`);
+    if (!searchRes.ok) throw new Error(`Jikan error ${searchRes.status}`);
     const searchJson = await searchRes.json();
     const results = searchJson.data || [];
     if (!results.length) return null;
@@ -4194,11 +4204,13 @@
     });
     const anime = exact || results[0];
     const relRes = await fetch(`https://api.jikan.moe/v4/anime/${anime.mal_id}/relations`);
+    if (!relRes.ok) throw new Error(`Jikan error ${relRes.status}`);
     const relJson = await relRes.json();
     const seqGroup = (relJson.data || []).find(r => r.relation === 'Sequel');
     const entry = (seqGroup?.entry || []).find(e => e.type === 'Anime');
     if (!entry) return null;
     const detailRes = await fetch(`https://api.jikan.moe/v4/anime/${entry.mal_id}`);
+    if (!detailRes.ok) throw new Error(`Jikan error ${detailRes.status}`);
     const detailJson = await detailRes.json();
     const d = detailJson.data;
     if (!d || d.type !== 'TV') return null;
@@ -7278,7 +7290,12 @@
   // "Find Cover" flow fills totals separately once the user picks the
   // sequel, so only the sequel's title has to be known.
   async function fetchJikanMangaSequel(title) {
+    // Same reasoning as fetchJikanAnimeSequel: Jikan's error responses are
+    // still valid JSON (a 504's body has no `data` field, not a parse
+    // failure), so check res.ok explicitly rather than letting a missing
+    // `data` silently read as "no sequel found".
     const searchRes = await fetch(`https://api.jikan.moe/v4/manga?q=${encodeURIComponent(title)}&limit=5`);
+    if (!searchRes.ok) throw new Error(`Jikan error ${searchRes.status}`);
     const searchJson = await searchRes.json();
     const results = searchJson.data || [];
     if (!results.length) return null;
@@ -7288,6 +7305,7 @@
     });
     const manga = exact || results[0];
     const relRes = await fetch(`https://api.jikan.moe/v4/manga/${manga.mal_id}/relations`);
+    if (!relRes.ok) throw new Error(`Jikan error ${relRes.status}`);
     const relJson = await relRes.json();
     const seqGroup = (relJson.data || []).find(r => r.relation === 'Sequel');
     const entry = (seqGroup?.entry || []).find(e => e.type === 'Manga');
