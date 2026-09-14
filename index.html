@@ -3967,6 +3967,15 @@
     // back-to-back re-run (less time for the API's own limit window to
     // reset), so a second refresh shortly after the first is the case
     // most likely to trigger this if it weren't handled.
+    // A franchise's next season is sometimes already tracked as its own
+    // separate row -- confirmed live: Bleach and "Bleach: Thousand-Year
+    // Blood War" are two independent rows for this user, so the original
+    // Bleach row's own season check kept flagging TYBW as a new season to
+    // "Add to In Progress" even though it's already being watched under
+    // its own entry. Build a lookup of every already-tracked title (this
+    // scope only) so a detected sequel matching one of them is suppressed
+    // rather than offered as something to add.
+    const trackedTitles = new Set(rows.map(r => r.title.toLowerCase().trim()));
     const previousNotices = getPendingSeasonNotices(activeScope);
     const dismissedReleased = getDismissedSeasonNotices(false);
     const dismissedAnnounced = getDismissedSeasonNotices(true);
@@ -3974,8 +3983,9 @@
     for (const s of candidates) {
       try {
         const notice = s.category === 'anime' ? await checkAnimeSequel(s) : await checkWesternSeason(s);
+        const alreadyTracked = notice?.sequelTitle && trackedTitles.has(notice.sequelTitle.toLowerCase().trim());
         const dismissed = notice?.announced ? dismissedAnnounced : dismissedReleased;
-        if (notice && !dismissed.includes(notice.key)) notices.push(notice);
+        if (notice && !alreadyTracked && !dismissed.includes(notice.key)) notices.push(notice);
       } catch (e) {
         console.error('Season check failed for', s.title, e);
         notices.push(...previousNotices.filter(n => n.showId === s.id));
@@ -4014,6 +4024,7 @@
         : `${show.title} → new season: "${sequelTitle}"`,
       showId: show.id,
       showTitle: show.title,
+      sequelTitle,
       posterUrl: show.posterUrl,
       newSeasonCount: seasonNumber,
       newTotalEpisodes: show.totalEpisodes + (sequelEpisodes || 0),
