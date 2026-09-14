@@ -2114,6 +2114,9 @@
   <div id="view-recommendations" style="display:none"></div>
 
   <div id="view-calendar" style="display:none">
+    <div style="display:flex; justify-content:flex-end; margin-bottom:0.75rem">
+      <button class="btn" id="calendar-refresh-btn">Refresh</button>
+    </div>
     <div id="calendar-stale-note" style="display:none; font-size:0.65rem; color:var(--muted); margin:0 0 0.75rem"></div>
     <div class="calendar-layout">
       <div class="calendar-main">
@@ -4078,7 +4081,14 @@
   }
 
   async function refreshCalendarEntries(scope) {
-    const rows = await fetchShows(scope);
+    // Merges in Together-scoped shows regardless of which personal scope
+    // is active -- unlike every other tab (strictly single-scope), a
+    // calendar of "what's airing soon" should show everything you're
+    // tracking, not just whichever scope happens to be selected right
+    // now (confirmed live: the one show actually airing this week was
+    // Together-scoped, and would silently never appear while viewing
+    // under a personal scope otherwise).
+    const rows = scope === 'together' ? await fetchShows('together') : [...await fetchShows(scope), ...await fetchShows('together')];
     const airingCandidates = rows.filter(s => (s.category === 'anime' || s.category === 'western') && s.listStatus === 'watching');
     const movieCandidates = rows.filter(s => s.category === 'movie' && s.listStatus === 'watchlist');
 
@@ -4122,7 +4132,7 @@
       return;
     }
     el.innerHTML = upcoming.map(e => {
-      const dateLabel = new Date(e.airingAt).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+      const dateLabel = new Date(e.airingAt).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
       const epLabel = e.episode != null ? ` Ep ${e.episode}` : '';
       return `
         <div class="calendar-upcoming-item" data-show-id="${e.id}">
@@ -4147,7 +4157,7 @@
     const label = document.getElementById('calendar-month-label');
     const year = calendarViewDate.getFullYear();
     const month = calendarViewDate.getMonth();
-    label.textContent = calendarViewDate.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+    label.textContent = calendarViewDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
     const byDay = new Map();
     entries.forEach(e => {
@@ -4191,6 +4201,16 @@
     const staleNote = document.getElementById('calendar-stale-note');
     staleNote.style.display = 'none';
     calendarViewDate = new Date();
+    // Render the grid frame (with whatever's already cached, even if
+    // that's nothing yet) immediately, synchronously, before the network
+    // round-trip below -- otherwise the nav buttons (static markup) paint
+    // a beat before the grid does, which reads as broken rather than
+    // loading. The upcoming list gets an explicit "Loading…" placeholder
+    // for the same reason, since an empty list looks identical to "you
+    // have nothing upcoming" otherwise.
+    renderCalendarGrid(calendarEntriesCache);
+    document.getElementById('calendar-upcoming-list').innerHTML = `<p style="font-size:0.7rem; color:var(--muted)">Loading…</p>`;
+
     const { entries, stale } = await loadCalendarEntries(activeScope, { force });
     calendarEntriesCache = entries;
     if (stale) {
@@ -4209,6 +4229,7 @@
     calendarViewDate.setMonth(calendarViewDate.getMonth() + 1);
     renderCalendarGrid(calendarEntriesCache);
   });
+  document.getElementById('calendar-refresh-btn').addEventListener('click', () => renderCalendarTab({ force: true }));
 
   // ── Cover/poster search for the Add Show/Movie/Reading forms ──
   // Always returns candidates for the user to pick from -- never
