@@ -4030,6 +4030,34 @@
     localStorage.setItem('calendarCache', JSON.stringify(all));
   }
 
+  // Per-show result cache, separate from the per-scope list above --
+  // most tracked shows are long-finished real-world releases the viewer
+  // is just personally catching up on (confirmed: every one of a real
+  // library's ~20 "watching" anime came back with no next episode except
+  // one), so re-querying AniList/TMDB for the same "definitely finished"
+  // shows on every single refresh is pure waste -- both the ~15-20s wait
+  // for a full library, and unnecessary load against APIs already
+  // documented elsewhere in this file as flaky under load. A null result
+  // is trusted for CALENDAR_SHOW_NEGATIVE_CACHE_MS before re-checking (a
+  // finished show could technically un-finish via a surprise revival, but
+  // that's rare enough to accept a day of lag on); a real result is
+  // always re-fetched fresh so a shifted air date or newly-passed episode
+  // stays accurate.
+  const CALENDAR_SHOW_NEGATIVE_CACHE_MS = 24 * 60 * 60 * 1000;
+
+  function getShowAiringCache(showId) {
+    try {
+      const all = JSON.parse(localStorage.getItem('calendarShowCache') || '{}');
+      return all[showId] || null;
+    } catch { return null; }
+  }
+  function setShowAiringCache(showId, result) {
+    let all = {};
+    try { all = JSON.parse(localStorage.getItem('calendarShowCache') || '{}'); } catch {}
+    all[showId] = { result, checkedAt: Date.now() };
+    localStorage.setItem('calendarShowCache', JSON.stringify(all));
+  }
+
   async function fetchAniListNextAiring(title) {
     const query = `query ($s: String) { Media(search: $s, type: ANIME) {
       nextAiringEpisode { episode airingAt }
@@ -4094,14 +4122,26 @@
 
     const entries = [];
     for (const show of airingCandidates) {
-      const next = show.category === 'anime' ? await fetchAniListNextAiring(show.title) : await fetchTMDBNextEpisode(show.title);
+      const cached = getShowAiringCache(show.id);
+      const trustCachedNull = cached && cached.result == null && (Date.now() - cached.checkedAt) < CALENDAR_SHOW_NEGATIVE_CACHE_MS;
+      let next = null;
+      if (!trustCachedNull) {
+        next = show.category === 'anime' ? await fetchAniListNextAiring(show.title) : await fetchTMDBNextEpisode(show.title);
+        setShowAiringCache(show.id, next);
+        await sleep(SEQUEL_CHECK_DELAY_MS);
+      }
       if (next) entries.push({ ...show, episode: next.episode, airingAt: next.airingAt });
-      await sleep(SEQUEL_CHECK_DELAY_MS);
     }
     for (const movie of movieCandidates) {
-      const next = await fetchTMDBMovieRelease(movie.title);
+      const cached = getShowAiringCache(movie.id);
+      const trustCachedNull = cached && cached.result == null && (Date.now() - cached.checkedAt) < CALENDAR_SHOW_NEGATIVE_CACHE_MS;
+      let next = null;
+      if (!trustCachedNull) {
+        next = await fetchTMDBMovieRelease(movie.title);
+        setShowAiringCache(movie.id, next);
+        await sleep(SEQUEL_CHECK_DELAY_MS);
+      }
       if (next) entries.push({ ...movie, episode: null, airingAt: next.airingAt });
-      await sleep(SEQUEL_CHECK_DELAY_MS);
     }
     entries.sort((a, b) => a.airingAt - b.airingAt);
     setCalendarCache(scope, entries);
@@ -4197,28 +4237,49 @@
     });
   }
 
-  async function renderCalendarTab({ force = false } = {}) {
-    const staleNote = document.getElementById('calendar-stale-note');
-    staleNote.style.display = 'none';
-    calendarViewDate = new Date();
-    // Render the grid frame (with whatever's already cached, even if
-    // that's nothing yet) immediately, synchronously, before the network
-    // round-trip below -- otherwise the nav buttons (static markup) paint
-    // a beat before the grid does, which reads as broken rather than
-    // loading. The upcoming list gets an explicit "Loading…" placeholder
-    // for the same reason, since an empty list looks identical to "you
-    // have nothing upcoming" otherwise.
-    renderCalendarGrid(calendarEntriesCache);
-    document.getElementById('calendar-upcoming-list').innerHTML = `<p style="font-size:0.7rem; color:var(--muted)">Loading…</p>`;
+  // Checking every currently-watching anime/western sequentially (400ms
+  // apart, plus real network latency each) realistically takes 15-20+
+  // seconds for a full library -- with no visible in-progress state on
+  // the Refresh button itself, a second click before the first finishes
+  // starts a SECOND overlapping refresh, and whichever call happens to
+  // resolve last silently wins the final render (looking like the first
+  // one "lost" entries at random). calendarLoading guards against that.
+  let calendarLoading = false;
 
-    const { entries, stale } = await loadCalendarEntries(activeScope, { force });
-    calendarEntriesCache = entries;
-    if (stale) {
-      staleNote.style.display = '';
-      staleNote.textContent = "Couldn't refresh — showing last known upcoming dates.";
+  async function renderCalendarTab({ force = false } = {}) {
+    if (calendarLoading) return;
+    calendarLoading = true;
+    const refreshBtn = document.getElementById('calendar-refresh-btn');
+    const refreshLabel = refreshBtn.textContent;
+    refreshBtn.disabled = true;
+    refreshBtn.textContent = 'Refreshing…';
+    try {
+      const staleNote = document.getElementById('calendar-stale-note');
+      staleNote.style.display = 'none';
+      calendarViewDate = new Date();
+      // Render the grid frame (with whatever's already cached, even if
+      // that's nothing yet) immediately, synchronously, before the network
+      // round-trip below -- otherwise the nav buttons (static markup) paint
+      // a beat before the grid does, which reads as broken rather than
+      // loading. The upcoming list gets an explicit "Loading…" placeholder
+      // for the same reason, since an empty list looks identical to "you
+      // have nothing upcoming" otherwise.
+      renderCalendarGrid(calendarEntriesCache);
+      document.getElementById('calendar-upcoming-list').innerHTML = `<p style="font-size:0.7rem; color:var(--muted)">Loading…</p>`;
+
+      const { entries, stale } = await loadCalendarEntries(activeScope, { force });
+      calendarEntriesCache = entries;
+      if (stale) {
+        staleNote.style.display = '';
+        staleNote.textContent = "Couldn't refresh — showing last known upcoming dates.";
+      }
+      renderCalendarGrid(calendarEntriesCache);
+      renderCalendarUpcomingList(calendarEntriesCache);
+    } finally {
+      calendarLoading = false;
+      refreshBtn.disabled = false;
+      refreshBtn.textContent = refreshLabel;
     }
-    renderCalendarGrid(calendarEntriesCache);
-    renderCalendarUpcomingList(calendarEntriesCache);
   }
 
   document.getElementById('calendar-prev-month').addEventListener('click', () => {
