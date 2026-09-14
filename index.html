@@ -2447,6 +2447,7 @@
     else if (currentTab === 'reading') loadReading();
     else if (currentTab === 'reading-ratings') renderReadingRatingsTab();
     else if (currentTab === 'recommendations') renderRecommendationsTab();
+    else if (currentTab === 'calendar') renderCalendarTab();
     else loadShows();
   }
 
@@ -2856,6 +2857,19 @@
   }
 
   // ── Progress bump / mark finished ──
+  // Shows that will realistically never have a "final episode" in any
+  // foreseeable timeframe (multi-thousand-episode long-runners airing
+  // indefinitely, e.g. One Piece) -- Mark Finished doesn't make sense
+  // for these (there's no real ending to confirm), and catching up to
+  // whatever total_episodes happens to be currently set to shouldn't
+  // pop the rate/finish prompt every single week either, since "caught
+  // up for now" isn't the same as "the show is over". Deliberately kept
+  // in "Watching" forever rather than falling into the Completed
+  // section on catch-up -- Completed cards render with no progress
+  // controls at all, which would strand these with no way to bump
+  // further until total_episodes is next manually raised.
+  const EVERGREEN_SHOW_IDS = new Set(['one-piece']);
+
   async function bumpProgress(id, delta) {
     const rows = await fetchShows(activeScope);
     const show = rows.find(s => s.id === id);
@@ -2864,8 +2878,9 @@
     // The "completed" section is derived from currentEpisode >= totalEpisodes
     // (see loadShows), so stepping the last episode via + finishes the show
     // just like the Mark Finished button — fire the same in_tier_pool flip
-    // and rate/note prompt instead of leaving it stranded.
-    const justFinished = show.currentEpisode < show.totalEpisodes && newEpisode >= show.totalEpisodes;
+    // and rate/note prompt instead of leaving it stranded. Skipped for
+    // EVERGREEN_SHOW_IDS (see its own comment) — catching up isn't "done".
+    const justFinished = !EVERGREEN_SHOW_IDS.has(id) && show.currentEpisode < show.totalEpisodes && newEpisode >= show.totalEpisodes;
     const { error } = await supabase.from('shows').update({
       current_episode: newEpisode,
       season_episode: newEpisode, // seasons collapse to a single running total in this simplified control; per-season tracking still works via Task 8's Add Show flow setting initial values
@@ -6004,7 +6019,7 @@
     const watchingSF = getSF('watching');
     const completedSF = getSF('completed');
 
-    const allActive = watching.filter(s => s.currentEpisode < s.totalEpisodes);
+    const allActive = watching.filter(s => EVERGREEN_SHOW_IDS.has(s.id) || s.currentEpisode < s.totalEpisodes);
     populateFilterSelect(document.getElementById('watching-genre'), allActive.flatMap(s => s.genres || []), 'Genre', watchingSF.genre);
     populateFilterSelect(document.getElementById('watching-studio'), allActive.map(s => s.studio), 'Studio', watchingSF.studio);
     // 'pinned' was a since-removed duplicate of 'pct' (pinning itself is
@@ -6021,7 +6036,7 @@
     nonPinnedActive = sortActive(nonPinnedActive, watchingSort);
     const active = [...pinnedActive, ...nonPinnedActive];
 
-    const allCompleted = watching.filter(s => s.currentEpisode >= s.totalEpisodes);
+    const allCompleted = watching.filter(s => !EVERGREEN_SHOW_IDS.has(s.id) && s.currentEpisode >= s.totalEpisodes);
     populateFilterSelect(document.getElementById('completed-genre'), allCompleted.flatMap(s => s.genres || []), 'Genre', completedSF.genre);
     populateFilterSelect(document.getElementById('completed-studio'), allCompleted.map(s => s.studio), 'Studio', completedSF.studio);
     document.getElementById('completed-sort').value = completedSF.sort || 'updated';
@@ -6078,7 +6093,7 @@
             <button class="btn progress-step" data-id="${show.id}" data-delta="-1">−</button>
             <span class="progress-value">${show.currentEpisode}/${show.totalEpisodes}</span>
             <button class="btn progress-step" data-id="${show.id}" data-delta="1">+</button>
-            <button class="btn mark-finished-btn" data-id="${show.id}">Mark Finished</button>
+            ${EVERGREEN_SHOW_IDS.has(show.id) ? '' : `<button class="btn mark-finished-btn" data-id="${show.id}">Mark Finished</button>`}
             <button class="btn watching-remove-btn" data-id="${show.id}" data-title="${escapeHTML(show.title)}">Remove</button>
           </div>` : '';
         card.className = 'card' + (isPinned ? ' pinned' : '');
