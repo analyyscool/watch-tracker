@@ -7072,8 +7072,18 @@
   // whose primary MangaDex title is in another language (e.g. Vinland Saga
   // stored under 'ja-ro') and fell through to a wrong top hit instead —
   // check every title variant (all languages) plus altTitles.
+  // MangaDex's API doesn't grant CORS access to arbitrary third-party
+  // origins (confirmed live: a real response has no
+  // Access-Control-Allow-Origin header for this site's origin, so every
+  // direct browser call failed) -- MANGADEX_PROXY is a small Cloudflare
+  // Worker (cloudflare-worker-proxy.js in this repo) that forwards to the
+  // real API and adds the CORS header browsers need. It also has to add a
+  // real User-Agent, which MangaDex requires and Workers' fetch() doesn't
+  // send by default.
+  const MANGADEX_PROXY = 'https://watch-tracker-proxy.voileib27.workers.dev/mangadex';
+
   async function fetchMangaDexLatestChapter(title) {
-    const searchRes = await fetch(`https://api.mangadex.org/manga?title=${encodeURIComponent(title)}&limit=10`);
+    const searchRes = await fetch(`${MANGADEX_PROXY}/manga?title=${encodeURIComponent(title)}&limit=10`);
     const searchJson = await searchRes.json();
     const candidatesList = searchJson.data || [];
     if (!candidatesList.length) return 0;
@@ -7082,7 +7092,7 @@
       return variants.some(v => (v || '').toLowerCase().trim() === title.toLowerCase().trim());
     });
     const manga = exact || candidatesList[0];
-    const aggRes = await fetch(`https://api.mangadex.org/manga/${manga.id}/aggregate?translatedLanguage[]=en`);
+    const aggRes = await fetch(`${MANGADEX_PROXY}/manga/${manga.id}/aggregate?translatedLanguage[]=en`);
     const aggJson = await aggRes.json();
     let maxChapter = 0;
     Object.values(aggJson.volumes || {}).forEach(vol => {
@@ -7092,31 +7102,6 @@
       });
     });
     return maxChapter;
-  }
-
-  // MangaUpdates tracks release metadata (not scanlations), so it still has
-  // a current chapter count for titles MangaDex drops once they're licensed
-  // and officially published. Free, no API key. Same exact-title-match
-  // caution as MangaDex — its search ranks by relevance, not by match
-  // quality, so a plain top hit can be a same-named unrelated series.
-  async function fetchMangaUpdatesLatestChapter(title) {
-    const searchRes = await fetch('https://api.mangaupdates.com/v1/series/search', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ search: title, perpage: 10 }),
-    });
-    const searchJson = await searchRes.json();
-    const results = searchJson.results || [];
-    if (!results.length) return 0;
-    const exact = results.find(r => {
-      const variants = [r.record.title, ...(r.record.associated || []).map(a => a.title)];
-      return variants.some(v => (v || '').toLowerCase().trim() === title.toLowerCase().trim());
-    });
-    const seriesId = (exact || results[0]).record.series_id;
-    const detailRes = await fetch(`https://api.mangaupdates.com/v1/series/${seriesId}`);
-    const detailJson = await detailRes.json();
-    const n = parseFloat(detailJson.latest_chapter);
-    return isNaN(n) ? 0 : n;
   }
 
   async function checkNewChapters() {
@@ -7142,20 +7127,19 @@
     // the set of titles this check cares about. MangaDex tracks live
     // per-chapter upload feeds instead, so it's used here despite being a
     // second external dependency beyond AniList/Jikan.
+    //
+    // A MangaUpdates fallback used to run alongside this (it still has
+    // chapter counts for licensed titles MangaDex drops once officially
+    // published, e.g. One Piece, Vinland Saga) but its API blocks Cloudflare
+    // Workers' egress IPs outright (confirmed live: works fine called
+    // directly, 403s every time through the proxy) -- an IP-range block,
+    // not a headers/CORS problem, so proxying doesn't fix it. Dropped rather
+    // than standing up a second, different proxy for what was already the
+    // secondary source; MangaDex alone still covers ongoing scanlated titles.
     const updates = [];
     for (const m of candidates) {
       try {
-        const [mangaDexChapter, mangaUpdatesChapter] = await Promise.all([
-          fetchMangaDexLatestChapter(m.title),
-          fetchMangaUpdatesLatestChapter(m.title),
-        ]);
-        // MangaDex only indexes scanlations, so licensed titles pulled from
-        // its catalog once officially published (Vinland Saga, One Piece,
-        // etc.) silently stop updating there — MangaUpdates tracks release
-        // metadata instead of hosting scans, so it still has these. Take
-        // whichever source reports the higher chapter rather than picking
-        // one, since neither covers every title.
-        const maxChapter = Math.max(mangaDexChapter, mangaUpdatesChapter);
+        const maxChapter = await fetchMangaDexLatestChapter(m.title);
         if (maxChapter && maxChapter > m.totalChapters) {
           updates.push({
             id: m.id, title: m.title, delta: Math.round(maxChapter - m.totalChapters), newTotal: Math.round(maxChapter),
