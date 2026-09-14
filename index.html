@@ -2650,17 +2650,6 @@
   // item's score harder than one you've only rated once, on top of the
   // per-genre shrinkage already applied.
   function scoreAffinity(item, affinity) {
-    // A watchlist/to-read item can already carry YOUR OWN rating -- e.g.
-    // a show parked back on the watchlist mid-franchise with a "Season N"
-    // tag (see applySeasonBumpToWatchlist) keeps whatever rating you gave
-    // its earlier seasons. That's strictly stronger ground truth than a
-    // genre/studio-inferred guess, so it short-circuits the rest of this
-    // function entirely rather than being outvoted by an indirect proxy.
-    // Confirmed live: Bleach TYBW and Frieren, both rated 4/5 already,
-    // were showing as the WORST matches on the whole watchlist because
-    // their genre/studio inference happened to sit at the bottom of the
-    // spread -- the direct rating was being computed right past.
-    if (item.rating != null) return item.rating;
     const genreEntries = (item.genres || [])
       .map(g => ({ avg: affinity.genreAvg[g], n: affinity.genreN[g] }))
       .filter(e => e.avg != null);
@@ -2676,28 +2665,76 @@
 
   // Sorts by affinity score descending (unscored items sink to the bottom,
   // keeping their relative order) and stamps a `_matchPct` (0–100) on each
-  // scored item for the badge in renderWatchlist/renderToRead. The 0-5
-  // raw score used to map straight to 0-100% -- since shrinkage now pulls
-  // sparse-data scores toward your overall mean (correctly, since there's
-  // real uncertainty there), most scores end up in a narrow band near
-  // that mean, which read as "everything looks about the same" even
-  // though the underlying scores are more honest than before. A final
-  // min-max stretch across whatever's actually being ranked THIS render
-  // restores visible separation -- the best match among your current
-  // watchlist reads near 100%, not "the same 80% as everything else".
+  // scored item for the badge in renderWatchlist/renderToRead.
+  //
+  // Two different KINDS of score get very different treatment here.
+  // A watchlist/to-read item can already carry YOUR OWN rating (e.g. a
+  // show parked back on the watchlist mid-franchise with a "Season N" tag
+  // via applySeasonBumpToWatchlist keeps whatever rating you gave its
+  // earlier seasons) -- that's a known, honest value, not a guess, so it
+  // maps straight through as rating/5*100 with NO stretching. Confirmed
+  // live: Bleach TYBW and Frieren, both rated 4/5, were showing 0-100%
+  // "match" (first as the WORST match on the list, entirely unstretched;
+  // then, after a first attempt at fixing that, as an unearned 100% tied
+  // for best) because a real rating was being run through machinery meant
+  // for uncertain inference.
+  //
+  // Tried mapping the own-rating straight through as rating/5*100
+  // (2026-09-15) -- rejected minutes later, live: it put a real 80% row
+  // (a 4/5 rating) visually BELOW a 100% row (a mere genre/studio guess),
+  // since the two are on incomparable scales (one is a known value, the
+  // other stretched relative to a totally different, much narrower
+  // subset) despite sharing the 0-100 number space. A "100%" sitting
+  // below an "80%" reads as broken sorting even though the underlying
+  // rank (by real 0-5 value) was correct. Rather than force one distorted
+  // formula across two fundamentally different kinds of data, an
+  // already-rated item maps straight through as rating/5*100 -- NOT run
+  // through the inferred subset's min-max stretch, so a 4/5 always reads
+  // as a stable, honest 80% instead of getting inflated to 100% just for
+  // happening to be the highest score in whatever's currently on the
+  // watchlist (confirmed live as too aggressive -- Karl's call, 2026-09-15:
+  // keep it as a percentage, but a rating shouldn't get force-stretched to
+  // 100%). This does mean an inferred item can occasionally display a
+  // HIGHER percentage than an own-rated item ranked above it in the list
+  // (their two scales aren't the same shape) -- a known imperfection,
+  // accepted for now rather than solved by hiding the number entirely.
+  // Only genuinely unrated items go through scoreAffinity's inference and
+  // get the min-max stretch.
   function applyAffinityRanking(items, affinity) {
     if (affinity.ratedCount < MIN_RATED_FOR_AFFINITY) return items;
-    const scored = items.map(item => ({ item, score: scoreAffinity(item, affinity) }));
-    scored.sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
-    const realScores = scored.map(s => s.score).filter(s => s != null);
-    const min = Math.min(...realScores), max = Math.max(...realScores);
+    const scored = items.map(item => ({
+      item,
+      ownRating: item.rating != null ? item.rating : null,
+      inferred: item.rating == null ? scoreAffinity(item, affinity) : null,
+    }));
+    const inferredScores = scored.map(s => s.inferred).filter(s => s != null);
+    const min = inferredScores.length ? Math.min(...inferredScores) : 0;
+    const max = inferredScores.length ? Math.max(...inferredScores) : 0;
     const spread = max - min;
-    return scored.map(({ item, score }) => {
-      if (score != null) {
-        item._matchPct = Math.round((spread > 0 ? (score - min) / spread : score / 5) * 100);
+    scored.forEach(s => {
+      if (s.ownRating != null) {
+        s.item._matchPct = Math.round((s.ownRating / 5) * 100);
+      } else if (s.inferred != null) {
+        s.item._matchPct = Math.round((spread > 0 ? (s.inferred - min) / spread : s.inferred / 5) * 100);
       }
-      return item;
     });
+    // Own-rated and inferred items still share the same underlying 0-5
+    // scale for RANKING purposes even though their displayed _matchPct
+    // isn't on a comparable shape -- sorting by that raw value keeps the
+    // list order meaningful (best real/predicted enjoyment first) even
+    // though the numbers alongside it don't always decrease monotonically.
+    scored.sort((a, b) => ((b.ownRating ?? b.inferred) ?? -1) - ((a.ownRating ?? a.inferred) ?? -1));
+    return scored.map(s => s.item);
+  }
+
+  // Renders the Watchlist/To-Read match-percentage badge, or nothing if
+  // this item hasn't been scored (see applyAffinityRanking).
+  function matchBadgeHTML(item) {
+    if (item._matchPct != null) {
+      const title = item.rating != null ? 'Based on your existing rating for this show' : 'Based on your ratings for similar genres/studio';
+      return `<span class="watchlist-match" title="${title}">${item._matchPct}% match</span>`;
+    }
+    return '';
   }
 
   // ── Recommendation seed selection ──
@@ -3533,7 +3570,7 @@
           <span class="watchlist-name">${escapeHTML(item.title)}</span>
           ${item.tags && item.tags.length ? `<span class="watchlist-tags">${item.tags.map(t => escapeHTML(t)).join(', ')}</span>` : ''}
         </div>
-        ${item._matchPct != null ? `<span class="watchlist-match" title="Based on your ratings for similar genres/studio">${item._matchPct}% match</span>` : ''}
+        ${matchBadgeHTML(item)}
         <span class="watchlist-cta">→ start</span>
         <span class="watchlist-remove" title="Remove from watchlist">✕</span>
       `;
@@ -3670,7 +3707,7 @@
     items.forEach(item => {
       const row = document.createElement('div');
       row.className = 'watchlist-item';
-      row.innerHTML = `<span class="watchlist-name">${escapeHTML(item.title)}</span>${item._matchPct != null ? `<span class="watchlist-match" title="Based on your ratings for similar genres/studio">${item._matchPct}% match</span>` : ''}<span class="watchlist-cta">→ start</span><span class="watchlist-remove" title="Remove from to-read">✕</span>`;
+      row.innerHTML = `<span class="watchlist-name">${escapeHTML(item.title)}</span>${matchBadgeHTML(item)}<span class="watchlist-cta">→ start</span><span class="watchlist-remove" title="Remove from to-read">✕</span>`;
       row.addEventListener('click', async () => {
         if (!canWriteScope(activeScope)) return;
         const { error } = await supabase.from('written_media').update({ list_status: 'reading' }).eq('id', item.id);
