@@ -4144,7 +4144,13 @@
     // Together-scoped, and would silently never appear while viewing
     // under a personal scope otherwise).
     const rows = scope === 'together' ? await fetchShows('together') : [...await fetchShows(scope), ...await fetchShows('together')];
-    const airingCandidates = rows.filter(s => (s.category === 'anime' || s.category === 'western') && s.listStatus === 'watching');
+    // Watchlist (not just watching) anime/western shows are included too --
+    // confirmed live this matters: Bleach: Thousand-Year Blood War,
+    // Mushoku Tensei, and Grand Blue Dreaming are all watchlisted (not yet
+    // started) but airing right now, and knowing that is exactly the kind
+    // of thing worth surfacing (matches movies below, which already
+    // include watchlist entries for their release date).
+    const airingCandidates = rows.filter(s => (s.category === 'anime' || s.category === 'western') && (s.listStatus === 'watching' || s.listStatus === 'watchlist'));
     const movieCandidates = rows.filter(s => s.category === 'movie' && s.listStatus === 'watchlist');
 
     // Cache always stores an ARRAY of upcoming {episode,airingAt} entries
