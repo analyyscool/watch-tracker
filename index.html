@@ -3830,8 +3830,33 @@
   // CORS header and so surfaces in devtools as a misleading "blocked by
   // CORS policy" error instead of the real rate-limit. Spacing requests out
   // keeps each sweep under both APIs' limits.
-  const SEQUEL_CHECK_DELAY_MS = 400;
+  //
+  // 400ms wasn't actually enough at real-library scale -- confirmed live:
+  // a full ~70-show sweep started hitting 429s on AniList around the 35th
+  // request, which then cascaded (the Jikan fallback for those same shows
+  // ALSO started hitting 429/504 in the same run), silently dropping any
+  // notice for every show checked after that point for the rest of the 6h
+  // window -- Frieren, Bleach TYBW, and several others all individually
+  // detect fine but were silently missing from a full real sweep purely
+  // because of where they happened to fall in the sequential order.
+  // Bumped the delay and added retry-with-backoff (see fetchWithRetry429)
+  // so a transient rate-limit gets retried instead of permanently eaten.
+  const SEQUEL_CHECK_DELAY_MS = 800;
   const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+  // Retries a fetch on 429 (rate limited) with increasing backoff instead
+  // of treating it as a hard failure -- a transient rate-limit shouldn't
+  // silently drop a show's check for a full 6h cycle when a short wait
+  // would have succeeded. Non-429 responses (including other error
+  // statuses) are returned as-is on the first attempt, matching a plain
+  // fetch's contract -- only 429 specifically triggers a retry here.
+  async function fetchWithRetry429(url, options, retries = 2, backoffMs = 2500) {
+    for (let attempt = 0; ; attempt++) {
+      const res = await fetch(url, options);
+      if (res.status !== 429 || attempt >= retries) return res;
+      await sleep(backoffMs * (attempt + 1));
+    }
+  }
 
   // Announced (not-yet-aired) notices use their own dismissed-list key so
   // dismissing "Season 2 announced" doesn't also suppress the later, actually
@@ -3972,9 +3997,9 @@
   // sequel hop) rather than walking with separate round-trips.
   async function checkAnimeSequel(show) {
     const query = `query ($s: String) {
-      Page(perPage: 5) {
+      Page(perPage: 10) {
         media(search: $s, type: ANIME, format_in: [TV, TV_SHORT, ONA, OVA], sort: START_DATE) {
-          episodes startDate { year }
+          episodes startDate { year } popularity
           relations {
             edges {
               relationType
@@ -4001,7 +4026,7 @@
       }
     }`;
     try {
-      const res = await fetch('https://graphql.anilist.co', {
+      const res = await fetchWithRetry429('https://graphql.anilist.co', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query, variables: { s: show.title } })
@@ -4021,7 +4046,22 @@
       // hiding a real, confirmed Season 3). Re-sorted client-side by
       // startDate.year instead of trusting the server's ordering, with
       // undated entries pushed to the end rather than the front.
-      const anchor = [...media].sort((a, b) => (a.startDate?.year ?? 9999) - (b.startDate?.year ?? 9999))[0];
+      //
+      // Earliest-by-date alone still isn't enough for a franchise with
+      // an old, unrelated, low-popularity adaptation predating the
+      // continuity actually being tracked -- confirmed live: JoJo's
+      // Bizarre Adventure has a 1993 OVA (6 episodes, popularity ~47k)
+      // that sorts before the real 2012 TV series (26 episodes,
+      // popularity ~478k, ~10x higher) most trackers actually mean.
+      // Filtered to entries with at least 10% of the pool's max
+      // popularity before picking earliest-by-date, so a legacy relic
+      // adaptation doesn't win the anchor slot just for being older --
+      // doesn't affect a freshly-announced sequel's own discoverability
+      // since that's found via relation traversal from the anchor, not
+      // by needing to survive this same filter itself.
+      const maxPopularity = Math.max(0, ...media.map(m => m.popularity || 0));
+      const popularEnough = media.filter(m => (m.popularity || 0) >= maxPopularity * 0.1);
+      const anchor = popularEnough.sort((a, b) => (a.startDate?.year ?? 9999) - (b.startDate?.year ?? 9999))[0];
       if (!anchor) return null;
       // A freshly-announced sequel can have format: null (AniList hasn't
       // classified it yet) -- confirmed live: Nippon Sangoku's real
@@ -6081,16 +6121,36 @@
   // wrong-anchor bug was fixed) caches its result for a full 6h, and
   // without a way to force a recheck a fix like that wouldn't actually
   // show up in the UI for hours even after being deployed.
-  function renderNewsTab({ force = false } = {}) {
-    if (force) {
-      localStorage.removeItem('lastSeasonCheck');
-      localStorage.removeItem('lastChapterCheck');
-      localStorage.removeItem('lastMediaSequelCheck');
+  //
+  // A full real library (every finished/caught-up anime/western show,
+  // not just a handful) is 400ms-apart-plus-network-latency PER SHOW --
+  // for a real ~70-show tier pool that's 45+ seconds, easily long enough
+  // to look frozen/broken with no feedback (same lesson as Calendar's
+  // own Refresh button, which had the identical problem). newsLoading
+  // guards against a second click racing the first; awaiting all three
+  // checks (rather than firing them and moving on) is what makes a
+  // "Refreshing…" state actually meaningful instead of instantly true.
+  let newsLoading = false;
+  async function renderNewsTab({ force = false } = {}) {
+    if (newsLoading) return;
+    newsLoading = true;
+    const btn = document.getElementById('news-refresh-btn');
+    const label = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Refreshing…';
+    try {
+      if (force) {
+        localStorage.removeItem('lastSeasonCheck');
+        localStorage.removeItem('lastChapterCheck');
+        localStorage.removeItem('lastMediaSequelCheck');
+      }
+      await Promise.all([checkNewSeasons(), checkNewChapters(), checkMangaSequels()]);
+      refreshNewsEmptyState();
+    } finally {
+      newsLoading = false;
+      btn.disabled = false;
+      btn.textContent = label;
     }
-    checkNewSeasons();
-    checkNewChapters();
-    checkMangaSequels();
-    refreshNewsEmptyState();
   }
   document.getElementById('news-refresh-btn').addEventListener('click', () => renderNewsTab({ force: true }));
 
