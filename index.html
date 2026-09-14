@@ -957,6 +957,15 @@
     min-width: 10rem;
     text-align: center;
   }
+  .calendar-nav-week {
+    gap: 0.5rem;
+    justify-content: space-between;
+  }
+  .calendar-nav-week .calendar-month-label {
+    min-width: 0;
+    font-size: 0.68rem;
+    white-space: nowrap;
+  }
 
   .calendar-weekday-row, .calendar-days {
     display: grid;
@@ -2128,7 +2137,11 @@
         <div class="calendar-grid" id="calendar-grid"></div>
       </div>
       <div class="calendar-side">
-        <div class="rec-section-title">Upcoming (next 7 days)</div>
+        <div class="calendar-nav calendar-nav-week">
+          <button class="btn" id="calendar-prev-week">&larr;</button>
+          <div class="calendar-month-label" id="calendar-week-label"></div>
+          <button class="btn" id="calendar-next-week">&rarr;</button>
+        </div>
         <div id="calendar-upcoming-list"></div>
       </div>
     </div>
@@ -3889,11 +3902,61 @@
     };
   }
 
+  // A plain `Media(search: title)` single-entry lookup (the original
+  // implementation) doesn't reliably resolve to the franchise's actual
+  // Season 1 -- confirmed live: searching "Frieren: Beyond Journey's End"
+  // matched an unrelated ONA shorts side-content entry instead of the
+  // real TV series, so this function was checking THAT entry's own
+  // sequel chain (a "Part 2" of the shorts) instead of the real show's
+  // (missing that a real Season 3 exists). Fixed the same way as the
+  // calendar's equivalent bug: search restricted server-side to
+  // format TV/TV_SHORT and take the EARLIEST such match as the anchor
+  // (season 1), rather than trusting default search relevance.
+  //
+  // The stored row's total_episodes is one cumulative number across
+  // every season merged into it (see the architecture note elsewhere),
+  // so this walks the SEQUEL chain from season 1 hop by hop, accumulating
+  // each hop's own episode count, until either the chain ends (nothing
+  // new) or a hop is reached that ISN'T already covered by the stored
+  // total -- that's the season to report. A hop with an unknown episode
+  // count (`episodes: null`, i.e. announced but not yet aired) is always
+  // treated as not-yet-covered regardless of the running total, since an
+  // unaired season can't possibly already be reflected in a historical
+  // episode count (confirmed live: this is exactly Frieren's real
+  // situation -- Season 3 is NOT_YET_RELEASED with no episode count yet,
+  // so a pure episode-count comparison alone would silently skip past it
+  // forever). Nested 3 levels deep in one query (covers up to a 4th
+  // sequel hop) rather than walking with separate round-trips.
   async function checkAnimeSequel(show) {
-    const query = `query ($s: String) { Media(search: $s, type: ANIME) {
-      episodes
-      relations { edges { relationType node { title { romaji english } format episodes status } } }
-    } }`;
+    const query = `query ($s: String) {
+      Page(perPage: 5) {
+        media(search: $s, type: ANIME, format_in: [TV, TV_SHORT], sort: START_DATE) {
+          episodes
+          relations {
+            edges {
+              relationType
+              node {
+                id title { romaji english } format episodes status
+                relations {
+                  edges {
+                    relationType
+                    node {
+                      id title { romaji english } format episodes status
+                      relations {
+                        edges {
+                          relationType
+                          node { id title { romaji english } format episodes status }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }`;
     try {
       const res = await fetch('https://graphql.anilist.co', {
         method: 'POST',
@@ -3905,25 +3968,22 @@
       // issues" outage still returns 200 with a GraphQL `errors` array
       // rather than a non-2xx status, so both must be checked to detect it.
       if (!res.ok || json.errors) throw new Error(`AniList error ${res.status}`);
-      const media = json?.data?.Media;
-      const edges = media?.relations?.edges || [];
-      const sequel = edges.find(e => e.relationType === 'SEQUEL' && ['TV', 'TV_SHORT'].includes(e.node.format));
-      if (!sequel) return null;
-      // The row's stored total_episodes is one cumulative number across
-      // every season merged into it (see the architecture note above), but
-      // AniList's search always resolves to the franchise's Season 1 entry
-      // and that entry's SEQUEL edge never goes away once it exists -- so
-      // without this guard, a franchise whose next season is ALREADY merged
-      // into the stored total (or was deliberately never extended, e.g. a
-      // dropped show) would re-flag as "new" forever. If the stored total
-      // already exceeds what Season 1 alone accounts for, later seasons are
-      // presumed already reflected (or deliberately not being tracked
-      // further) and there's nothing new to surface. Skipped when AniList
-      // doesn't report Season 1's own episode count (still-airing edge case)
-      // since there's nothing to safely compare against.
-      if (media.episodes != null && show.totalEpisodes > media.episodes) return null;
-      const announced = sequel.node.status === 'NOT_YET_RELEASED';
-      return buildSeasonNotice(show, sequel.node.title.english || sequel.node.title.romaji, sequel.node.episodes, announced);
+      const anchor = json?.data?.Page?.media?.[0];
+      if (!anchor) return null;
+      const sequelEdge = n => (n.relations?.edges || []).find(e => e.relationType === 'SEQUEL' && ['TV', 'TV_SHORT'].includes(e.node.format));
+      let cumulative = anchor.episodes || 0;
+      let node = anchor;
+      while (true) {
+        const seq = sequelEdge(node);
+        if (!seq) return null;
+        const next = seq.node;
+        if (next.episodes == null || cumulative + next.episodes > show.totalEpisodes) {
+          const announced = next.status === 'NOT_YET_RELEASED';
+          return buildSeasonNotice(show, next.title.english || next.title.romaji, next.episodes, announced);
+        }
+        cumulative += next.episodes;
+        node = next;
+      }
     } catch (e) {
       console.warn('AniList sequel check failed for', show.title, '— falling back to Jikan', e);
       const fallback = await fetchJikanAnimeSequel(show.title).catch(() => null);
@@ -4264,21 +4324,32 @@
 
   let calendarViewDate = new Date();
   let calendarEntriesCache = [];
+  // Re-added after initially removing it -- with several weekly-airing
+  // shows now tracked (One Piece et al. contribute a fresh entry every
+  // single week), a fixed 7-day window fills up fast, and paging forward
+  // to see what's next became worth the duplication with the month grid
+  // after all.
+  let calendarWeekOffset = 0;
 
-  // Fixed next-7-days window, no navigation -- the month grid already
-  // lets you browse forward/backward through all time, so this list's
-  // job is just a fast, no-interaction glance at what's coming very
-  // soon, not a second way to browse the same data (tried adding
-  // prev/next week navigation here and reverted it: pure duplication of
-  // what the grid already does, for a side panel whose whole point is
-  // not needing interaction).
+  function currentWeekRange() {
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    start.setDate(start.getDate() + calendarWeekOffset * 7);
+    const end = new Date(start);
+    end.setDate(end.getDate() + 7);
+    return { start, end };
+  }
+
   function renderCalendarUpcomingList(entries) {
     const el = document.getElementById('calendar-upcoming-list');
-    const now = Date.now();
-    const sevenDaysOut = now + 7 * 24 * 60 * 60 * 1000;
-    const upcoming = entries.filter(e => e.airingAt >= now && e.airingAt < sevenDaysOut).sort((a, b) => a.airingAt - b.airingAt);
+    const { start, end } = currentWeekRange();
+    const fmt = d => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    document.getElementById('calendar-week-label').textContent =
+      (calendarWeekOffset === 0 ? 'This week: ' : '') + `${fmt(start)}–${fmt(new Date(end.getTime() - 86400000))}`;
+
+    const upcoming = entries.filter(e => e.airingAt >= start.getTime() && e.airingAt < end.getTime()).sort((a, b) => a.airingAt - b.airingAt);
     if (!upcoming.length) {
-      el.innerHTML = `<p style="font-size:0.7rem; color:var(--muted)">Nothing in the next 7 days.</p>`;
+      el.innerHTML = `<p style="font-size:0.7rem; color:var(--muted)">Nothing this week.</p>`;
       return;
     }
     el.innerHTML = upcoming.map(e => {
@@ -4317,7 +4388,8 @@
       byDay.get(key).push(e);
     });
 
-    const startWeekday = new Date(year, month, 1).getDay();
+    // getDay() is Sun=0..Sat=6; shifted so Mon=0..Sun=6 for a Monday-first grid.
+    const startWeekday = (new Date(year, month, 1).getDay() + 6) % 7;
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     const today = new Date();
     const todayKey = `${today.getFullYear()}-${today.getMonth()}-${today.getDate()}`;
@@ -4336,7 +4408,7 @@
       `);
     }
     grid.innerHTML = `
-      <div class="calendar-weekday-row">${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => `<div class="calendar-weekday">${d}</div>`).join('')}</div>
+      <div class="calendar-weekday-row">${['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(d => `<div class="calendar-weekday">${d}</div>`).join('')}</div>
       <div class="calendar-days">${cells.join('')}</div>
     `;
     grid.querySelectorAll('.calendar-cell-entry').forEach(el => {
@@ -4367,6 +4439,7 @@
       const staleNote = document.getElementById('calendar-stale-note');
       staleNote.style.display = 'none';
       calendarViewDate = new Date();
+      calendarWeekOffset = 0;
       // Render the grid frame (with whatever's already cached, even if
       // that's nothing yet) immediately, synchronously, before the network
       // round-trip below -- otherwise the nav buttons (static markup) paint
@@ -4401,6 +4474,14 @@
     renderCalendarGrid(calendarEntriesCache);
   });
   document.getElementById('calendar-refresh-btn').addEventListener('click', () => renderCalendarTab({ force: true }));
+  document.getElementById('calendar-prev-week').addEventListener('click', () => {
+    calendarWeekOffset -= 1;
+    renderCalendarUpcomingList(calendarEntriesCache);
+  });
+  document.getElementById('calendar-next-week').addEventListener('click', () => {
+    calendarWeekOffset += 1;
+    renderCalendarUpcomingList(calendarEntriesCache);
+  });
 
   // ── Cover/poster search for the Add Show/Movie/Reading forms ──
   // Always returns candidates for the user to pick from -- never
