@@ -637,6 +637,16 @@
     font-size: 0.65rem;
   }
 
+  .new-chapters-banner-thumb {
+    width: 32px;
+    height: 46px;
+    object-fit: cover;
+    border-radius: 4px;
+    flex-shrink: 0;
+    background: var(--border2);
+  }
+  .new-chapters-banner-text { flex: 1; min-width: 0; }
+
   .new-chapters-banner button {
     flex-shrink: 0;
   }
@@ -3954,7 +3964,7 @@
     const query = `query ($s: String) {
       Page(perPage: 5) {
         media(search: $s, type: ANIME, format_in: [TV, TV_SHORT], sort: START_DATE) {
-          episodes
+          episodes startDate { year }
           relations {
             edges {
               relationType
@@ -3991,7 +4001,17 @@
       // issues" outage still returns 200 with a GraphQL `errors` array
       // rather than a non-2xx status, so both must be checked to detect it.
       if (!res.ok || json.errors) throw new Error(`AniList error ${res.status}`);
-      const anchor = json?.data?.Page?.media?.[0];
+      const media = json?.data?.Page?.media || [];
+      // `sort: START_DATE` ascending does NOT reliably put undated
+      // (NOT_YET_RELEASED) entries last -- confirmed live: searching
+      // "Blue Lock" returned its own not-yet-released 3rd season FIRST,
+      // ahead of the real Season 1 (2022), which made that unreleased
+      // entry the "anchor" and broke the whole walk (it has no sequel
+      // edge of its own, so the chain immediately dead-ended, silently
+      // hiding a real, confirmed Season 3). Re-sorted client-side by
+      // startDate.year instead of trusting the server's ordering, with
+      // undated entries pushed to the end rather than the front.
+      const anchor = [...media].sort((a, b) => (a.startDate?.year ?? 9999) - (b.startDate?.year ?? 9999))[0];
       if (!anchor) return null;
       const sequelEdge = n => (n.relations?.edges || []).find(e => e.relationType === 'SEQUEL' && ['TV', 'TV_SHORT'].includes(e.node.format));
       let cumulative = anchor.episodes || 0;
@@ -6951,6 +6971,11 @@
       key: `${m.id}::${sequelTitle}`,
       text: `${m.title} → sequel series: "${sequelTitle}"`,
       sequelTitle, category: m.category,
+      // The tracked series' own cover, same convention as buildSeasonNotice
+      // (anime) reusing show.posterUrl -- the SEQUEL's own cover isn't
+      // fetched (checkMediaSequel's query doesn't request coverImage), so
+      // this is a stand-in, not the new series' actual art.
+      coverUrl: m.coverUrl,
     };
   }
 
@@ -7026,7 +7051,8 @@
   function showMediaSequelsBanner(notices) {
     document.getElementById('new-media-sequels-banner-slot').innerHTML = notices.map((n, i) => `
       <div class="new-chapters-banner" data-idx="${i}">
-        <span class="media-sequel-open" data-idx="${i}" style="cursor:pointer;text-decoration:underline">${escapeHTML(n.text)}</span>
+        ${n.coverUrl ? `<img class="new-chapters-banner-thumb" src="${n.coverUrl}" alt="" onerror="this.remove()">` : ''}
+        <span class="new-chapters-banner-text media-sequel-open" data-idx="${i}" style="cursor:pointer;text-decoration:underline">${escapeHTML(n.text)}</span>
         <button class="btn" data-idx="${i}" data-action="dismiss-media-sequel">Dismiss</button>
       </div>
     `).join('');
