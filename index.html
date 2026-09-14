@@ -7216,11 +7216,17 @@
     return {
       key: `${m.id}::${sequelTitle}`,
       mediaId: m.id,
-      title: m.title,
+      // `title` is what the card actually headlines -- the sequel's own
+      // name, since the card's artwork is now the sequel's own cover too
+      // (see coverUrl below). `originalTitle` keeps the tracked series'
+      // name around for the body text and for openAddReadingModal-adjacent
+      // bookkeeping that still needs to refer to what's actually tracked.
+      title: sequelTitle,
+      originalTitle: m.title,
       announced: !!announced,
       text: announced
-        ? `${m.title} → sequel series announced: "${sequelTitle}" (nothing to read yet)`
-        : `${m.title} → sequel series available: "${sequelTitle}"`,
+        ? `Sequel to "${m.title}" — announced, nothing to read yet`
+        : `Sequel to "${m.title}" — available now`,
       sequelTitle, category: m.category,
       // The sequel's OWN cover when we have it -- confirmed live this
       // mattered, the original series' cover was a misleading stand-in.
