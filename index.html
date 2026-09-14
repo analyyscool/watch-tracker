@@ -6283,7 +6283,19 @@
         localStorage.removeItem('lastChapterCheck');
         localStorage.removeItem('lastMediaSequelCheck');
       }
-      await Promise.all([checkNewSeasons(), checkNewChapters(), checkMangaSequels()]);
+      // checkNewSeasons and checkMangaSequels both hit AniList/Jikan, each
+      // running its own SEQUEL_CHECK_DELAY_MS-paced request loop -- run
+      // side by side, those two loops interleave and roughly DOUBLE the
+      // real request rate against the same rate limit, tripping AniList's
+      // 429 threshold (documented around ~35 sequential requests) in
+      // about half the time and dropping whatever items happen to land in
+      // that window. Sequencing them shares one request budget instead.
+      // checkNewChapters only talks to MangaDex/MangaUpdates (no AniList),
+      // so it's unaffected and stays parallel.
+      await Promise.all([
+        (async () => { await checkNewSeasons(); await checkMangaSequels(); })(),
+        checkNewChapters(),
+      ]);
       refreshNewsEmptyState();
     } finally {
       newsLoading = false;
