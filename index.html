@@ -1906,6 +1906,7 @@
     <button class="tab-btn active" data-toptab="tvmovies">TV / Movies</button>
     <button class="tab-btn" data-toptab="reading">Reading</button>
     <button class="tab-btn" data-toptab="recommendations">Recommendations</button>
+    <button class="tab-btn" data-toptab="news">News</button>
     <button class="tab-btn" data-toptab="calendar">Calendar</button>
     <button class="tab-btn" data-toptab="stats">Stats</button>
   </div>
@@ -1924,8 +1925,6 @@
   </div>
 
   <div id="view-watching">
-    <div id="season-notices-section"></div>
-    <div class="section-divider" id="in-progress-divider" style="display:none"><span>in progress</span></div>
     <div class="sort-filter-bar" id="watching-sf">
       <select class="sf-select" id="watching-sort">
         <option value="pct">Sort: % complete</option>
@@ -2037,8 +2036,6 @@
   <canvas id="confetti-canvas"></canvas>
 
   <div id="view-reading" style="display:none">
-    <div id="new-chapters-banner-slot"></div>
-    <div id="new-media-sequels-banner-slot"></div>
     <div class="category-toggle" id="reading-category-toggle">
       <button class="btn reading-category-btn active" data-category="book">Books</button>
       <button class="btn reading-category-btn" data-category="manga">Manga</button>
@@ -2121,6 +2118,13 @@
   <div id="view-stats" style="display:none"></div>
 
   <div id="view-recommendations" style="display:none"></div>
+
+  <div id="view-news" style="display:none">
+    <div id="season-notices-section"></div>
+    <div id="new-chapters-banner-slot"></div>
+    <div id="new-media-sequels-banner-slot"></div>
+    <div id="news-empty-state" style="display:none; text-align:center; padding:3.5rem 1rem; font-size:0.7rem; letter-spacing:0.12em; text-transform:uppercase; color:var(--muted);">Nothing new right now.</div>
+  </div>
 
   <div id="view-calendar" style="display:none">
     <div style="display:flex; justify-content:flex-end; margin-bottom:0.75rem">
@@ -2448,6 +2452,7 @@
     else if (currentTab === 'reading-ratings') renderReadingRatingsTab();
     else if (currentTab === 'recommendations') renderRecommendationsTab();
     else if (currentTab === 'calendar') renderCalendarTab();
+    else if (currentTab === 'news') renderNewsTab();
     else loadShows();
   }
 
@@ -5945,8 +5950,7 @@
   // season-number tag instead (for "not ready yet"), or dismiss outright.
   function renderSeasonNoticesSection(notices) {
     const slot = document.getElementById('season-notices-section');
-    document.getElementById('in-progress-divider').style.display = notices.length ? '' : 'none';
-    if (!notices.length) { slot.innerHTML = ''; return; }
+    if (!notices.length) { slot.innerHTML = ''; refreshNewsEmptyState(); return; }
     const released = notices.filter(n => !n.announced);
     const announced = notices.filter(n => n.announced);
     // Announced-but-unaired sequels get their own no-action section --
@@ -6008,6 +6012,33 @@
         }
       });
     });
+    refreshNewsEmptyState();
+  }
+
+  // The News tab combines three independently-populated notice slots
+  // (this one, plus the two manga banners below) -- shows a fallback
+  // message only once all three agree there's nothing, rather than each
+  // section managing its own empty state in isolation.
+  function refreshNewsEmptyState() {
+    const slots = ['season-notices-section', 'new-chapters-banner-slot', 'new-media-sequels-banner-slot'];
+    const allEmpty = slots.every(id => !document.getElementById(id).innerHTML.trim());
+    document.getElementById('news-empty-state').style.display = allEmpty ? '' : 'none';
+  }
+
+  // Combines what used to be three separately-scattered notice banners
+  // (season notices on Watching, chapter/sequel banners on Reading) into
+  // one tab. Each check function is independently throttled to once per
+  // 6h (see their own comments) and fires-and-forgets here exactly like
+  // it already did from loadShows()/loadReading() -- those callers still
+  // trigger the same checks too, so news stays fresh in the background
+  // even for someone who never opens this tab directly; opening it just
+  // also renders whatever's already cached immediately (checkNewSeasons'
+  // first line) and kicks a fresh check if the throttle window allows one.
+  function renderNewsTab() {
+    checkNewSeasons();
+    checkNewChapters();
+    checkMangaSequels();
+    refreshNewsEmptyState();
   }
 
   async function loadShows() {
@@ -6876,9 +6907,10 @@
     document.getElementById('new-chapters-banner-slot').innerHTML = `
       <div class="new-chapters-banner">
         <span>New chapters: ${text}</span>
-        <button class="btn" onclick="this.closest('.new-chapters-banner').remove()">Dismiss</button>
+        <button class="btn" onclick="this.closest('.new-chapters-banner').remove(); refreshNewsEmptyState();">Dismiss</button>
       </div>
     `;
+    refreshNewsEmptyState();
   }
 
   // ── Sequel-series detection for manga/manhwa (books/webnovels have no
@@ -6993,8 +7025,10 @@
         const n = notices[parseInt(el.dataset.idx, 10)];
         dismissMediaSequelNotice(n.key);
         el.closest('.new-chapters-banner').remove();
+        refreshNewsEmptyState();
       });
     });
+    refreshNewsEmptyState();
   }
 
   async function loadReading() {
@@ -7705,6 +7739,7 @@
     tvmovies: ['watching', 'movie-watchlist', 'spinwheel', 'tierlist', 'ratings'],
     reading: ['reading', 'reading-ratings'],
     recommendations: ['recommendations'],
+    news: ['news'],
     calendar: ['calendar'],
     stats: ['stats'],
   };
@@ -7721,6 +7756,7 @@
     reading: { eyebrow: 'in progress', title: 'Currently Reading' },
     'reading-ratings': { eyebrow: 'rated', title: 'Reading Ratings' },
     recommendations: { eyebrow: 'discover', title: 'Recommendations' },
+    news: { eyebrow: 'updates', title: 'News' },
     calendar: { eyebrow: 'upcoming', title: 'Calendar' },
     stats: { eyebrow: 'the numbers', title: 'Stats' },
   };
@@ -7747,6 +7783,7 @@
     document.getElementById('view-reading-ratings').style.display = tab === 'reading-ratings' ? '' : 'none';
     document.getElementById('view-recommendations').style.display = tab === 'recommendations' ? '' : 'none';
     document.getElementById('view-calendar').style.display = tab === 'calendar' ? '' : 'none';
+    document.getElementById('view-news').style.display = tab === 'news' ? '' : 'none';
     if (tab === 'tierlist') {
       watchedShowsCache = null;
       initTierlistView();
@@ -7775,6 +7812,9 @@
     }
     if (tab === 'calendar') {
       renderCalendarTab();
+    }
+    if (tab === 'news') {
+      renderNewsTab();
     }
   }
 
