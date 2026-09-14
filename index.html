@@ -2120,6 +2120,9 @@
   <div id="view-recommendations" style="display:none"></div>
 
   <div id="view-news" style="display:none">
+    <div style="display:flex; justify-content:flex-end; margin-bottom:0.75rem">
+      <button class="btn" id="news-refresh-btn">Refresh</button>
+    </div>
     <div id="season-notices-section"></div>
     <div id="new-chapters-banner-slot"></div>
     <div id="new-media-sequels-banner-slot"></div>
@@ -6034,12 +6037,25 @@
   // even for someone who never opens this tab directly; opening it just
   // also renders whatever's already cached immediately (checkNewSeasons'
   // first line) and kicks a fresh check if the throttle window allows one.
-  function renderNewsTab() {
+  //
+  // force=true (the Refresh button) clears each check's own throttle
+  // timestamp before calling it -- necessary because a check that ran
+  // once under old detection logic (e.g. before checkAnimeSequel's
+  // wrong-anchor bug was fixed) caches its result for a full 6h, and
+  // without a way to force a recheck a fix like that wouldn't actually
+  // show up in the UI for hours even after being deployed.
+  function renderNewsTab({ force = false } = {}) {
+    if (force) {
+      localStorage.removeItem('lastSeasonCheck');
+      localStorage.removeItem('lastChapterCheck');
+      localStorage.removeItem('lastMediaSequelCheck');
+    }
     checkNewSeasons();
     checkNewChapters();
     checkMangaSequels();
     refreshNewsEmptyState();
   }
+  document.getElementById('news-refresh-btn').addEventListener('click', () => renderNewsTab({ force: true }));
 
   async function loadShows() {
     checkNewSeasons();
