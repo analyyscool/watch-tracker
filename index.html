@@ -355,6 +355,12 @@
   }
 
   #season-notices-grid { margin-bottom: 0.5rem; }
+  #new-media-sequels-banner-slot {
+    display: flex;
+    flex-direction: column;
+    gap: 0.625rem;
+    margin-bottom: 0.5rem;
+  }
 
   #reading-grid, #reading-completed {
     display: flex;
@@ -3921,6 +3927,18 @@
     );
     if (!candidates.length) return;
 
+    // A show whose check THROWS this round (AniList/Jikan both exhausted
+    // their retries under rate-limiting -- confirmed live at real-library
+    // scale) keeps its previous notice instead of losing it -- a failed
+    // check isn't evidence the notice is stale, just that this round
+    // couldn't refresh it. Without this, setPendingSeasonNotices below
+    // would silently wipe out a show's already-found notice on a partial
+    // failure, which is exactly the "most of the stuff disappeared after
+    // refresh" symptom confirmed live: rate-limiting is likely WORSE on a
+    // back-to-back re-run (less time for the API's own limit window to
+    // reset), so a second refresh shortly after the first is the case
+    // most likely to trigger this if it weren't handled.
+    const previousNotices = getPendingSeasonNotices(activeScope);
     const dismissedReleased = getDismissedSeasonNotices(false);
     const dismissedAnnounced = getDismissedSeasonNotices(true);
     const notices = [];
@@ -3929,7 +3947,10 @@
         const notice = s.category === 'anime' ? await checkAnimeSequel(s) : await checkWesternSeason(s);
         const dismissed = notice?.announced ? dismissedAnnounced : dismissedReleased;
         if (notice && !dismissed.includes(notice.key)) notices.push(notice);
-      } catch (e) { console.error('Season check failed for', s.title, e); }
+      } catch (e) {
+        console.error('Season check failed for', s.title, e);
+        notices.push(...previousNotices.filter(n => n.showId === s.id));
+      }
       await sleep(SEQUEL_CHECK_DELAY_MS);
     }
     setPendingSeasonNotices(activeScope, notices);
@@ -3943,19 +3964,29 @@
   // the banner would tell you to "Add to In Progress" a show with nothing
   // to watch yet. Announced notices get their own no-action section (see
   // renderSeasonNoticesSection) instead of the actionable one.
-  function buildSeasonNotice(show, sequelTitle, sequelEpisodes, announced) {
+  // seasonNumber is the candidate's real position in the chain counting
+  // from the true season 1 (the anchor checkAnimeSequel resolves to),
+  // NOT derived from the tracked row's own stored total_seasons -- that
+  // field is often null/unmaintained, and the walk can legitimately go
+  // more than one hop past whatever's stored. Confirmed live: Blue Lock
+  // (total_seasons unset) walks two hops past Season 1 to reach "NEO
+  // EGOIST LEAGUE", which is really Season 3 -- the old `(totalSeasons
+  // || 1) + 1` formula always said "Season 2" regardless of how deep
+  // the walk actually went, mislabeling it. Defaults to 2 for the
+  // Jikan/western fallback paths, which only ever check one hop ahead.
+  function buildSeasonNotice(show, sequelTitle, sequelEpisodes, announced, seasonNumber = 2) {
     return {
       type: 'anime',
       key: `${show.id}::${sequelTitle}`,
       scope: show.scope,
       announced: !!announced,
       text: announced
-        ? `${show.title} → Season ${(show.totalSeasons || 1) + 1} announced: "${sequelTitle}" (no air date yet)`
+        ? `${show.title} → Season ${seasonNumber} announced: "${sequelTitle}" (no air date yet)`
         : `${show.title} → new season: "${sequelTitle}"`,
       showId: show.id,
       showTitle: show.title,
       posterUrl: show.posterUrl,
-      newSeasonCount: (show.totalSeasons || 1) + 1,
+      newSeasonCount: seasonNumber,
       newTotalEpisodes: show.totalEpisodes + (sequelEpisodes || 0),
     };
   }
@@ -4073,13 +4104,15 @@
       const sequelEdge = n => (n.relations?.edges || []).find(e => e.relationType === 'SEQUEL' && (!e.node.format || ['TV', 'TV_SHORT', 'ONA', 'OVA'].includes(e.node.format)));
       let cumulative = anchor.episodes || 0;
       let node = anchor;
+      let seasonNumber = 1; // anchor itself is season 1
       while (true) {
         const seq = sequelEdge(node);
         if (!seq) return null;
         const next = seq.node;
+        seasonNumber++;
         if (next.episodes == null || cumulative + next.episodes > show.totalEpisodes) {
           const announced = next.status === 'NOT_YET_RELEASED';
-          return buildSeasonNotice(show, next.title.english || next.title.romaji, next.episodes, announced);
+          return buildSeasonNotice(show, next.title.english || next.title.romaji, next.episodes, announced, seasonNumber);
         }
         cumulative += next.episodes;
         node = next;
@@ -7046,6 +7079,7 @@
   function buildMediaSequelNotice(m, sequelTitle) {
     return {
       key: `${m.id}::${sequelTitle}`,
+      title: m.title,
       text: `${m.title} → sequel series: "${sequelTitle}"`,
       sequelTitle, category: m.category,
       // The tracked series' own cover, same convention as buildSeasonNotice
@@ -7061,7 +7095,7 @@
       relations { edges { relationType node { title { romaji english } format } } }
     } }`;
     try {
-      const res = await fetch('https://graphql.anilist.co', {
+      const res = await fetchWithRetry429('https://graphql.anilist.co', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query, variables: { s: m.title } })
@@ -7125,12 +7159,22 @@
     if (notices.length) showMediaSequelsBanner(notices);
   }
 
+  // Same .card markup as the anime "new season" notices (renderSeasonNoticesSection)
+  // so the two look identical in the News tab rather than one being a full
+  // card and the other a slim inline banner -- the underlying data (cover,
+  // title, description text) is exactly analogous either way.
   function showMediaSequelsBanner(notices) {
     document.getElementById('new-media-sequels-banner-slot').innerHTML = notices.map((n, i) => `
-      <div class="new-chapters-banner" data-idx="${i}">
-        ${n.coverUrl ? `<img class="new-chapters-banner-thumb" src="${n.coverUrl}" alt="" onerror="this.remove()">` : ''}
-        <span class="new-chapters-banner-text media-sequel-open" data-idx="${i}" style="cursor:pointer;text-decoration:underline">${escapeHTML(n.text)}</span>
-        <button class="btn" data-idx="${i}" data-action="dismiss-media-sequel">Dismiss</button>
+      <div class="card" data-idx="${i}">
+        ${n.coverUrl ? `<img class="card-poster" src="${n.coverUrl}" alt="" onerror="this.remove()">` : ''}
+        <div class="card-body">
+          <div class="card-top"><div class="card-title">${escapeHTML(n.title)}</div></div>
+          <div class="card-stats"><span class="stat">${escapeHTML(n.text)}</span></div>
+          <div class="progress-controls">
+            <button class="btn btn-primary media-sequel-open" data-idx="${i}">Add to Reading</button>
+            <button class="btn" data-idx="${i}" data-action="dismiss-media-sequel">Dismiss</button>
+          </div>
+        </div>
       </div>
     `).join('');
     document.querySelectorAll('.media-sequel-open').forEach(el => {
@@ -7143,7 +7187,7 @@
       el.addEventListener('click', () => {
         const n = notices[parseInt(el.dataset.idx, 10)];
         dismissMediaSequelNotice(n.key);
-        el.closest('.new-chapters-banner').remove();
+        el.closest('.card').remove();
         refreshNewsEmptyState();
       });
     });
