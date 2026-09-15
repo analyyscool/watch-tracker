@@ -4050,8 +4050,17 @@
     localStorage.setItem('lastSeasonCheck', String(Date.now()));
 
     const rows = await fetchShows(activeScope);
+    // `movie` is included alongside anime/western -- a theatrical sequel
+    // (Demon Slayer: Infinity Castle Part 2, Evangelion's Rebuild films)
+    // is just as much a real continuation as a TV season, not "alternative"
+    // side content, and previously got no detection at all since this
+    // filter excluded the category outright. Unlike anime/western, a movie
+    // sequel is never merged into the same row (each movie is tracked as
+    // its own entry per CLAUDE.md), so its notice is always non-actionable
+    // (see buildSeasonNotice's isMovie handling) -- there's no "bump this
+    // row" that makes sense here, just "go add the new one".
     const candidates = rows.filter(s =>
-      (s.category === 'anime' || s.category === 'western') &&
+      (s.category === 'anime' || s.category === 'western' || s.category === 'movie') &&
       (s.inTierPool || (s.listStatus === 'watching' && s.currentEpisode >= s.totalEpisodes))
     );
     if (!candidates.length) return;
@@ -4082,7 +4091,12 @@
     const notices = [];
     for (const s of candidates) {
       try {
-        let notice = s.category === 'anime' ? await checkAnimeSequel(s) : await checkWesternSeason(s);
+        // Movie-category rows route through checkAnimeSequel too -- an
+        // anime movie franchise (Demon Slayer, Evangelion) resolves fine
+        // there; a live-action movie title just finds no ANIME-type match
+        // and returns null, a harmless no-op (there's no TMDB equivalent
+        // of "next movie in this franchise" wired up here).
+        let notice = (s.category === 'anime' || s.category === 'movie') ? await checkAnimeSequel(s) : await checkWesternSeason(s);
         // Belt-and-suspenders against the Frieren bug (see checkAnimeSequel's
         // comment): whatever the source-specific classification decided,
         // a notice whose newTotalEpisodes wouldn't actually raise the
@@ -4125,7 +4139,7 @@
   // || 1) + 1` formula always said "Season 2" regardless of how deep
   // the walk actually went, mislabeling it. Defaults to 2 for the
   // Jikan/western fallback paths, which only ever check one hop ahead.
-  function buildSeasonNotice(show, sequelTitle, sequelEpisodes, announced, seasonNumber = 2, status = null) {
+  function buildSeasonNotice(show, sequelTitle, sequelEpisodes, announced, seasonNumber = 2, status = null, sequelFormat = null) {
     // `announced` (see checkAnimeSequel) now covers two distinct real
     // states -- genuinely NOT_YET_RELEASED (no air date) and RELEASING
     // (airing right now, but AniList hasn't published a final episode
@@ -4134,12 +4148,33 @@
     // start watching, so the copy distinguishes them instead of always
     // saying "no air date yet" for a season that's actually mid-air.
     const airingNow = status === 'RELEASING';
+    // A movie sequel is NEVER safe to bump from -- unlike anime/western,
+    // where every season merges into the SAME row's total_episodes, each
+    // movie in a franchise is tracked as its own separate row (see
+    // "Adding a new show" in CLAUDE.md). Bumping this row's total would
+    // silently corrupt the finished movie's own runtime/episode data
+    // instead of pointing at the real next entry. Always forced into the
+    // non-actionable (Dismiss-only) `announced` bucket regardless of
+    // whether it's actually out yet, with its own release-aware wording
+    // instead of reusing the TV-season "Season N" copy.
+    //
+    // Keyed off the SEQUEL TARGET's own format, not the tracked row's
+    // category -- confirmed live: Neon Genesis Evangelion is tracked as
+    // ordinary `category: "anime"`, but its real SEQUEL is "The End of
+    // Evangelion" (a MOVIE). Keying this off `show.category` would have
+    // missed that case (and any TV series whose story continues into a
+    // movie) even though the SEQUEL edge itself resolves fine.
+    const isMovie = sequelFormat === 'MOVIE';
     return {
       type: 'anime',
       key: `${show.id}::${sequelTitle}`,
       scope: show.scope,
-      announced: !!announced,
-      text: announced
+      announced: isMovie ? true : !!announced,
+      text: isMovie
+        ? (announced
+          ? `${show.title} → sequel movie announced: "${sequelTitle}" (no release date yet)`
+          : `${show.title} → sequel movie out now: "${sequelTitle}" (not in your library yet -- add it as its own entry)`)
+        : announced
         ? (airingNow
           ? `${show.title} → Season ${seasonNumber} now airing: "${sequelTitle}" (episode count not final yet -- can't track progress until it finishes)`
           : `${show.title} → Season ${seasonNumber} announced: "${sequelTitle}" (no air date yet)`)
@@ -4189,10 +4224,23 @@
   // forever). Nested 3 levels deep in one query (covers up to a 4th
   // sequel hop) rather than walking with separate round-trips.
   async function checkAnimeSequel(show) {
+    // MOVIE is only added to the ANCHOR search allowlist for a
+    // movie-category row (a movie needs to find ITSELF as the anchor) --
+    // broadening it for every anime/western row's own anchor search would
+    // risk an older, popular theatrical side-entry winning the anchor slot
+    // ahead of the real TV season 1 for an unrelated franchise. This is
+    // separate from whether a MOVIE can be accepted as a SEQUEL target
+    // partway through the walk (see allowedFormats below), which is safe
+    // to allow universally -- confirmed live: Neon Genesis Evangelion (a
+    // normal `category: "anime"` row) has a real, correctly-tagged SEQUEL
+    // edge straight to "The End of Evangelion" (MOVIE), a case this
+    // anchor-search restriction has no bearing on.
+    const rowIsMovie = show.category === 'movie';
+    const formats = rowIsMovie ? 'TV, TV_SHORT, ONA, OVA, MOVIE' : 'TV, TV_SHORT, ONA, OVA';
     const query = `query ($s: String) {
       Page(perPage: 10) {
-        media(search: $s, type: ANIME, format_in: [TV, TV_SHORT, ONA, OVA], sort: START_DATE) {
-          episodes startDate { year } popularity
+        media(search: $s, type: ANIME, format_in: [${formats}], sort: START_DATE) {
+          episodes startDate { year } popularity title { romaji english }
           relations {
             edges {
               relationType
@@ -4277,11 +4325,41 @@
       // case) is excluded from counting as a real season, so a trivial
       // extra doesn't produce a misleading notice even when the genuine
       // sequel isn't reachable this way.
-      const sequelEdge = n => (n.relations?.edges || []).find(e =>
-        e.relationType === 'SEQUEL' &&
-        (!e.node.format || ['TV', 'TV_SHORT', 'ONA', 'OVA'].includes(e.node.format)) &&
-        (e.node.episodes == null || e.node.episodes >= 4)
-      );
+      // Always allowed as a SEQUEL *target* (unlike the anchor search
+      // above, which stays narrow) -- a movie ending/continuing a TV
+      // series is a normal, common pattern, not something worth
+      // restricting to movie-category rows only.
+      const allowedFormats = ['TV', 'TV_SHORT', 'ONA', 'OVA', 'MOVIE'];
+      // AniList sometimes mistags a genuine numbered sequel as OTHER
+      // instead of SEQUEL -- confirmed live: "Cyberpunk: Edgerunners 2"
+      // (NOT_YET_RELEASED) is tagged OTHER on the original Edgerunners
+      // entry, not SEQUEL, so a strict relationType check alone misses it
+      // entirely. OTHER is also used for a lot of unrelated crossover/
+      // character tie-in content though (confirmed live: Evangelion alone
+      // has half a dozen OTHER edges to completely unrelated specials and
+      // manga), so it's only trusted here when the target's title is
+      // unambiguously a numbered continuation of the current node's own
+      // title (e.g. "X" -> "X 2") -- narrow enough to catch this specific
+      // mistagging pattern without treating random OTHER-tagged side
+      // content as a new season everywhere else.
+      const looksLikeNumberedSequel = (baseTitle, candidateTitle) => {
+        if (!baseTitle || !candidateTitle) return false;
+        const esc = baseTitle.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        return new RegExp(`^${esc}\\s*(\\d+|II|III|IV|V|2nd|3rd|4th)\\b`, 'i').test(candidateTitle.trim());
+      };
+      const sequelEdge = n => (n.relations?.edges || []).find(e => {
+        if (!(!e.node.format || allowedFormats.includes(e.node.format))) return false;
+        // The <4-episode floor exists to reject a trivial 1-episode bonus
+        // OVA (see Steins;Gate note below) -- but every real movie is
+        // legitimately 1 "episode" on AniList, so that floor can't apply
+        // when the target IS a movie, or a genuine sequel film would be
+        // rejected as if it were bonus content.
+        if (!(e.node.episodes == null || e.node.episodes >= 4 || e.node.format === 'MOVIE')) return false;
+        if (e.relationType === 'SEQUEL') return true;
+        const nodeTitle = n.title && (n.title.english || n.title.romaji);
+        const candidateTitle = e.node.title && (e.node.title.english || e.node.title.romaji);
+        return e.relationType === 'OTHER' && looksLikeNumberedSequel(nodeTitle, candidateTitle);
+      });
       let cumulative = anchor.episodes || 0;
       let node = anchor;
       let seasonNumber = 1; // anchor itself is season 1
@@ -4290,7 +4368,12 @@
         if (!seq) return null;
         const next = seq.node;
         seasonNumber++;
-        if (next.episodes == null || cumulative + next.episodes > show.totalEpisodes) {
+        // A movie almost always has `episodes: 1` set even before release
+        // (unlike a TV season, which reports null episodes until it airs),
+        // so `next.episodes == null` can't be used to detect "not out yet"
+        // for a movie target -- status is the only reliable signal there.
+        const movieNotOutYet = next.format === 'MOVIE' && next.status !== 'FINISHED';
+        if (next.episodes == null || movieNotOutYet || cumulative + next.episodes > show.totalEpisodes) {
           // `announced` here really means "don't let this feed the
           // Watching/Watchlist bump buttons" -- NOT_YET_RELEASED is the
           // obvious case (nothing to add yet), but a sequel that's
@@ -4306,8 +4389,8 @@
           // read as "completed" despite the new season being entirely
           // unwatched. See buildSeasonNotice's text for the two different
           // messages this now produces.
-          const announced = next.episodes == null;
-          return buildSeasonNotice(show, next.title.english || next.title.romaji, next.episodes, announced, seasonNumber, next.status);
+          const announced = next.episodes == null || movieNotOutYet;
+          return buildSeasonNotice(show, next.title.english || next.title.romaji, next.episodes, announced, seasonNumber, next.status, next.format);
         }
         cumulative += next.episodes;
         node = next;
@@ -4532,8 +4615,20 @@
       const json = await res.json();
       const byDate = json?.data?.byDate?.media || [];
       const byPopularity = json?.data?.byPopularity?.media || [];
-      const releasing = [...byDate, ...byPopularity].find(m => m.status === 'RELEASING' && (m.format === 'TV' || m.format === 'MOVIE') && m.nextAiringEpisode);
-      const best = releasing || byDate[0];
+      const combined = [...byDate, ...byPopularity];
+      const releasing = combined.find(m => m.status === 'RELEASING' && (m.format === 'TV' || m.format === 'MOVIE') && m.nextAiringEpisode);
+      // START_DATE_DESC ranks a further-out, date-unconfirmed entry (e.g.
+      // a "Part 2" announced only as "2027", day unset) ABOVE a nearer,
+      // fully-scheduled one (e.g. "Season 3", confirmed Oct 2026 with a
+      // real 12-episode airingSchedule) -- confirmed live for The
+      // Apothecary Diaries: byDate[0] was "3rd Season Part 2" (year 2027,
+      // empty airingSchedule), silently burying the actually-airing
+      // Season 3 two slots down and making it vanish from the calendar
+      // entirely. Prefer any entry that actually HAS a populated
+      // schedule over raw date-sort position before falling back to
+      // byDate[0].
+      const scheduled = combined.find(m => m.nextAiringEpisode && (m.airingSchedule?.nodes || []).length);
+      const best = releasing || scheduled || byDate[0];
       const nodes = best?.airingSchedule?.nodes || [];
       // Carries the ACTUALLY-matched entry's own title (e.g. "...Season
       // 4") alongside each episode -- since this can resolve to a
