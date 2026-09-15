@@ -4177,15 +4177,22 @@
       key: `${show.id}::${sequelTitle}`,
       scope: show.scope,
       announced: isMovie ? true : !!announced,
+      // No longer leads with `show.title` -- confirmed live this reads as
+      // a claim about the ALREADY-WATCHED anchor's own release status
+      // (e.g. "Haikyu!! The Dumpster Battle" bolded on a card under
+      // "Announced Sequels" was read as "this movie isn't out yet",
+      // when it's the DIFFERENT, unrelated sequel that isn't). The card
+      // now leads with `sequelTitle` instead (see renderSeasonNoticesSection)
+      // and this text is just the supporting detail line.
       text: isMovie
         ? (announced
-          ? `${show.title} → sequel announced: "${sequelTitle}" (not released yet)`
-          : `${show.title} → sequel available: "${sequelTitle}" (not in your library yet -- add it as its own entry)`)
+          ? `Not released yet (no date announced)`
+          : `Not in your library yet — add it as its own entry`)
         : announced
         ? (airingNow
-          ? `${show.title} → Season ${seasonNumber} now airing: "${sequelTitle}" (episode count not final yet -- can't track progress until it finishes)`
-          : `${show.title} → Season ${seasonNumber} announced: "${sequelTitle}" (no air date yet)`)
-        : `${show.title} → new season: "${sequelTitle}"`,
+          ? `Season ${seasonNumber} now airing — episode count not final yet, can't track progress until it finishes`
+          : `Season ${seasonNumber} announced — no air date yet`)
+        : `Season ${seasonNumber} is out`,
       showId: show.id,
       showTitle: show.title,
       sequelTitle,
@@ -6491,8 +6498,8 @@
             <div class="card">
               ${n.posterUrl ? `<img class="card-poster" src="${n.posterUrl}" alt="" onerror="this.remove()">` : ''}
               <div class="card-body">
-                <div class="card-top"><div class="card-title">${escapeHTML(n.showTitle)}</div></div>
-                <div class="card-stats"><span class="stat">${escapeHTML(n.text)}</span></div>
+                <div class="card-top"><div class="card-title">${escapeHTML(n.sequelTitle)}</div></div>
+                <div class="card-stats"><span class="stat">Sequel to "${escapeHTML(n.showTitle)}", which you've already watched<br>${escapeHTML(n.text)}</span></div>
                 <div class="progress-controls">
                   ${canWriteScope(n.scope) ? `
                     <button class="btn" data-idx="${i}" data-group="released" data-action="bump">Add to In Progress</button>
@@ -6512,8 +6519,8 @@
             <div class="card">
               ${n.posterUrl ? `<img class="card-poster" src="${n.posterUrl}" alt="" onerror="this.remove()">` : ''}
               <div class="card-body">
-                <div class="card-top"><div class="card-title">${escapeHTML(n.showTitle)}</div></div>
-                <div class="card-stats"><span class="stat">${escapeHTML(n.text)}</span></div>
+                <div class="card-top"><div class="card-title">${escapeHTML(n.sequelTitle)}</div></div>
+                <div class="card-stats"><span class="stat">Sequel to "${escapeHTML(n.showTitle)}", which you've already watched<br>${escapeHTML(n.text)}</span></div>
                 <div class="progress-controls">
                   <button class="btn" data-idx="${i}" data-group="announced" data-action="dismiss">Dismiss</button>
                 </div>
