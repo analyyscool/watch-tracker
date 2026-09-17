@@ -9218,8 +9218,51 @@
     if (changed) invalidateShowsCache();
   }
 
+  // Reverse direction of syncTogetherFromPersonalRatings above: ensures a
+  // personal-scope sibling row exists for every together-scoped show the
+  // current user has rated, so syncRatingToSiblingScope (which requires
+  // both rows to already exist) always has something to mirror into/from.
+  // See docs/superpowers/specs/2026-09-17-together-personal-rating-mirror-design.md.
+  async function mirrorTogetherShowsIntoPersonal() {
+    if (!currentProfile) return;
+    const myScope = currentProfile.display_name.toLowerCase();
+    if (myScope !== 'karl' && myScope !== 'liisa') return;
+
+    const allRows = await fetchShows(null);
+    const togetherRows = allRows.filter(s => s.scope === 'together');
+    const myRowIds = new Set(allRows.filter(s => s.scope === myScope).map(s => s.id));
+
+    let changed = false;
+    for (const togetherShow of togetherRows) {
+      if (myRowIds.has(togetherShow.id)) continue;
+
+      const { error: showErr } = await supabase.from('shows').insert({
+        id: togetherShow.id, title: togetherShow.title, category: togetherShow.category, scope: myScope,
+        poster_url: togetherShow.posterUrl, studio: togetherShow.studio, genres: togetherShow.genres,
+        total_episodes: togetherShow.totalEpisodes, total_seasons: togetherShow.totalSeasons,
+        current_episode: togetherShow.totalEpisodes, season_episode: togetherShow.totalEpisodes,
+        current_season: togetherShow.totalSeasons, runtime_minutes: togetherShow.runtimeMinutes,
+        list_status: null, in_tier_pool: true,
+        last_updated: new Date().toISOString().slice(0, 10),
+      });
+      if (showErr) { console.error(showErr); continue; }
+      myRowIds.add(togetherShow.id);
+      changed = true;
+
+      const myRating = (togetherShow.allRatings || []).find(r => r.user_id === currentProfile.id);
+      if (myRating?.rating == null && !myRating?.note) continue;
+      const { error: ratingErr } = await supabase.from('ratings').upsert({
+        show_id: togetherShow.id, scope: myScope, user_id: currentProfile.id,
+        rating: myRating.rating, note: myRating.note ?? null, updated_at: new Date().toISOString(),
+      }, { onConflict: 'show_id,scope,user_id' });
+      if (ratingErr) { console.error(ratingErr); continue; }
+    }
+    if (changed) invalidateShowsCache();
+  }
+
   async function renderRatingsTab() {
     if (activeScope === 'together') await syncTogetherFromPersonalRatings();
+    else await mirrorTogetherShowsIntoPersonal();
     const shows = await getAllWatchedShows();
     const profiles = activeScope === 'together' ? await getAllProfiles() : null;
     ensureRatingsSortOptions(profiles);
