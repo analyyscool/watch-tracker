@@ -43,15 +43,43 @@ works, rather than inventing a new sync direction.
 
 ## Non-goals
 
-- No merge of Together items into any other personal-scope tab (In Progress,
-  Watchlist, Reading list, Stats) — scoped to Ratings/Reading Ratings only,
-  per discussion.
 - No change to how new items get added (the add-show/add-reading modals, or
   the Claude-mediated `supabase-write.mjs` flow in CLAUDE.md) — the mirror
   pass covers gaps from any of those paths uniformly, so none of them need to
   change.
-- Progress/`list_status` stays independent per scope, same as everywhere else
-  in the app — only rating and note get mirrored.
+- Progress/`list_status` stays independent per scope going forward, same as
+  everywhere else in the app — only rating and note get mirrored on an
+  ongoing basis. The one-time creation of the sibling row does set
+  `in_tier_pool: true` (shows) / `list_status: 'completed'` (written_media),
+  matching how `syncTogetherFromPersonalRatings` already treats a newly
+  created sibling in the reverse direction — see the accepted consequence
+  noted below.
+
+**Accepted consequence (ruling, 2026-09-18, final whole-branch review):** an
+earlier draft of this section claimed mirrored rows would stay out of every
+other personal-scope tab (In Progress, Watchlist, Reading list, Stats). That
+was wrong — `in_tier_pool: true`/`list_status: 'completed'` on the newly
+created sibling means it's picked up by the personal Stats tab (watch-time,
+completed counts, genre breakdown) and Tier List / Reading-completed list
+the same as any show/book the person tracked directly. Karl reviewed this
+live behavior and confirmed it's the desired outcome — he did watch/read
+these, so counting them in his own stats is correct, not a leak — rather
+than changing the code to exclude them. There is currently no marker
+distinguishing a mirrored row from a directly-added one, so this is a
+one-way door: reversing it later means finding and deleting the mirrored
+rows by hand. Revisit adding a `mirrored_from_scope` marker column if that
+ever becomes a real need.
+
+**Known limitation, not built in this pass:** `written_media` ratings have
+no ongoing bidirectional sync the way `syncRatingToSiblingScope` provides
+for shows (that function is shows-only, keyed on `show_id`). The written
+media mirror is a one-time copy at creation — a rating changed afterward on
+either the Together or personal side does not propagate to the other.
+Extending `syncRatingToSiblingScope` to cover media would need a `scope`
+column added to media ratings (they currently key only on
+`written_media_id, user_id`) or an explicit id-pair mapping between a
+Together media row and its personal sibling — real follow-up work, not
+covered by this spec.
 
 ## Design
 
