@@ -9218,11 +9218,14 @@
     if (changed) invalidateShowsCache();
   }
 
-  // Reverse direction of syncTogetherFromPersonalRatings above: ensures a
-  // personal-scope sibling row exists for every together-scoped show the
-  // current user has rated, so syncRatingToSiblingScope (which requires
-  // both rows to already exist) always has something to mirror into/from.
-  // See docs/superpowers/specs/2026-09-17-together-personal-rating-mirror-design.md.
+  // Reverse direction of syncTogetherFromPersonalRatings above: mirrors
+  // every together-scoped show into a personal-scope sibling row
+  // (regardless of whether the current user has rated it), and additionally
+  // copies over the user's existing together-scoped rating/note onto that
+  // new sibling when one exists. This means syncRatingToSiblingScope (which
+  // requires both rows to already exist) always has something to mirror
+  // into/from. See
+  // docs/superpowers/specs/2026-09-17-together-personal-rating-mirror-design.md.
   async function mirrorTogetherShowsIntoPersonal() {
     if (!currentProfile) return;
     const myScope = currentProfile.display_name.toLowerCase();
@@ -9265,6 +9268,13 @@
   // UUID -- see CLAUDE.md's written_media "not idempotent" note), so
   // matching an existing personal-scope sibling has to go by normalized
   // title+category instead of id.
+  // Known limitation (see the spec's "Known limitation" section at
+  // docs/superpowers/specs/2026-09-17-together-personal-rating-mirror-design.md):
+  // unlike shows, there is no ongoing sync after this initial mirror --
+  // syncRatingToSiblingScope is shows-only (gated by `kind === 'show'` at
+  // its two call sites) and media ratings have no `scope` column at all,
+  // only written_media_id/user_id. A rating changed later on either side
+  // does not propagate to the other for media.
   async function mirrorTogetherMediaIntoPersonal() {
     if (!currentProfile) return;
     const myScope = currentProfile.display_name.toLowerCase();
@@ -9306,7 +9316,9 @@
 
   async function renderRatingsTab() {
     if (activeScope === 'together') await syncTogetherFromPersonalRatings();
-    else await mirrorTogetherShowsIntoPersonal();
+    else if (currentProfile && activeScope === currentProfile.display_name.toLowerCase()) {
+      await mirrorTogetherShowsIntoPersonal();
+    }
     const shows = await getAllWatchedShows();
     const profiles = activeScope === 'together' ? await getAllProfiles() : null;
     ensureRatingsSortOptions(profiles);
@@ -9402,7 +9414,9 @@
   };
 
   async function renderReadingRatingsTab() {
-    await mirrorTogetherMediaIntoPersonal();
+    if (currentProfile && activeScope === currentProfile.display_name.toLowerCase()) {
+      await mirrorTogetherMediaIntoPersonal();
+    }
     const media = (await fetchWrittenMedia(activeScope)).filter(m => m.listStatus === 'completed');
     const inCategory = media.filter(m => m.category === activeReadingRatingsCategory);
     const sortKey = document.getElementById('reading-ratings-sort').value;
