@@ -9260,6 +9260,50 @@
     if (changed) invalidateShowsCache();
   }
 
+  // Same idea as mirrorTogetherShowsIntoPersonal, but written_media rows
+  // don't share an id across scope copies (each gets its own generated
+  // UUID -- see CLAUDE.md's written_media "not idempotent" note), so
+  // matching an existing personal-scope sibling has to go by normalized
+  // title+category instead of id.
+  async function mirrorTogetherMediaIntoPersonal() {
+    if (!currentProfile) return;
+    const myScope = currentProfile.display_name.toLowerCase();
+    if (myScope !== 'karl' && myScope !== 'liisa') return;
+
+    const mediaKey = m => `${m.title.toLowerCase().trim()}::${m.category}`;
+    const allMedia = await fetchWrittenMedia(null);
+    const togetherMedia = allMedia.filter(m => m.scope === 'together');
+    const myMediaKeys = new Set(allMedia.filter(m => m.scope === myScope).map(mediaKey));
+
+    let changed = false;
+    for (const togetherItem of togetherMedia) {
+      const key = mediaKey(togetherItem);
+      if (myMediaKeys.has(key)) continue;
+
+      const { data: inserted, error: mediaErr } = await supabase.from('written_media').insert({
+        title: togetherItem.title, category: togetherItem.category, scope: myScope,
+        author: togetherItem.author, cover_url: togetherItem.coverUrl, genres: togetherItem.genres,
+        total_chapters: togetherItem.totalChapters, current_chapter: togetherItem.totalChapters,
+        total_volumes: togetherItem.totalVolumes, current_volume: togetherItem.totalVolumes,
+        total_pages: togetherItem.totalPages, current_page: togetherItem.totalPages,
+        series_status: togetherItem.seriesStatus, list_status: 'completed',
+        last_updated: new Date().toISOString().slice(0, 10),
+      }).select('id').single();
+      if (mediaErr) { console.error(mediaErr); continue; }
+      myMediaKeys.add(key);
+      changed = true;
+
+      const myRating = (togetherItem.allRatings || []).find(r => r.user_id === currentProfile.id);
+      if (myRating?.rating == null && !myRating?.note) continue;
+      const { error: ratingErr } = await supabase.from('ratings').upsert({
+        written_media_id: inserted.id, user_id: currentProfile.id,
+        rating: myRating.rating, note: myRating.note ?? null, updated_at: new Date().toISOString(),
+      }, { onConflict: 'written_media_id,user_id' });
+      if (ratingErr) { console.error(ratingErr); continue; }
+    }
+    if (changed) invalidateWrittenMediaCache();
+  }
+
   async function renderRatingsTab() {
     if (activeScope === 'together') await syncTogetherFromPersonalRatings();
     else await mirrorTogetherShowsIntoPersonal();
@@ -9358,6 +9402,7 @@
   };
 
   async function renderReadingRatingsTab() {
+    await mirrorTogetherMediaIntoPersonal();
     const media = (await fetchWrittenMedia(activeScope)).filter(m => m.listStatus === 'completed');
     const inCategory = media.filter(m => m.category === activeReadingRatingsCategory);
     const sortKey = document.getElementById('reading-ratings-sort').value;
