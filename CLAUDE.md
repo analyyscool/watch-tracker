@@ -161,6 +161,33 @@ Handled in-page, not Claude-mediated: whenever the Reading tab renders, `checkNe
 
 MangaDex's API doesn't grant CORS access to arbitrary third-party origins (confirmed live: a real 200 response carried no `Access-Control-Allow-Origin` header for this site's origin), so `fetchMangaDexLatestChapter` calls through a small Cloudflare Worker proxy (`MANGADEX_PROXY` constant, worker source in `cloudflare-worker-proxy.js`) that forwards to the real API and adds the missing CORS header plus a real `User-Agent` (MangaDex rejects requests without one). A MangaUpdates fallback was tried too (for licensed titles MangaDex drops once officially published) but its API blocks Cloudflare Workers' egress IPs outright — an IP-range block, not a CORS/headers issue, so proxying doesn't fix it — and was dropped rather than standing up a second, differently-hosted proxy for what was already the secondary source.
 
+## Fixing a News/Calendar detection gap: fix the algorithm, never pre-seed a row
+
+When a show/movie is reported missing from the News tab's season-notice banner
+or the Calendar (e.g. "why doesn't X's sequel show up"), the fix is always in
+the detection logic (`checkNewSeasons`/`checkAnimeSequel`/
+`fetchAniListUpcomingEpisodes` and friends) or a data correction on the
+existing tracked row — never a manual `supabase-write.mjs` insert of the
+missing sequel/season as a new tracked watchlist row to make it "appear."
+
+Confirmed live 2026-09-15/16: asked to make Cyberpunk: Edgerunners 2 show up
+in News/Calendar, a new watchlist row was added for it as a quick fix — Karl
+explicitly rejected this ("i didnt want cyberpunk season 2 in watchlist,
+rather then that i just wanted it in news and calender") and it had to be
+deleted and reverted. The actual fix was diagnosing why AniList's relation
+graph wasn't surfacing the sequel (mistagged `OTHER` instead of `SEQUEL`) and
+patching the detection heuristic so it finds this class of case generally,
+for every show, not just the one that was asked about.
+
+**How to apply:** when a detection gap is reported, diagnose the live AniList
+data first (a scratch script in the session scratchpad mirroring the exact
+query/logic from `index.html`, run against the real API, is the fastest way
+to isolate anchor-selection vs. relation-tagging vs. query-depth causes — see
+`anilist-api-quirks.md` in the private memory folder for the recurring
+failure modes already catalogued). Only add/edit a Supabase row when the
+user explicitly asks for that show to be tracked as its own entry, not as a
+workaround for a detection bug.
+
 ## Auditing self-added entries for missing metadata
 
 The website's own "+ Add Show", "+ Add Movie", and "+ Add Reading" modals

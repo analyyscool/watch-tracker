@@ -4139,7 +4139,7 @@
   // || 1) + 1` formula always said "Season 2" regardless of how deep
   // the walk actually went, mislabeling it. Defaults to 2 for the
   // Jikan/western fallback paths, which only ever check one hop ahead.
-  function buildSeasonNotice(show, sequelTitle, sequelEpisodes, announced, seasonNumber = 2, status = null, sequelFormat = null) {
+  function buildSeasonNotice(show, sequelTitle, sequelEpisodes, announced, seasonNumber = 2, status = null, sequelFormat = null, sequelPosterUrl = null) {
     // `announced` (see checkAnimeSequel) now covers two distinct real
     // states -- genuinely NOT_YET_RELEASED (no air date) and RELEASING
     // (airing right now, but AniList hasn't published a final episode
@@ -4196,7 +4196,15 @@
       showId: show.id,
       showTitle: show.title,
       sequelTitle,
-      posterUrl: show.posterUrl,
+      // The sequel's OWN poster (from AniList's coverImage on that relation
+      // node), not the anchor's -- a card titled with the new sequel but
+      // showing the ALREADY-WATCHED anchor's cover art reads as if that's
+      // a picture of the new one, compounding the "which you've already
+      // watched" line's own ambiguity (see the text branch above) into
+      // looking like confirmation you'd watched the pictured show too.
+      // Falls back to the anchor's poster only when AniList has no cover
+      // yet for a freshly-announced entry.
+      posterUrl: sequelPosterUrl || show.posterUrl,
       newSeasonCount: seasonNumber,
       newTotalEpisodes: show.totalEpisodes + (sequelEpisodes || 0),
     };
@@ -4259,16 +4267,16 @@
             edges {
               relationType
               node {
-                id title { romaji english } format episodes status
+                id title { romaji english } format episodes status coverImage { large }
                 relations {
                   edges {
                     relationType
                     node {
-                      id title { romaji english } format episodes status
+                      id title { romaji english } format episodes status coverImage { large }
                       relations {
                         edges {
                           relationType
-                          node { id title { romaji english } format episodes status }
+                          node { id title { romaji english } format episodes status coverImage { large } }
                         }
                       }
                     }
@@ -4383,11 +4391,18 @@
         const next = seq.node;
         seasonNumber++;
         // A movie almost always has `episodes: 1` set even before release
-        // (unlike a TV season, which reports null episodes until it airs),
-        // so `next.episodes == null` can't be used to detect "not out yet"
-        // for a movie target -- status is the only reliable signal there.
-        const movieNotOutYet = next.format === 'MOVIE' && next.status !== 'FINISHED';
-        if (next.episodes == null || movieNotOutYet || cumulative + next.episodes > show.totalEpisodes) {
+        // (unlike a TV season, which usually reports null episodes until it
+        // airs), so `next.episodes == null` can't be used to detect "not
+        // out yet" for a movie target -- status is the only reliable signal
+        // there. Generalized beyond just MOVIE after confirming live that a
+        // non-movie sequel can do the same thing: "Cyberpunk: Edgerunners
+        // 2" already has its full planned episode count (10) filled in on
+        // AniList despite `status: NOT_YET_RELEASED` with a real future
+        // date -- the old MOVIE-only check let this read as an
+        // already-released, bumpable season. Checking `status` for every
+        // format catches this without weakening the movie case.
+        const notFullyOutYet = next.status !== 'FINISHED';
+        if (next.episodes == null || notFullyOutYet || cumulative + next.episodes > show.totalEpisodes) {
           // `announced` here really means "don't let this feed the
           // Watching/Watchlist bump buttons" -- NOT_YET_RELEASED is the
           // obvious case (nothing to add yet), but a sequel that's
@@ -4403,8 +4418,8 @@
           // read as "completed" despite the new season being entirely
           // unwatched. See buildSeasonNotice's text for the two different
           // messages this now produces.
-          const announced = next.episodes == null || movieNotOutYet;
-          return buildSeasonNotice(show, next.title.english || next.title.romaji, next.episodes, announced, seasonNumber, next.status, next.format);
+          const announced = next.episodes == null || notFullyOutYet;
+          return buildSeasonNotice(show, next.title.english || next.title.romaji, next.episodes, announced, seasonNumber, next.status, next.format, next.coverImage?.large || null);
         }
         cumulative += next.episodes;
         node = next;
@@ -4609,13 +4624,13 @@
   async function fetchAniListUpcomingEpisodes(title) {
     const query = `query ($s: String) { byDate: Page(perPage: 10) {
       media(search: $s, type: ANIME, sort: START_DATE_DESC) {
-        format status title { romaji english }
+        format status title { romaji english } startDate { year month day }
         nextAiringEpisode { episode }
         airingSchedule(notYetAired: true, perPage: 25) { nodes { episode airingAt } }
       }
     } byPopularity: Page(perPage: 5) {
       media(search: $s, type: ANIME, sort: POPULARITY_DESC) {
-        format status title { romaji english }
+        format status title { romaji english } startDate { year month day }
         nextAiringEpisode { episode }
         airingSchedule(notYetAired: true, perPage: 25) { nodes { episode airingAt } }
       }
@@ -4641,7 +4656,19 @@
       // entirely. Prefer any entry that actually HAS a populated
       // schedule over raw date-sort position before falling back to
       // byDate[0].
-      const scheduled = combined.find(m => m.nextAiringEpisode && (m.airingSchedule?.nodes || []).length);
+      // Prefer a non-MOVIE scheduled match first -- confirmed live: for
+      // "The Apothecary Diaries", AniList's search also surfaces an
+      // unrelated side movie ("Bouhi no Hihou") that has its own confirmed
+      // schedule and sorts ahead of the real Season 3 entry, so a plain
+      // `.find()` picked the side movie's single airing date instead of
+      // Season 3's actual 12-episode schedule. This function is only ever
+      // called for category:'anime'/'western' tracked rows (see
+      // refreshCalendarEntries -- movie rows go through fetchTMDBMovieRelease
+      // instead), so a real TV/ONA/OVA match is always the right one to
+      // prefer here; the plain movie fallback stays for the rare franchise
+      // whose only schedulable next entry actually is a movie.
+      const scheduled = combined.find(m => m.format !== 'MOVIE' && m.nextAiringEpisode && (m.airingSchedule?.nodes || []).length)
+        || combined.find(m => m.nextAiringEpisode && (m.airingSchedule?.nodes || []).length);
       const best = releasing || scheduled || byDate[0];
       const nodes = best?.airingSchedule?.nodes || [];
       // Carries the ACTUALLY-matched entry's own title (e.g. "...Season
@@ -4651,7 +4678,32 @@
       // which one it found, not silently reuse the stored title and
       // leave it ambiguous which season "Ep 17" even belongs to.
       const matchedTitle = best ? (best.title.english || best.title.romaji) : null;
-      return nodes.map(n => ({ episode: n.episode, airingAt: n.airingAt * 1000, matchedTitle })).sort((a, b) => a.airingAt - b.airingAt);
+      if (nodes.length) {
+        return nodes.map(n => ({ episode: n.episode, airingAt: n.airingAt * 1000, matchedTitle })).sort((a, b) => a.airingAt - b.airingAt);
+      }
+      // No per-episode schedule yet (common for an ONA/movie-style release,
+      // which AniList often doesn't populate airingSchedule/nextAiringEpisode
+      // for until much closer to launch) doesn't mean there's no confirmed
+      // date -- confirmed live: "Cyberpunk: Edgerunners 2" has a full
+      // year/month/day startDate (2026-10-20) well before AniList exposes
+      // any per-episode schedule for it. Falls back to that whole-release
+      // date as a single dateless-episode entry rather than showing nothing
+      // just because the schedule fields haven't populated yet. Only a
+      // FULL y/m/d date counts -- a year-only "announced for 2026" isn't
+      // a real calendar-worthy date (see the News tab's own "announced,
+      // no date" bucket for that case instead). Same non-MOVIE preference
+      // as the schedule-based pick above, then earliest date.
+      const dateOnlyCandidates = combined
+        .filter(m => m.status !== 'FINISHED' && m.startDate?.year && m.startDate?.month && m.startDate?.day)
+        .sort((a, b) => Date.UTC(a.startDate.year, a.startDate.month - 1, a.startDate.day) - Date.UTC(b.startDate.year, b.startDate.month - 1, b.startDate.day));
+      const dateOnlyBest = dateOnlyCandidates.find(m => m.format !== 'MOVIE') || dateOnlyCandidates[0];
+      if (!dateOnlyBest) return [];
+      const d = dateOnlyBest.startDate;
+      return [{
+        episode: null,
+        airingAt: Date.UTC(d.year, d.month - 1, d.day),
+        matchedTitle: dateOnlyBest.title.english || dateOnlyBest.title.romaji,
+      }];
     } catch (e) {
       console.warn('AniList upcoming-episodes lookup failed for', title, e);
       return null;
