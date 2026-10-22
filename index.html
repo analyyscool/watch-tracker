@@ -4041,15 +4041,25 @@
     localStorage.setItem('pendingSeasonNotices', JSON.stringify(getAllPendingSeasonNotices().filter(n => n.key !== key)));
   }
 
+  // News-check throttle timestamps are per scope -- a single shared key meant
+  // checking Karl's list used up the 6h window for every other list, so
+  // switching to Together/Liisa showed only that scope's stale cached notices
+  // and never ran its own check.
+  function throttleKey(name, scope) { return `${name}:${scope}`; }
+
   async function checkNewSeasons() {
-    renderSeasonNoticesSection(getPendingSeasonNotices(activeScope));
+    // Captured once: this runs for minutes (one throttled AniList call per
+    // candidate), and a list switch mid-run used to write this scope's
+    // notices under whichever scope was active by the end.
+    const scope = activeScope;
+    renderSeasonNoticesSection(getPendingSeasonNotices(scope));
 
     const CHECK_INTERVAL_MS = NEWS_CHECK_INTERVAL_MS;
-    const lastCheck = parseInt(localStorage.getItem('lastSeasonCheck') || '0', 10);
+    const lastCheck = parseInt(localStorage.getItem(throttleKey('lastSeasonCheck', scope)) || '0', 10);
     if (Date.now() - lastCheck < CHECK_INTERVAL_MS) return;
-    localStorage.setItem('lastSeasonCheck', String(Date.now()));
+    localStorage.setItem(throttleKey('lastSeasonCheck', scope), String(Date.now()));
 
-    const rows = await fetchShows(activeScope);
+    const rows = await fetchShows(scope);
     // `movie` is included alongside anime/western -- a theatrical sequel
     // (Demon Slayer: Infinity Castle Part 2, Evangelion's Rebuild films)
     // is just as much a real continuation as a TV season, not "alternative"
@@ -4085,10 +4095,17 @@
     // scope only) so a detected sequel matching one of them is suppressed
     // rather than offered as something to add.
     const trackedTitles = new Set(rows.map(r => r.title.toLowerCase().trim()));
-    const previousNotices = getPendingSeasonNotices(activeScope);
+    const previousNotices = getPendingSeasonNotices(scope);
     const dismissedReleased = getDismissedSeasonNotices(false);
     const dismissedAnnounced = getDismissedSeasonNotices(true);
     const notices = [];
+    // Two tracked rows can lead to the SAME sequel (confirmed live: "Demon
+    // Slayer: Infinity Castle" and "Demon Slayer: Kimetsu no Yaiba Infinity
+    // Castle" are separate rows, both pointing at "Infinity Castle Part 2").
+    // One notice per sequel title; the title is marked seen BEFORE the
+    // dismissed check so dismissing the first row's notice doesn't just
+    // promote the second row's duplicate into view.
+    const seenSequelTitles = new Set();
     for (const s of candidates) {
       try {
         // Movie-category rows route through checkAnimeSequel too -- an
@@ -4111,15 +4128,21 @@
         }
         const alreadyTracked = notice?.sequelTitle && trackedTitles.has(notice.sequelTitle.toLowerCase().trim());
         const dismissed = notice?.announced ? dismissedAnnounced : dismissedReleased;
-        if (notice && !alreadyTracked && !dismissed.includes(notice.key)) notices.push(notice);
+        if (notice && !alreadyTracked) {
+          const sequelKey = normalizeTitle(notice.sequelTitle || notice.key);
+          if (!seenSequelTitles.has(sequelKey)) {
+            seenSequelTitles.add(sequelKey);
+            if (!dismissed.includes(notice.key)) notices.push(notice);
+          }
+        }
       } catch (e) {
         console.error('Season check failed for', s.title, e);
         notices.push(...previousNotices.filter(n => n.showId === s.id));
       }
       await sleep(SEQUEL_CHECK_DELAY_MS);
     }
-    setPendingSeasonNotices(activeScope, notices);
-    renderSeasonNoticesSection(notices);
+    setPendingSeasonNotices(scope, notices);
+    if (scope === activeScope) renderSeasonNoticesSection(notices);
   }
 
   // `announced` distinguishes a confirmed-but-unaired next season (AniList/
@@ -4190,8 +4213,10 @@
           : `Not in your library yet — add it as its own entry`)
         : announced
         ? (airingNow
-          ? `Season ${seasonNumber} now airing — episode count not final yet, can't track progress until it finishes`
+          ? `Season ${seasonNumber} now airing — episode count not known yet, can't track progress until it's scheduled`
           : `Season ${seasonNumber} announced — no air date yet`)
+        : airingNow
+        ? `Season ${seasonNumber} now airing — ${sequelEpisodes} episodes scheduled`
         : `Season ${seasonNumber} is out`,
       showId: show.id,
       showTitle: show.title,
@@ -4245,7 +4270,35 @@
   // so a pure episode-count comparison alone would silently skip past it
   // forever). Nested 3 levels deep in one query (covers up to a 4th
   // sequel hop) rather than walking with separate round-trips.
+  // An airing season reports `episodes: null` on AniList until it finishes,
+  // but its remaining schedule is usually published up front -- the highest
+  // scheduled episode number is the season's planned length. Lets an airing
+  // season be tracked (and bumped) as a normal new season instead of being
+  // stuck in the no-action "announced" bucket until the finale. null =
+  // unknown (lookup failed or nothing scheduled), treated as announced.
+  async function fetchScheduledEpisodeCount(mediaId) {
+    try {
+      const res = await fetchWithRetry429('https://graphql.anilist.co', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          query: `query ($id: Int) { Media(id: $id) { airingSchedule(notYetAired: true, perPage: 50) { nodes { episode } } } }`,
+          variables: { id: mediaId },
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok || json.errors) return null;
+      const nodes = json?.data?.Media?.airingSchedule?.nodes || [];
+      return nodes.length ? Math.max(...nodes.map(n => n.episode)) : null;
+    } catch (e) { return null; }
+  }
+
   async function checkAnimeSequel(show) {
+    // "(Fan Cut)"/"(Recut)" is a local edition tag, not a real title --
+    // AniList finds nothing for it (confirmed live: this is why Dragon Ball
+    // Super: Beerus never got flagged for the Dragon Ball rows).
+    const searchTitle = stripEditionSuffixForSearch(show.title);
+    const isEditionRow = searchTitle !== show.title.trim();
     // MOVIE is only added to the ANCHOR search allowlist for a
     // movie-category row (a movie needs to find ITSELF as the anchor) --
     // broadening it for every anime/western row's own anchor search would
@@ -4292,7 +4345,7 @@
       const res = await fetchWithRetry429('https://graphql.anilist.co', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query, variables: { s: show.title } })
+        body: JSON.stringify({ query, variables: { s: searchTitle } })
       });
       const json = await res.json();
       // AniList's recurring "temporarily disabled due to severe stability
@@ -4382,6 +4435,30 @@
         const candidateTitle = e.node.title && (e.node.title.english || e.node.title.romaji);
         return e.relationType === 'OTHER' && looksLikeNumberedSequel(nodeTitle, candidateTitle);
       });
+      // A fan cut / recut row's stored episode total is a custom cut, so the
+      // cumulative-episode walk below is meaningless for it -- and a
+      // franchise like Dragon Ball branches (Z / Kai / GT / Super / Daima /
+      // Beerus all hang off different SEQUEL edges), so the single-path walk
+      // would follow GT and dead-end. For these rows just look across every
+      // SEQUEL branch (up to the 3 nested levels fetched) for something that
+      // isn't out in full yet: airing now first, then announced.
+      if (isEditionRow) {
+        const pending = [];
+        const collect = (n, depth) => {
+          if (depth > 3) return;
+          for (const e of (n.relations?.edges || [])) {
+            if (e.relationType !== 'SEQUEL') continue;
+            if (e.node.format && !allowedFormats.includes(e.node.format)) continue;
+            if (e.node.status === 'RELEASING' || e.node.status === 'NOT_YET_RELEASED') pending.push(e.node);
+            collect(e.node, depth + 1);
+          }
+        };
+        collect(anchor, 1);
+        const pick = pending.find(n => n.status === 'RELEASING') || pending[0];
+        if (!pick) return null;
+        const eps = pick.status === 'RELEASING' ? (pick.episodes ?? await fetchScheduledEpisodeCount(pick.id)) : null;
+        return buildSeasonNotice(show, pick.title.english || pick.title.romaji, eps, eps == null, 2, pick.status, pick.format, pick.coverImage?.large || null);
+      }
       let cumulative = anchor.episodes || 0;
       let node = anchor;
       let seasonNumber = 1; // anchor itself is season 1
@@ -4401,8 +4478,15 @@
         // date -- the old MOVIE-only check let this read as an
         // already-released, bumpable season. Checking `status` for every
         // format catches this without weakening the movie case.
-        const notFullyOutYet = next.status !== 'FINISHED';
-        if (next.episodes == null || notFullyOutYet || cumulative + next.episodes > show.totalEpisodes) {
+        // A season that's AIRING NOW is trackable like any other new season
+        // (its planned length comes from the airing schedule, see
+        // fetchScheduledEpisodeCount); only a season with nothing to watch
+        // yet (NOT_YET_RELEASED, hiatus, cancelled) or no known length stays
+        // in the no-action announced bucket.
+        const airingNow = next.status === 'RELEASING';
+        const notFullyOutYet = next.status !== 'FINISHED' && !airingNow;
+        const nextEpisodes = next.episodes ?? (airingNow ? await fetchScheduledEpisodeCount(next.id) : null);
+        if (nextEpisodes == null || notFullyOutYet || cumulative + nextEpisodes > show.totalEpisodes) {
           // `announced` here really means "don't let this feed the
           // Watching/Watchlist bump buttons" -- NOT_YET_RELEASED is the
           // obvious case (nothing to add yet), but a sequel that's
@@ -4418,10 +4502,10 @@
           // read as "completed" despite the new season being entirely
           // unwatched. See buildSeasonNotice's text for the two different
           // messages this now produces.
-          const announced = next.episodes == null || notFullyOutYet;
-          return buildSeasonNotice(show, next.title.english || next.title.romaji, next.episodes, announced, seasonNumber, next.status, next.format, next.coverImage?.large || null);
+          const announced = nextEpisodes == null || notFullyOutYet;
+          return buildSeasonNotice(show, next.title.english || next.title.romaji, nextEpisodes, announced, seasonNumber, next.status, next.format, next.coverImage?.large || null);
         }
-        cumulative += next.episodes;
+        cumulative += nextEpisodes;
         node = next;
       }
     } catch (e) {
@@ -4578,17 +4662,19 @@
   // or newly-aired episode stays accurate.
   const CALENDAR_SHOW_NEGATIVE_CACHE_MS = 24 * 60 * 60 * 1000;
 
+  // Key bumped from 'calendarShowCache' to drop 24h negative entries that a
+  // rate-limited lookup had wrongly cached as "nothing upcoming".
   function getShowAiringCache(showId) {
     try {
-      const all = JSON.parse(localStorage.getItem('calendarShowCache') || '{}');
+      const all = JSON.parse(localStorage.getItem('calendarShowCache2') || '{}');
       return all[showId] || null;
     } catch { return null; }
   }
   function setShowAiringCache(showId, result) {
     let all = {};
-    try { all = JSON.parse(localStorage.getItem('calendarShowCache') || '{}'); } catch {}
+    try { all = JSON.parse(localStorage.getItem('calendarShowCache2') || '{}'); } catch {}
     all[showId] = { result, checkedAt: Date.now() };
-    localStorage.setItem('calendarShowCache', JSON.stringify(all));
+    localStorage.setItem('calendarShowCache2', JSON.stringify(all));
   }
 
   // Returns every remaining not-yet-aired episode for a title's CURRENT
@@ -4636,12 +4722,19 @@
       }
     } }`;
     try {
-      const res = await fetch('https://graphql.anilist.co', {
+      // fetchWithRetry429 + the explicit res.ok/errors check matter here: a
+      // rate-limited (429) or outage response has no `data`, which used to
+      // read as "nothing upcoming" -- an EMPTY result the caller then cached
+      // as a trusted negative for 24h, silently dropping a show that really
+      // is airing (confirmed live: Bleach TYBW's Calamity was missing).
+      // Throwing here makes it a null (= fetch failed, don't cache) instead.
+      const res = await fetchWithRetry429('https://graphql.anilist.co', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query, variables: { s: title } })
+        body: JSON.stringify({ query, variables: { s: stripEditionSuffixForSearch(title) } })
       });
       const json = await res.json();
+      if (!res.ok || json.errors) throw new Error(`AniList error ${res.status}`);
       const byDate = json?.data?.byDate?.media || [];
       const byPopularity = json?.data?.byPopularity?.media || [];
       const combined = [...byDate, ...byPopularity];
@@ -4848,9 +4941,20 @@
       }
       episodes.forEach(ep => entries.push({ ...movie, episode: null, airingAt: ep.airingAt, entryKey: `${movie.id}::${ep.airingAt}` }));
     }
-    entries.sort((a, b) => a.airingAt - b.airingAt);
-    await setCalendarCache(scope, entries);
-    return entries;
+    // The same episode can arrive from several rows -- a show tracked in both
+    // a personal list and Together, or several rows of one franchise (the
+    // Dragon Ball fan cut + its Kai parts all resolve to the same airing
+    // entry). One calendar item per title+episode+air time.
+    const seenEntries = new Set();
+    const uniqueEntries = entries.filter(e => {
+      const k = `${(e.calendarDisplayTitle || e.title).toLowerCase().trim()}::${e.episode ?? ''}::${e.airingAt}`;
+      if (seenEntries.has(k)) return false;
+      seenEntries.add(k);
+      return true;
+    });
+    uniqueEntries.sort((a, b) => a.airingAt - b.airingAt);
+    await setCalendarCache(scope, uniqueEntries);
+    return uniqueEntries;
   }
 
   async function loadCalendarEntries(scope, { force = false } = {}) {
@@ -4999,9 +5103,11 @@
     }
   }
 
+  let calendarRerunWanted = false; // same reasoning as newsRerunWanted
   async function renderCalendarTab({ force = false } = {}) {
-    if (calendarLoading) return;
+    if (calendarLoading) { calendarRerunWanted = true; return; }
     calendarLoading = true;
+    const scopeAtStart = activeScope;
     const refreshBtn = document.getElementById('calendar-refresh-btn');
     const refreshLabel = refreshBtn.textContent;
     refreshBtn.disabled = true;
@@ -5022,7 +5128,8 @@
       renderCalendarGrid(calendarEntriesCache);
       document.getElementById('calendar-upcoming-list').innerHTML = `<p style="font-size:0.7rem; color:var(--muted)">Loading…</p>`;
 
-      const { entries, stale } = await loadCalendarEntries(activeScope, { force });
+      const { entries, stale } = await loadCalendarEntries(scopeAtStart, { force });
+      if (scopeAtStart !== activeScope) return; // list switched mid-load; the finally block re-runs for the new one
       calendarEntriesCache = entries;
       if (stale) {
         staleNote.style.display = '';
@@ -5034,6 +5141,10 @@
       calendarLoading = false;
       refreshBtn.textContent = refreshLabel;
       await updateCalendarRefreshUI();
+      if (calendarRerunWanted || scopeAtStart !== activeScope) {
+        calendarRerunWanted = false;
+        if (currentTab === 'calendar') renderCalendarTab();
+      }
     }
   }
 
@@ -5061,7 +5172,7 @@
   // (declined once before as a one-click auto-apply feature, 2026-08-23).
   async function searchAniListCovers(title, type) {
     const query = `query ($s: String, $type: MediaType) { Page(perPage: 5) {
-      media(search: $s, type: $type) { title { romaji english } coverImage { large } startDate { year } episodes chapters genres studios(isMain: true) { nodes { name } } }
+      media(search: $s, type: $type) { id format title { romaji english } coverImage { large } startDate { year } episodes chapters genres studios(isMain: true) { nodes { name } } }
     } }`;
     const res = await fetch('https://graphql.anilist.co', {
       method: 'POST',
@@ -5074,6 +5185,8 @@
       const name = m.title.english || m.title.romaji;
       return {
         url: m.coverImage.large,
+        anilistId: m.id,
+        format: m.format,
         name,
         label: name + (m.startDate?.year ? ` (${m.startDate.year})` : ''),
         episodes: m.episodes || null,
@@ -5082,6 +5195,46 @@
         studio: m.studios?.nodes?.[0]?.name || null,
       };
     });
+  }
+
+  // AniList gives every season its own entry, so a cover pick only carries
+  // THAT season's episode count -- unlike TMDB (Western shows), where one
+  // entry covers the whole show. Walks the SEQUEL chain forward from the
+  // picked entry and sums every already-finished TV/ONA season, matching how
+  // the rest of the app stores anime (one cumulative row for all seasons,
+  // see checkAnimeSequel). Stops at the first season that isn't fully out
+  // yet, so an airing season doesn't inflate the total with a guess.
+  // Returns { episodes, seasons } or null on failure/non-TV entries.
+  async function fetchAniListFranchiseTotals(mediaId) {
+    const leaf = `id format episodes status`;
+    const query = `query ($id: Int) { Media(id: $id) { format episodes status relations { edges { relationType node {
+      ${leaf} relations { edges { relationType node {
+        ${leaf} relations { edges { relationType node {
+          ${leaf} relations { edges { relationType node { ${leaf} } } } } } } } } } } } } } }`;
+    try {
+      const res = await fetchWithRetry429('https://graphql.anilist.co', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, variables: { id: mediaId } }),
+      });
+      const json = await res.json();
+      if (!res.ok || json.errors) return null;
+      let node = json.data.Media;
+      // A movie/special has no seasons to sum -- keep the candidate's own count.
+      if (!['TV', 'TV_SHORT', 'ONA'].includes(node.format)) return null;
+      let episodes = node.episodes || 0;
+      let seasons = 1;
+      while (node.status === 'FINISHED') {
+        const next = (node.relations?.edges || []).find(e =>
+          e.relationType === 'SEQUEL' && ['TV', 'TV_SHORT', 'ONA'].includes(e.node.format) && e.node.status === 'FINISHED' && e.node.episodes >= 4
+        )?.node;
+        if (!next) break;
+        episodes += next.episodes;
+        seasons++;
+        node = next;
+      }
+      return seasons > 1 ? { episodes, seasons } : null;
+    } catch (e) { return null; }
   }
 
   // ── Recommendations: AniList + Jikan fetch ──
@@ -6427,6 +6580,16 @@
           if (c.episodes) document.getElementById('add-show-total-episodes').value = c.episodes;
           if (c.genres) document.getElementById('add-show-genres').value = c.genres.join(', ');
           if (c.studio) document.getElementById('add-show-studio').value = c.studio;
+          // Sum every finished season after the picked one too, so the total
+          // is the whole show (like a Western pick), not just this season.
+          if (c.anilistId) {
+            const franchise = await fetchAniListFranchiseTotals(c.anilistId);
+            if (franchise) {
+              document.getElementById('add-show-total-episodes').value = franchise.episodes;
+              statusEl.textContent = `Total includes ${franchise.seasons} finished seasons (${franchise.episodes} episodes) — adjust if you only want some of them.`;
+              statusEl.style.display = '';
+            }
+          }
         } else if (c.tmdbId) {
           // TMDB's search endpoint doesn't carry runtime/episode totals or
           // genres/studio -- fetch those only for the one candidate actually
@@ -6630,7 +6793,7 @@
   // button would next have any real effect.
   function getNewsRefreshWaitMs() {
     const CHECK_INTERVAL_MS = NEWS_CHECK_INTERVAL_MS;
-    const keys = ['lastSeasonCheck', 'lastChapterCheck', 'lastMediaSequelCheck'];
+    const keys = ['lastSeasonCheck', 'lastChapterCheck', 'lastMediaSequelCheck'].map(k => throttleKey(k, activeScope));
     const waits = keys.map(k => {
       const last = parseInt(localStorage.getItem(k) || '0', 10);
       return Math.max(0, CHECK_INTERVAL_MS - (Date.now() - last));
@@ -6675,8 +6838,13 @@
   // checks (rather than firing them and moving on) is what makes a
   // "Refreshing…" state actually meaningful instead of instantly true.
   let newsLoading = false;
+  // A refresh already in flight belongs to whichever scope was active when
+  // it started -- switching lists mid-refresh used to just return here and
+  // leave the News tab showing nothing for the new list. Remember that a
+  // re-run is wanted and do it once the current one finishes.
+  let newsRerunWanted = false;
   async function renderNewsTab({ force = false } = {}) {
-    if (newsLoading) return;
+    if (newsLoading) { newsRerunWanted = true; return; }
     newsLoading = true;
     const btn = document.getElementById('news-refresh-btn');
     const label = btn.textContent;
@@ -6685,9 +6853,9 @@
     document.getElementById('news-refresh-note').textContent = '';
     try {
       if (force) {
-        localStorage.removeItem('lastSeasonCheck');
-        localStorage.removeItem('lastChapterCheck');
-        localStorage.removeItem('lastMediaSequelCheck');
+        localStorage.removeItem(throttleKey('lastSeasonCheck', activeScope));
+        localStorage.removeItem(throttleKey('lastChapterCheck', activeScope));
+        localStorage.removeItem(throttleKey('lastMediaSequelCheck', activeScope));
       }
       // checkNewSeasons and checkMangaSequels both hit AniList/Jikan, each
       // running its own SEQUEL_CHECK_DELAY_MS-paced request loop -- run
@@ -6707,13 +6875,19 @@
       newsLoading = false;
       btn.textContent = label;
       updateNewsRefreshUI();
+      if (newsRerunWanted) {
+        newsRerunWanted = false;
+        if (currentTab === 'news') renderNewsTab();
+      }
     }
   }
   document.getElementById('news-refresh-btn').addEventListener('click', () => renderNewsTab());
 
   async function loadShows() {
     checkNewSeasons();
-    const rows = await fetchShows(activeScope);
+    const scopeAtStart = activeScope;
+    const rows = await fetchShows(scopeAtStart);
+    if (scopeAtStart !== activeScope) return; // list switched while loading -- a newer render owns the screen
     const watching = rows.filter(s => s.listStatus === 'watching');
     // Movies on the watchlist render in their own "Movie Watchlist" sub-tab
     // instead, since the anime/western watchlist row assumes episode 1 exists.
@@ -7497,12 +7671,13 @@
   }
 
   async function checkNewChapters() {
+    const scope = activeScope; // captured: see checkNewSeasons
     const CHECK_INTERVAL_MS = NEWS_CHECK_INTERVAL_MS;
-    const lastCheck = parseInt(localStorage.getItem('lastChapterCheck') || '0', 10);
+    const lastCheck = parseInt(localStorage.getItem(throttleKey('lastChapterCheck', scope)) || '0', 10);
     if (Date.now() - lastCheck < CHECK_INTERVAL_MS) return;
-    localStorage.setItem('lastChapterCheck', String(Date.now()));
+    localStorage.setItem(throttleKey('lastChapterCheck', scope), String(Date.now()));
 
-    const rows = await fetchWrittenMedia(activeScope);
+    const rows = await fetchWrittenMedia(scope);
     // Also watches entries marked 'completed' whose series itself is still
     // 'ongoing'/'hiatus' -- otherwise a manga you finished reading (all
     // chapters caught up at the time) never gets checked again once new
@@ -7549,6 +7724,7 @@
       }).eq('id', u.id)
     ));
     invalidateWrittenMediaCache();
+    if (scope !== activeScope) return; // list was switched mid-check; the DB is updated, but don't paint this scope's banner over the new one
     showNewChaptersBanner(updates);
     // The grid may have already rendered with the pre-update totals (this
     // check runs fire-and-forget from the top of loadReading()) — refresh
@@ -7698,34 +7874,35 @@
   }
 
   async function checkMangaSequels() {
-    showMediaSequelsBanner(getPendingMediaSequelNotices(activeScope));
+    const scope = activeScope; // captured: see checkNewSeasons
+    showMediaSequelsBanner(getPendingMediaSequelNotices(scope));
     const CHECK_INTERVAL_MS = NEWS_CHECK_INTERVAL_MS;
-    const lastCheck = parseInt(localStorage.getItem('lastMediaSequelCheck') || '0', 10);
+    const lastCheck = parseInt(localStorage.getItem(throttleKey('lastMediaSequelCheck', scope)) || '0', 10);
     if (Date.now() - lastCheck < CHECK_INTERVAL_MS) return;
-    localStorage.setItem('lastMediaSequelCheck', String(Date.now()));
+    localStorage.setItem(throttleKey('lastMediaSequelCheck', scope), String(Date.now()));
 
-    const rows = await fetchWrittenMedia(activeScope);
+    const rows = await fetchWrittenMedia(scope);
     const candidates = rows.filter(m =>
       (m.category === 'manga' || m.category === 'manhwa') &&
       (m.listStatus === 'reading' || m.listStatus === 'completed')
     );
     if (!candidates.length) return;
 
-    const previousNotices = getPendingMediaSequelNotices(activeScope);
+    const previousNotices = getPendingMediaSequelNotices(scope);
     const dismissed = getDismissedMediaSequelNotices();
     const notices = [];
     for (const m of candidates) {
       try {
         const notice = await checkMediaSequel(m);
-        if (notice && !dismissed.includes(notice.key)) notices.push({ ...notice, scope: activeScope });
+        if (notice && !dismissed.includes(notice.key)) notices.push({ ...notice, scope: scope });
       } catch (e) {
         console.error('Sequel check failed for', m.title, e);
         notices.push(...previousNotices.filter(n => n.mediaId === m.id));
       }
       await sleep(SEQUEL_CHECK_DELAY_MS);
     }
-    setPendingMediaSequelNotices(activeScope, notices);
-    showMediaSequelsBanner(notices);
+    setPendingMediaSequelNotices(scope, notices);
+    if (scope === activeScope) showMediaSequelsBanner(notices);
   }
 
   // Same .card markup as the anime "new season" notices (renderSeasonNoticesSection)
@@ -7778,7 +7955,9 @@
   async function loadReading() {
     checkNewChapters();
     checkMangaSequels();
-    const allRows = await fetchWrittenMedia(activeScope);
+    const scopeAtStart = activeScope;
+    const allRows = await fetchWrittenMedia(scopeAtStart);
+    if (scopeAtStart !== activeScope) return; // list switched while loading
     const rows = allRows.filter(m => m.category === activeReadingCategory);
     const reading = rows.filter(m => m.listStatus === 'reading');
     const completed = rows.filter(m => m.listStatus === 'completed');
@@ -7829,7 +8008,7 @@
                    <button class="btn chapter-step" data-id="${m.id}" data-delta="-1">−</button>
                    <span class="progress-value">${m.totalVolumes ? `Vol ${m.currentVolume || 0}/${m.totalVolumes} · ` : ''}Ch ${m.currentChapter || 0}${m.totalChapters ? '/' + m.totalChapters : ''}</span>
                    <button class="btn chapter-step" data-id="${m.id}" data-delta="1">+</button>
-                   <button class="btn mark-finished-btn" data-media-id="${m.id}">Mark Finished</button>
+                   ${isOngoingSeries(m) ? '' : `<button class="btn mark-finished-btn" data-media-id="${m.id}">Mark Finished</button>`}
                    <button class="btn reading-remove-btn" data-id="${m.id}" data-title="${escapeHTML(m.title)}">Remove</button>
                  </div>`)
           : '';
@@ -7977,10 +8156,21 @@
     loadReading();
   }
 
+  // A manga/manhwa that's still being published (or on hiatus) has no real
+  // ending to confirm -- catching up to the latest chapter is "caught up for
+  // now", not "finished", so it stays under Reading instead of moving to
+  // Completed (which would also strand it with no chapter controls). Keyed
+  // off series_status so every ongoing title gets this automatically, not
+  // just a hardcoded list like the anime-side EVERGREEN_SHOW_IDS. Becomes
+  // finishable again once AniList reports the series itself as finished.
+  function isOngoingSeries(m) {
+    return (m.category === 'manga' || m.category === 'manhwa') && ['ongoing', 'hiatus'].includes(m.seriesStatus);
+  }
+
   async function markReadingFinished(id) {
     const rows = await fetchWrittenMedia(activeScope);
     const m = rows.find(r => r.id === id);
-    if (!m || !canWriteScope(activeScope)) return;
+    if (!m || !canWriteScope(activeScope) || isOngoingSeries(m)) return;
     const { error } = await supabase.from('written_media').update({
       current_chapter: m.totalChapters ?? m.currentChapter,
       current_page: m.totalPages ?? m.currentPage,
@@ -9233,11 +9423,24 @@
 
     const allRows = await fetchShows(null);
     const togetherRows = allRows.filter(s => s.scope === 'together');
-    const myRowIds = new Set(allRows.filter(s => s.scope === myScope).map(s => s.id));
+    const myRows = allRows.filter(s => s.scope === myScope);
+    const myRowIds = new Set(myRows.map(s => s.id));
+    const titleKey = s => `${normalizeTitle(s.title)}::${s.category}`;
+    const myTitleKeys = new Set(myRows.map(titleKey));
 
     let changed = false;
     for (const togetherShow of togetherRows) {
-      if (myRowIds.has(togetherShow.id)) continue;
+      // Only FINISHED Together shows belong in a personal Ratings/Tier List --
+      // the mirror used to copy everything (marked fully watched, whatever
+      // the real progress), which put shows you're mid-way through on your
+      // personal ratings and corrupted their progress. Same "finished"
+      // predicate as getAllWatchedShows.
+      const finished = togetherShow.inTierPool || (togetherShow.listStatus === 'watching' && togetherShow.currentEpisode >= togetherShow.totalEpisodes);
+      if (!finished) continue;
+      // Match an existing personal row by title too, not just id -- the same
+      // film can already be tracked personally under a different slug
+      // (confirmed live: two "100 Meters" rows).
+      if (myRowIds.has(togetherShow.id) || myTitleKeys.has(titleKey(togetherShow))) continue;
 
       const { error: showErr } = await supabase.from('shows').insert({
         id: togetherShow.id, title: togetherShow.title, category: togetherShow.category, scope: myScope,
@@ -9250,6 +9453,7 @@
       });
       if (showErr) { console.error(showErr); continue; }
       myRowIds.add(togetherShow.id);
+      myTitleKeys.add(titleKey(togetherShow));
       changed = true;
 
       const myRating = (togetherShow.allRatings || []).find(r => r.user_id === currentProfile.id);
@@ -9287,6 +9491,9 @@
 
     let changed = false;
     for (const togetherItem of togetherMedia) {
+      // Same rule as mirrorTogetherShowsIntoPersonal: only items you've
+      // actually finished together belong in personal ratings.
+      if (togetherItem.listStatus !== 'completed') continue;
       const key = mediaKey(togetherItem);
       if (myMediaKeys.has(key)) continue;
 
@@ -9315,12 +9522,14 @@
   }
 
   async function renderRatingsTab() {
+    const scopeAtStart = activeScope;
     if (activeScope === 'together') await syncTogetherFromPersonalRatings();
     else if (currentProfile && activeScope === currentProfile.display_name.toLowerCase()) {
       await mirrorTogetherShowsIntoPersonal();
     }
     const shows = await getAllWatchedShows();
     const profiles = activeScope === 'together' ? await getAllProfiles() : null;
+    if (scopeAtStart !== activeScope) return; // list switched while loading
     ensureRatingsSortOptions(profiles);
     const inCategory = shows.filter(s => (s.category ?? 'anime') === activeRatingsCategory);
     const sortKey = document.getElementById('ratings-sort').value;
@@ -9417,7 +9626,9 @@
     if (currentProfile && activeScope === currentProfile.display_name.toLowerCase()) {
       await mirrorTogetherMediaIntoPersonal();
     }
-    const media = (await fetchWrittenMedia(activeScope)).filter(m => m.listStatus === 'completed');
+    const scopeAtStart = activeScope;
+    const media = (await fetchWrittenMedia(scopeAtStart)).filter(m => m.listStatus === 'completed');
+    if (scopeAtStart !== activeScope) return; // list switched while loading
     const inCategory = media.filter(m => m.category === activeReadingRatingsCategory);
     const sortKey = document.getElementById('reading-ratings-sort').value;
     const sorted = [...inCategory];

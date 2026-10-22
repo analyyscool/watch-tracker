@@ -162,3 +162,14 @@ if anything changed, matching `syncTogetherFromPersonalRatings`'s pattern.
 - Repeat for a Together-only manga/book on the Reading Ratings tab.
 - Re-open the tab a second time with nothing new to mirror; confirm no
   duplicate rows or unnecessary writes (idempotency).
+
+## Amendment (2026-10-22): mirror finished items only
+
+The original design mirrored *every* Together item into the personal scope as
+fully watched/completed. Confirmed live that this put shows still in progress
+together (SPY x FAMILY, Apothecary Diaries, ...) on the personal Ratings tab
+with faked 100% progress, and re-created already-tracked titles under a
+second slug (two "100 Meters" rows). Now: shows mirror only when finished
+(`in_tier_pool` or caught-up `watching`), written media only when
+`completed`, and an existing personal row is matched by normalized
+title+category as well as id.
