@@ -4889,6 +4889,31 @@
     }
   }
 
+  // A show in EVERGREEN_SHOW_IDS (One Piece) airs indefinitely as ONE
+  // continuous AniList entry, so its stored total_episodes would otherwise sit
+  // frozen at whatever it was when added. The calendar lookup already knows
+  // the next episode to air -- everything before it has aired -- so use that
+  // to keep the total current. Only ever RAISES the total (a lookup that
+  // resolved to the wrong entry can't shrink it), and ignores a jump of 10%+
+  // as a sign of a mismatched entry rather than real new episodes. Limited to
+  // EVERGREEN_SHOW_IDS because for any other show the row's total is a
+  // cumulative count across seasons, which AniList's per-season episode
+  // numbers can't be compared against.
+  async function syncEvergreenEpisodeTotal(show, episodes) {
+    if (!EVERGREEN_SHOW_IDS.has(show.id) || !canWriteScope(show.scope)) return;
+    const nextNumbers = episodes.filter(ep => ep.mediaId && ep.episode != null).map(ep => ep.episode);
+    if (!nextNumbers.length) return;
+    const aired = Math.min(...nextNumbers) - 1;
+    if (!show.totalEpisodes || aired <= show.totalEpisodes || aired > show.totalEpisodes * 1.1) return;
+    const { error } = await supabase.from('shows').update({
+      total_episodes: aired,
+      last_updated: new Date().toISOString().slice(0, 10),
+    }).eq('id', show.id).eq('scope', show.scope);
+    if (checkWriteError(error)) return;
+    show.totalEpisodes = aired;
+    invalidateShowsCache();
+  }
+
   async function refreshCalendarEntries(scope) {
     // Merges in Together-scoped shows regardless of which personal scope
     // is active -- unlike every other tab (strictly single-scope), a
@@ -4963,6 +4988,7 @@
       }
       // Remember which AniList entry this show's episodes belong to, so
       // already-aired ones can be fetched in a single batch afterwards.
+      await syncEvergreenEpisodeTotal(show, episodes);
       const pastRef = episodes.find(ep => ep.mediaId);
       if (pastRef) pastTargets.set(pastRef.mediaId, { show, matchedTitle: pastRef.matchedTitle });
       episodes.filter(ep => !ep.pastOnly).forEach(ep => entries.push({
