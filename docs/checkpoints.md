@@ -336,3 +336,18 @@ Opened by explaining why Apothecary Diaries S3, Made in Abyss/Code Geass movie s
 - Added "Dragon Ball Z Kai (Recut) Part 3" (40 episodes, Karl's scope) matching the existing Part 1/Part 2 naming and metadata pattern.
 - Explained why Liisa's own Ratings/Reading tabs are empty (not a bug): she has zero real personal-scope rows yet since nobody's signed into her account to trigger the new mirror.
 - Pushed 8 commits to `origin/master` (spec docs, the 3 News/Calendar fixes, the rating-mirror plan + implementation + fix wave). Ran `/capture-workflow` at session end — one memory addendum written (the smoke-test-triggers-real-writes gotcha above), no new skill promoted.
+
+## 2026-10-22
+
+Karl came back after a break with a batch of bugs/questions; most traced to a few root causes.
+
+- **Root causes found and fixed (3b3614e, 8ec0e1f, 5c4880b, all pushed):**
+  - The Together->personal rating mirror (added 09-17) copied *every* Together item as fully watched, so in-progress shows (SPY x FAMILY, Apothecary Diaries) landed on personal Ratings and duplicated in the Calendar; it also missed existing rows under a different slug (two "100 Meters"). Now mirrors finished items only and matches by title.
+  - AniList 429s were read as "nothing found" (calendar negative-cached for 24h -> Bleach TYBW missing; cover search -> "No covers found" for Tokyo Revengers). Calls now throw on rate-limit/errors; pacing raised 800->2000ms.
+  - News: duplicate notices per sequel title (Demon Slayer x2), airing seasons stuck in "announced" (now actionable using the airing schedule's episode count), fan-cut/recut rows searched by their literal title (Dragon Ball: Beerus never found) -> base-title search + all-branch SEQUEL scan.
+  - List-switching: News throttles were global not per-scope, async checks used `activeScope` after long awaits, News/Calendar ignored a switch mid-refresh -> captured scope, per-scope keys, re-run + stale-render guards.
+- **New features:** past (already aired) episodes on the Calendar, dimmed, via one batched `mediaId_in` query; anime franchise-sum total in Add Show (Tokyo Revengers -> 50 eps / 3 seasons); ongoing manga/manhwa can't be Mark-Finished (keyed off `series_status`); One Piece's episode total auto-raised from the calendar lookup.
+- **Data cleanup (Karl-approved after a classifier block):** deleted 7 mirror-created phantom Karl rows + the duplicate `100-meters-2025` Karl row (backups in the session scratchpad).
+- **Verified in a real browser (Playwright, writes mocked):** calendar, News dedupe, mirror (no inserts), Add Show, list switching, evergreen total bump. Note: Playwright profile has Karl's real session on localhost:8765 only — see memory.
+- **Open / next:** follow-creators idea (directors/mangaka/studios -> News + Calendar) discussed, parked in `brain/03-projects/watch-tracker.md`; needs Karl's answers (type first, announce vs air-date, per-list vs shared) then a design doc.
+- Ran `/capture-workflow`: no new skill (browser-testing method is already a memory); added AniList quirk #13 and the Playwright-session gotcha to project memory.
