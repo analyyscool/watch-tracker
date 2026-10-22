@@ -1014,6 +1014,8 @@
     margin-bottom: 0.2rem;
   }
   .calendar-cell-today .calendar-cell-day { color: var(--accent); }
+  /* Already-aired episodes: same card, dimmed, so what's still to come stands out */
+  .calendar-cell-entry.calendar-past, .calendar-upcoming-item.calendar-past { opacity: 0.5; }
   .calendar-cell-entry {
     font-size: 0.6rem;
     color: var(--text);
@@ -3939,7 +3941,11 @@
   // because of where they happened to fall in the sequential order.
   // Bumped the delay and added retry-with-backoff (see fetchWithRetry429)
   // so a transient rate-limit gets retried instead of permanently eaten.
-  const SEQUEL_CHECK_DELAY_MS = 800;
+  // 800ms -> 2000ms (2026-10-22): AniList's live limit has been observed at
+  // ~30 requests/min, i.e. 2s apart; at 800ms a full-library calendar sweep
+  // hit 429s on ~a third of its calls, and the retries took longer than
+  // just pacing it properly would have.
+  const SEQUEL_CHECK_DELAY_MS = 2000;
   const sleep = ms => new Promise(r => setTimeout(r, ms));
 
   // Governs all four News/Calendar auto-check throttles (season/chapter/
@@ -4710,13 +4716,13 @@
   async function fetchAniListUpcomingEpisodes(title) {
     const query = `query ($s: String) { byDate: Page(perPage: 10) {
       media(search: $s, type: ANIME, sort: START_DATE_DESC) {
-        format status title { romaji english } startDate { year month day }
+        id format status title { romaji english } startDate { year month day } endDate { year month day }
         nextAiringEpisode { episode }
         airingSchedule(notYetAired: true, perPage: 25) { nodes { episode airingAt } }
       }
     } byPopularity: Page(perPage: 5) {
       media(search: $s, type: ANIME, sort: POPULARITY_DESC) {
-        format status title { romaji english } startDate { year month day }
+        id format status title { romaji english } startDate { year month day } endDate { year month day }
         nextAiringEpisode { episode }
         airingSchedule(notYetAired: true, perPage: 25) { nodes { episode airingAt } }
       }
@@ -4771,8 +4777,25 @@
       // which one it found, not silently reuse the stored title and
       // leave it ambiguous which season "Ep 17" even belongs to.
       const matchedTitle = best ? (best.title.english || best.title.romaji) : null;
+      // Already-aired episodes (this/last month) are fetched later in ONE
+      // batched request across every show (see fetchAniListAiredEpisodes) --
+      // a per-show call here doubled the request count and tripped AniList's
+      // rate limit. This only records WHICH entry to ask about: the matched
+      // airing entry, or -- when nothing is upcoming -- a season that wrapped
+      // up within the window (its finale may still be in the visible month).
+      const PAST_WINDOW_MS = 45 * 24 * 60 * 60 * 1000;
+      const endedRecently = m => {
+        const d = m.endDate;
+        return d?.year && d?.month && d?.day && (Date.now() - Date.UTC(d.year, d.month - 1, d.day)) < PAST_WINDOW_MS;
+      };
+      const pastTarget = (best && nodes.length ? best : null)
+        || combined.find(m => m.status === 'FINISHED' && m.format !== 'MOVIE' && endedRecently(m));
+      const pastTitle = pastTarget ? (pastTarget.title.english || pastTarget.title.romaji) : null;
+      // `pastOnly` markers carry a mediaId with no air date of their own;
+      // refreshCalendarEntries strips them out after using them.
+      const pastMarker = pastTarget && !nodes.length ? [{ pastOnly: true, mediaId: pastTarget.id, matchedTitle: pastTitle }] : [];
       if (nodes.length) {
-        return nodes.map(n => ({ episode: n.episode, airingAt: n.airingAt * 1000, matchedTitle })).sort((a, b) => a.airingAt - b.airingAt);
+        return nodes.map(n => ({ episode: n.episode, airingAt: n.airingAt * 1000, matchedTitle, mediaId: best.id })).sort((a, b) => a.airingAt - b.airingAt);
       }
       // No per-episode schedule yet (common for an ONA/movie-style release,
       // which AniList often doesn't populate airingSchedule/nextAiringEpisode
@@ -4790,17 +4813,49 @@
         .filter(m => m.status !== 'FINISHED' && m.startDate?.year && m.startDate?.month && m.startDate?.day)
         .sort((a, b) => Date.UTC(a.startDate.year, a.startDate.month - 1, a.startDate.day) - Date.UTC(b.startDate.year, b.startDate.month - 1, b.startDate.day));
       const dateOnlyBest = dateOnlyCandidates.find(m => m.format !== 'MOVIE') || dateOnlyCandidates[0];
-      if (!dateOnlyBest) return [];
+      if (!dateOnlyBest) return pastMarker;
       const d = dateOnlyBest.startDate;
       return [{
         episode: null,
         airingAt: Date.UTC(d.year, d.month - 1, d.day),
         matchedTitle: dateOnlyBest.title.english || dateOnlyBest.title.romaji,
-      }];
+      }, ...pastMarker];
     } catch (e) {
       console.warn('AniList upcoming-episodes lookup failed for', title, e);
       return null;
     }
+  }
+
+  // Episodes that aired between `fromMs` and now for MANY AniList entries in
+  // one paged request (airingSchedules takes mediaId_in). Returns
+  // Map<mediaId, [{episode, airingAt}]>. Best-effort: on failure the map is
+  // just empty/partial -- the calendar then simply has no past entries.
+  async function fetchAniListAiredEpisodes(mediaIds, fromMs) {
+    const byMedia = new Map();
+    if (!mediaIds.length) return byMedia;
+    try {
+      for (let page = 1; page <= 10; page++) {
+        // 4 retries: this is the last call of a long sweep, made when the
+        // rate-limit window is at its hottest.
+        const res = await fetchWithRetry429('https://graphql.anilist.co', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            query: `query ($ids: [Int], $from: Int, $to: Int, $page: Int) { Page(page: $page, perPage: 50) { pageInfo { hasNextPage } airingSchedules(mediaId_in: $ids, airingAt_greater: $from, airingAt_lesser: $to, sort: TIME) { mediaId episode airingAt } } }`,
+            variables: { ids: mediaIds, from: Math.floor(fromMs / 1000), to: Math.floor(Date.now() / 1000), page },
+          }),
+        }, 4, 5000);
+        const json = await res.json();
+        if (!res.ok || json.errors) break;
+        for (const n of json.data.Page.airingSchedules || []) {
+          if (!byMedia.has(n.mediaId)) byMedia.set(n.mediaId, []);
+          byMedia.get(n.mediaId).push({ episode: n.episode, airingAt: n.airingAt * 1000 });
+        }
+        if (!json.data.Page.pageInfo.hasNextPage) break;
+        await sleep(SEQUEL_CHECK_DELAY_MS);
+      }
+    } catch (e) { console.warn('AniList aired-episodes lookup failed', e); }
+    return byMedia;
   }
 
   async function fetchTMDBNextEpisode(title) {
@@ -4892,6 +4947,7 @@
     }
 
     const entries = [];
+    const pastTargets = new Map(); // AniList mediaId -> { show, matchedTitle }
     for (const show of airingCandidates) {
       const cached = getShowAiringCache(show.id);
       let episodes;
@@ -4905,7 +4961,11 @@
         if (result != null) setShowAiringCache(show.id, episodes);
         await sleep(SEQUEL_CHECK_DELAY_MS);
       }
-      episodes.forEach(ep => entries.push({
+      // Remember which AniList entry this show's episodes belong to, so
+      // already-aired ones can be fetched in a single batch afterwards.
+      const pastRef = episodes.find(ep => ep.mediaId);
+      if (pastRef) pastTargets.set(pastRef.mediaId, { show, matchedTitle: pastRef.matchedTitle });
+      episodes.filter(ep => !ep.pastOnly).forEach(ep => entries.push({
         ...show,
         episode: ep.episode,
         airingAt: ep.airingAt,
@@ -4918,6 +4978,17 @@
         // otherwise "Ep 17" is ambiguous about which season it's from.
         calendarDisplayTitle: ep.matchedTitle || null,
       }));
+    }
+    const PAST_WINDOW_MS = 45 * 24 * 60 * 60 * 1000;
+    const aired = await fetchAniListAiredEpisodes([...pastTargets.keys()], Date.now() - PAST_WINDOW_MS);
+    for (const [mediaId, { show, matchedTitle }] of pastTargets) {
+      for (const ep of aired.get(mediaId) || []) {
+        entries.push({
+          ...show, episode: ep.episode, airingAt: ep.airingAt,
+          entryKey: `${show.id}::${ep.episode ?? ep.airingAt}`,
+          calendarDisplayTitle: matchedTitle || null,
+        });
+      }
     }
     for (const movie of movieCandidates) {
       const cached = getShowAiringCache(movie.id);
@@ -5004,7 +5075,7 @@
       const dateLabel = new Date(e.airingAt).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
       const epLabel = e.episode != null ? ` Ep ${e.episode}` : '';
       return `
-        <div class="calendar-upcoming-item" data-entry-key="${e.entryKey || e.id}">
+        <div class="calendar-upcoming-item${e.airingAt < Date.now() ? ' calendar-past' : ''}" data-entry-key="${e.entryKey || e.id}">
           ${e.posterUrl ? `<img class="calendar-upcoming-thumb" src="${e.posterUrl}" alt="" onerror="this.remove()">` : ''}
           <div>
             <div class="calendar-upcoming-date">${dateLabel}</div>
@@ -5050,7 +5121,7 @@
       cells.push(`
         <div class="calendar-cell${key === todayKey ? ' calendar-cell-today' : ''}">
           <div class="calendar-cell-day">${day}</div>
-          ${dayEntries.slice(0, 3).map(e => `<div class="calendar-cell-entry" data-entry-key="${e.entryKey || e.id}" title="${escapeHTML(e.calendarDisplayTitle || e.title)}">${escapeHTML(e.calendarDisplayTitle || e.title)}${e.episode != null ? ` Ep${e.episode}` : ''}</div>`).join('')}
+          ${dayEntries.slice(0, 3).map(e => `<div class="calendar-cell-entry${e.airingAt < Date.now() ? ' calendar-past' : ''}" data-entry-key="${e.entryKey || e.id}" title="${escapeHTML(e.calendarDisplayTitle || e.title)}">${escapeHTML(e.calendarDisplayTitle || e.title)}${e.episode != null ? ` Ep${e.episode}` : ''}</div>`).join('')}
           ${dayEntries.length > 3 ? `<div class="calendar-cell-more">+${dayEntries.length - 3} more</div>` : ''}
         </div>
       `);
@@ -5174,12 +5245,16 @@
     const query = `query ($s: String, $type: MediaType) { Page(perPage: 5) {
       media(search: $s, type: $type) { id format title { romaji english } coverImage { large } startDate { year } episodes chapters genres studios(isMain: true) { nodes { name } } }
     } }`;
-    const res = await fetch('https://graphql.anilist.co', {
+    const res = await fetchWithRetry429('https://graphql.anilist.co', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ query, variables: { s: title, type } })
     });
     const json = await res.json();
+    // A rate-limited/outage response has no `data` -- it used to fall through
+    // to an empty list and read as "No covers found" (confirmed live: Tokyo
+    // Revengers). Throw so the caller shows "Search failed — try again".
+    if (!res.ok || json.errors) throw new Error(`AniList error ${res.status}`);
     const media = json?.data?.Page?.media || [];
     return media.filter(m => m.coverImage?.large).map(m => {
       const name = m.title.english || m.title.romaji;
